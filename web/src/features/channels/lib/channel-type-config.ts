@@ -206,7 +206,7 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     defaultBaseUrl: 'https://chat.deepseek.com',
     hints: {
       baseUrl: 'Default: https://chat.deepseek.com',
-      key: 'DeepSeek user:password veya userToken',
+      key: 'DeepSeek userToken',
       models: 'deepseek-chat,deepseek-reasoner',
     },
   },

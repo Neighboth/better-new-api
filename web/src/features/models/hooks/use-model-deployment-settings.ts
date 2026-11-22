@@ -64,8 +64,16 @@ export function useModelDeploymentSettings() {
           providers?: DeploymentProviderStatus[]
         }
       }
-      const { ionetEnabled, modalEnabled, hfEnabled, hostingerEnabled, runpodEnabled, anyEnabled } =
-        parseDeploymentProviders(response?.data?.providers)
+      const {
+        ionetEnabled,
+        modalEnabled,
+        hfEnabled,
+        hostingerEnabled,
+        runpodEnabled,
+        colabEnabled,
+        kaggleEnabled,
+        anyEnabled,
+      } = parseDeploymentProviders(response?.data?.providers)
 
       setSettings({
         'model_deployment.ionet.enabled': ionetEnabled,
@@ -73,6 +81,8 @@ export function useModelDeploymentSettings() {
         'model_deployment.huggingface.enabled': hfEnabled,
         'model_deployment.hostinger.enabled': hostingerEnabled,
         'model_deployment.runpod.enabled': runpodEnabled,
+        'model_deployment.colab.enabled': colabEnabled,
+        'model_deployment.kaggle.enabled': kaggleEnabled,
         'model_deployment.enabled': anyEnabled,
       })
 
@@ -130,11 +140,15 @@ export function useModelDeploymentSettings() {
   const isIoNetEnabled = Boolean(settings['model_deployment.ionet.enabled'])
   const isModalEnabled = Boolean(settings['model_deployment.modal.enabled'])
   const isHfEnabled = Boolean(settings['model_deployment.huggingface.enabled'])
+  const isColabEnabled = Boolean(settings['model_deployment.colab.enabled'])
+  const isKaggleEnabled = Boolean(settings['model_deployment.kaggle.enabled'])
   const isAnyEnabled = Boolean(
     settings['model_deployment.enabled'] ??
       isIoNetEnabled ??
       isModalEnabled ??
-      isHfEnabled
+      isHfEnabled ??
+      isColabEnabled ??
+      isKaggleEnabled
   )
 
   // Manual retry (always live).
@@ -181,6 +195,8 @@ export function useModelDeploymentSettings() {
     isIoNetEnabled,
     isModalEnabled,
     isHfEnabled,
+    isColabEnabled,
+    isKaggleEnabled,
     isAnyEnabled,
     refresh,
     connectionLoading: connectionState.loading,

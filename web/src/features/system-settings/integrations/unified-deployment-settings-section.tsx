@@ -41,6 +41,7 @@ const schema = z.object({
   // io.net
   ionetEnabled: z.boolean(),
   ionetApiKey: z.string().optional(),
+  ionetIdleTimeoutSeconds: z.number().min(0).optional(),
 
   // Modal
   modalEnabled: z.boolean(),
@@ -56,15 +57,33 @@ const schema = z.object({
   hfToken: z.string().optional(),
   hfSpaceOrg: z.string().optional(),
   hfHardware: z.string().optional(),
+  hfIdleTimeoutSeconds: z.number().min(0).optional(),
   hfPriority: z.string().optional(),
 
   // Hostinger GPU VPS
   hostingerEnabled: z.boolean(),
   hostingerApiKey: z.string().optional(),
+  hostingerIdleTimeoutSeconds: z.number().min(0).optional(),
 
   // RunPod GPU Cloud
   runpodEnabled: z.boolean(),
   runpodApiKey: z.string().optional(),
+  runpodIdleTimeoutSeconds: z.number().min(0).optional(),
+
+  // Google Colab
+  colabEnabled: z.boolean(),
+  colabAccessToken: z.string().optional(),
+  colabProjectId: z.string().optional(),
+  colabRegion: z.string().optional(),
+  colabHardware: z.string().optional(),
+  colabIdleTimeoutSeconds: z.number().min(0).optional(),
+
+  // Kaggle
+  kaggleEnabled: z.boolean(),
+  kaggleUsername: z.string().optional(),
+  kaggleApiKey: z.string().optional(),
+  kaggleAccelerator: z.string().optional(),
+  kaggleIdleTimeoutSeconds: z.number().min(0).optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -111,6 +130,7 @@ export function UnifiedDeploymentSettingsSection({
     ionet?: {
       enabled?: boolean
       apiKey?: string
+      idleTimeoutSeconds?: number
     }
     modal?: {
       enabled?: boolean
@@ -126,15 +146,33 @@ export function UnifiedDeploymentSettingsSection({
       token?: string
       org?: string
       hardware?: string
+      idleTimeoutSeconds?: number
       priority?: string
     }
     hostinger?: {
       enabled?: boolean
       apiKey?: string
+      idleTimeoutSeconds?: number
     }
     runpod?: {
       enabled?: boolean
       apiKey?: string
+      idleTimeoutSeconds?: number
+    }
+    colab?: {
+      enabled?: boolean
+      accessToken?: string
+      projectId?: string
+      region?: string
+      hardware?: string
+      idleTimeoutSeconds?: number
+    }
+    kaggle?: {
+      enabled?: boolean
+      username?: string
+      apiKey?: string
+      accelerator?: string
+      idleTimeoutSeconds?: number
     }
   }
 }) {
@@ -146,6 +184,7 @@ export function UnifiedDeploymentSettingsSection({
     defaultValues: {
       ionetEnabled: defaultValues.ionet?.enabled ?? false,
       ionetApiKey: defaultValues.ionet?.apiKey ?? '',
+      ionetIdleTimeoutSeconds: defaultValues.ionet?.idleTimeoutSeconds ?? 300,
 
       modalEnabled: defaultValues.modal?.enabled ?? false,
       modalTokenId: defaultValues.modal?.tokenId ?? '',
@@ -160,13 +199,32 @@ export function UnifiedDeploymentSettingsSection({
       hfToken: defaultValues.huggingface?.token ?? '',
       hfSpaceOrg: defaultValues.huggingface?.org ?? '',
       hfHardware: defaultValues.huggingface?.hardware ?? 't4-small',
+      hfIdleTimeoutSeconds: defaultValues.huggingface?.idleTimeoutSeconds ?? 300,
       hfPriority: defaultValues.huggingface?.priority ?? 'hf_first',
 
       hostingerEnabled: defaultValues.hostinger?.enabled ?? false,
       hostingerApiKey: defaultValues.hostinger?.apiKey ?? '',
+      hostingerIdleTimeoutSeconds:
+        defaultValues.hostinger?.idleTimeoutSeconds ?? 300,
 
       runpodEnabled: defaultValues.runpod?.enabled ?? false,
       runpodApiKey: defaultValues.runpod?.apiKey ?? '',
+      runpodIdleTimeoutSeconds:
+        defaultValues.runpod?.idleTimeoutSeconds ?? 300,
+
+      colabEnabled: defaultValues.colab?.enabled ?? false,
+      colabAccessToken: defaultValues.colab?.accessToken ?? '',
+      colabProjectId: defaultValues.colab?.projectId ?? '',
+      colabRegion: defaultValues.colab?.region ?? 'us-central1',
+      colabHardware: defaultValues.colab?.hardware ?? 'NVIDIA_TESLA_T4',
+      colabIdleTimeoutSeconds: defaultValues.colab?.idleTimeoutSeconds ?? 300,
+
+      kaggleEnabled: defaultValues.kaggle?.enabled ?? false,
+      kaggleUsername: defaultValues.kaggle?.username ?? '',
+      kaggleApiKey: defaultValues.kaggle?.apiKey ?? '',
+      kaggleAccelerator: defaultValues.kaggle?.accelerator ?? 'NvidiaTeslaT4',
+      kaggleIdleTimeoutSeconds:
+        defaultValues.kaggle?.idleTimeoutSeconds ?? 300,
     },
   })
 
@@ -197,6 +255,18 @@ export function UnifiedDeploymentSettingsSection({
   }>({ loading: false, ok: null, error: null, catalog: null, gpuGroups: null })
 
   const [runpodTestState, setRunpodTestState] = useState<{
+    loading: boolean
+    ok: boolean | null
+    error: string | null
+  }>({ loading: false, ok: null, error: null })
+
+  const [colabTestState, setColabTestState] = useState<{
+    loading: boolean
+    ok: boolean | null
+    error: string | null
+  }>({ loading: false, ok: null, error: null })
+
+  const [kaggleTestState, setKaggleTestState] = useState<{
     loading: boolean
     ok: boolean | null
     error: string | null
@@ -359,6 +429,72 @@ export function UnifiedDeploymentSettingsSection({
     }
   }
 
+  const handleTestColabConnection = async () => {
+    const token = form.getValues('colabAccessToken')
+    if (!token) {
+      toast.error(t('Please enter a Google Colab OAuth token first'))
+      return
+    }
+    setColabTestState({ loading: true, ok: null, error: null })
+    try {
+      const res = await api.post('/api/deployments/colab/test-connection', {
+        access_token: token,
+      })
+      if (res.data?.success) {
+        setColabTestState({ loading: false, ok: true, error: null })
+        toast.success(t('Connected to Google Colab successfully'))
+      } else {
+        setColabTestState({
+          loading: false,
+          ok: false,
+          error: res.data?.message || t('Connection failed'),
+        })
+        toast.error(res.data?.message || t('Connection failed'))
+      }
+    } catch (e: any) {
+      setColabTestState({
+        loading: false,
+        ok: false,
+        error: e?.message || t('Connection failed'),
+      })
+      toast.error(e?.message || t('Connection failed'))
+    }
+  }
+
+  const handleTestKaggleConnection = async () => {
+    const username = form.getValues('kaggleUsername')
+    const apiKey = form.getValues('kaggleApiKey')
+    if (!apiKey) {
+      toast.error(t('Please enter a Kaggle API key first'))
+      return
+    }
+    setKaggleTestState({ loading: true, ok: null, error: null })
+    try {
+      const res = await api.post('/api/deployments/kaggle/test-connection', {
+        username,
+        api_key: apiKey,
+      })
+      if (res.data?.success) {
+        setKaggleTestState({ loading: false, ok: true, error: null })
+        toast.success(t('Connected to Kaggle successfully'))
+      } else {
+        setKaggleTestState({
+          loading: false,
+          ok: false,
+          error: res.data?.message || t('Connection failed'),
+        })
+        toast.error(res.data?.message || t('Connection failed'))
+      }
+    } catch (e: any) {
+      setKaggleTestState({
+        loading: false,
+        ok: false,
+        error: e?.message || t('Connection failed'),
+      })
+      toast.error(e?.message || t('Connection failed'))
+    }
+  }
+
   async function onSubmit(values: Values) {
     try {
       // io.net options
@@ -369,6 +505,10 @@ export function UnifiedDeploymentSettingsSection({
       await updateOption.mutateAsync({
         key: 'model_deployment.ionet.api_key',
         value: String(values.ionetApiKey ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.ionet.idle_timeout_seconds',
+        value: String(values.ionetIdleTimeoutSeconds ?? 300),
       })
 
       // Modal options
@@ -423,6 +563,10 @@ export function UnifiedDeploymentSettingsSection({
         value: String(values.hfHardware ?? 't4-small'),
       })
       await updateOption.mutateAsync({
+        key: 'model_deployment.huggingface.idle_timeout_seconds',
+        value: String(values.hfIdleTimeoutSeconds ?? 300),
+      })
+      await updateOption.mutateAsync({
         key: 'model_deployment.huggingface.priority',
         value: String(values.hfPriority ?? 'hf_first'),
       })
@@ -436,6 +580,10 @@ export function UnifiedDeploymentSettingsSection({
         key: 'model_deployment.hostinger.api_key',
         value: String(values.hostingerApiKey ?? ''),
       })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.hostinger.idle_timeout_seconds',
+        value: String(values.hostingerIdleTimeoutSeconds ?? 300),
+      })
 
       // RunPod options
       await updateOption.mutateAsync({
@@ -445,6 +593,58 @@ export function UnifiedDeploymentSettingsSection({
       await updateOption.mutateAsync({
         key: 'model_deployment.runpod.api_key',
         value: String(values.runpodApiKey ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.runpod.idle_timeout_seconds',
+        value: String(values.runpodIdleTimeoutSeconds ?? 300),
+      })
+
+      // Google Colab options
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.enabled',
+        value: String(values.colabEnabled),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.access_token',
+        value: String(values.colabAccessToken ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.project_id',
+        value: String(values.colabProjectId ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.region',
+        value: String(values.colabRegion ?? 'us-central1'),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.hardware',
+        value: String(values.colabHardware ?? 'NVIDIA_TESLA_T4'),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.colab.idle_timeout_seconds',
+        value: String(values.colabIdleTimeoutSeconds ?? 300),
+      })
+
+      // Kaggle options
+      await updateOption.mutateAsync({
+        key: 'model_deployment.kaggle.enabled',
+        value: String(values.kaggleEnabled),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.kaggle.username',
+        value: String(values.kaggleUsername ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.kaggle.api_key',
+        value: String(values.kaggleApiKey ?? ''),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.kaggle.accelerator',
+        value: String(values.kaggleAccelerator ?? 'NvidiaTeslaT4'),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.kaggle.idle_timeout_seconds',
+        value: String(values.kaggleIdleTimeoutSeconds ?? 300),
       })
 
       form.reset(values)
@@ -528,6 +728,32 @@ export function UnifiedDeploymentSettingsSection({
                       )}
                       <FormDescription className='text-xs'>
                         {t('Enterprise API key from io.net console')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='ionetIdleTimeoutSeconds'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          placeholder='300'
+                          value={field.value ?? 300}
+                          onChange={(e) =>
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 0
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription className='text-xs'>
+                        {t('Automatically scale down / sleep instances when inactive')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -878,6 +1104,33 @@ export function UnifiedDeploymentSettingsSection({
                     )}
                   />
                 </SettingsFormGrid>
+
+                <FormField
+                  control={form.control}
+                  name='hfIdleTimeoutSeconds'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          placeholder='300'
+                          value={field.value ?? 300}
+                          onChange={(e) =>
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 0
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription className='text-xs'>
+                        {t('Automatically scale down / sleep instances when inactive')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </CardContent>
             )}
           </Card>
@@ -976,6 +1229,32 @@ export function UnifiedDeploymentSettingsSection({
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={form.control}
+                    name='hostingerIdleTimeoutSeconds'
+                    render={({ field }) => (
+                      <FormItem className='sm:col-span-2'>
+                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            placeholder='300'
+                            value={field.value ?? 300}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Automatically scale down / sleep instances when inactive')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
               </CardContent>
             )}
@@ -1061,7 +1340,390 @@ export function UnifiedDeploymentSettingsSection({
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={form.control}
+                    name='runpodIdleTimeoutSeconds'
+                    render={({ field }) => (
+                      <FormItem className='sm:col-span-2'>
+                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            placeholder='300'
+                            value={field.value ?? 300}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Automatically scale down / sleep instances when inactive')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Google Colab Card */}
+          <Card className='border border-border/70 shadow-sm'>
+            <CardHeader className='pb-3'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <CardTitle className='text-base font-semibold'>
+                    Google Colab
+                  </CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Provision Google Colab CPU, GPU, and TPU runtimes via the Colab Runtime API and serve Hugging Face models.')}
+                  </CardDescription>
+                </div>
+                <FormField
+                  control={form.control}
+                  name='colabEnabled'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </CardHeader>
+
+            {form.watch('colabEnabled') && (
+              <CardContent className='pt-0 space-y-4'>
+                <FormField
+                  control={form.control}
+                  name='colabAccessToken'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Google Colab OAuth Access Token')}</FormLabel>
+                      <div className='flex gap-2'>
+                        <FormControl>
+                          <Input
+                            type='password'
+                            placeholder='ya29....'
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='shrink-0'
+                          disabled={colabTestState.loading || !field.value}
+                          onClick={handleTestColabConnection}
+                        >
+                          {colabTestState.loading && (
+                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                          )}
+                          {t('Test Connection')}
+                        </Button>
+                      </div>
+                      {colabTestState.ok === true && (
+                        <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                          <CheckCircle2 className='h-3.5 w-3.5' />
+                          {t('Successfully connected to Google Colab')}
+                        </p>
+                      )}
+                      {colabTestState.ok === false && (
+                        <p className='flex items-center gap-1 text-xs text-destructive'>
+                          <XCircle className='h-3.5 w-3.5' />
+                          {colabTestState.error}
+                        </p>
+                      )}
+                      <FormDescription className='text-xs'>
+                        {t('OAuth 2.0 Bearer token with https://www.googleapis.com/auth/colaboratory scope (or gcloud auth print-access-token).')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <SettingsFormGrid>
+                  <FormField
+                    control={form.control}
+                    name='colabProjectId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('GCP Project ID (Optional)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='my-gcp-project'
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Optional Google Cloud project ID for Colab Enterprise')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='colabRegion'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Region (Optional)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='us-central1'
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Compute region (e.g. us-central1)')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsFormGrid>
+
+                <SettingsFormGrid>
+                  <FormField
+                    control={form.control}
+                    name='colabHardware'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Default Accelerator')}</FormLabel>
+                        <Select
+                          value={field.value ?? 'NVIDIA_TESLA_T4'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='CPU'>CPU (Standard)</SelectItem>
+                            <SelectItem value='NVIDIA_TESLA_T4'>GPU: NVIDIA Tesla T4</SelectItem>
+                            <SelectItem value='NVIDIA_L4'>GPU: NVIDIA L4</SelectItem>
+                            <SelectItem value='NVIDIA_TESLA_A100'>GPU: NVIDIA A100</SelectItem>
+                            <SelectItem value='NVIDIA_H100_80GB'>GPU: NVIDIA H100 80GB</SelectItem>
+                            <SelectItem value='TPU_V2_8'>TPU: v2-8</SelectItem>
+                            <SelectItem value='TPU_V5E_1'>TPU: v5e-1</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription className='text-xs'>
+                          {t('Default CPU, GPU, or TPU runtime tier')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='colabIdleTimeoutSeconds'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            placeholder='300'
+                            value={field.value ?? 300}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Automatically scale down / sleep instances when inactive')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsFormGrid>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Kaggle Card */}
+          <Card className='border border-border/70 shadow-sm'>
+            <CardHeader className='pb-3'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <CardTitle className='text-base font-semibold'>
+                    Kaggle
+                  </CardTitle>
+                  <CardDescription className='text-xs mt-1'>
+                    {t('Deploy and run Hugging Face models on Kaggle Kernels with CPU, GPU (T4 x2, P100, L4), or TPU (v3-8, v5e-8, v6e-8).')}
+                  </CardDescription>
+                </div>
+                <FormField
+                  control={form.control}
+                  name='kaggleEnabled'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </CardHeader>
+
+            {form.watch('kaggleEnabled') && (
+              <CardContent className='pt-0 space-y-4'>
+                <SettingsFormGrid>
+                  <FormField
+                    control={form.control}
+                    name='kaggleUsername'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Kaggle Username')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='my-kaggle-username'
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Your Kaggle account username')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='kaggleApiKey'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Kaggle API Key / Token')}</FormLabel>
+                        <div className='flex gap-2'>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              placeholder='KGAT_... or kaggle.json key'
+                              {...field}
+                              value={field.value ?? ''}
+                            />
+                          </FormControl>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            className='shrink-0'
+                            disabled={kaggleTestState.loading || !field.value}
+                            onClick={handleTestKaggleConnection}
+                          >
+                            {kaggleTestState.loading && (
+                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                            )}
+                            {t('Test Connection')}
+                          </Button>
+                        </div>
+                        {kaggleTestState.ok === true && (
+                          <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                            <CheckCircle2 className='h-3.5 w-3.5' />
+                            {t('Successfully connected to Kaggle')}
+                          </p>
+                        )}
+                        {kaggleTestState.ok === false && (
+                          <p className='flex items-center gap-1 text-xs text-destructive'>
+                            <XCircle className='h-3.5 w-3.5' />
+                            {kaggleTestState.error}
+                          </p>
+                        )}
+                        <FormDescription className='text-xs'>
+                          {t('From Kaggle Account -> Settings -> API -> Create New Token')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsFormGrid>
+
+                <SettingsFormGrid>
+                  <FormField
+                    control={form.control}
+                    name='kaggleAccelerator'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Default Accelerator')}</FormLabel>
+                        <Select
+                          value={field.value ?? 'NvidiaTeslaT4'}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='CPU'>CPU (4 cores, 30 GB RAM)</SelectItem>
+                            <SelectItem value='NvidiaTeslaT4'>GPU: NVIDIA Tesla T4 x2</SelectItem>
+                            <SelectItem value='NvidiaP100'>GPU: NVIDIA Tesla P100</SelectItem>
+                            <SelectItem value='NvidiaL4'>GPU: NVIDIA L4</SelectItem>
+                            <SelectItem value='TpuV38'>TPU: v3-8</SelectItem>
+                            <SelectItem value='TpuV5E8'>TPU: v5e-8</SelectItem>
+                            <SelectItem value='TpuV6E8'>TPU: v6e-8</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription className='text-xs'>
+                          {t('Default CPU, GPU, or TPU hardware accelerator for Kaggle kernels')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='kaggleIdleTimeoutSeconds'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            placeholder='300'
+                            value={field.value ?? 300}
+                            onChange={(e) =>
+                              field.onChange(
+                                Number.parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription className='text-xs'>
+                          {t('Automatically scale down / sleep instances when inactive')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsFormGrid>
               </CardContent>
             )}
           </Card>

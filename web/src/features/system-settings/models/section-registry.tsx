@@ -184,6 +184,8 @@ const MODELS_SECTIONS = [
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],
+            idleTimeoutSeconds:
+              settings['model_deployment.ionet.idle_timeout_seconds'],
           },
           modal: {
             enabled: settings['model_deployment.modal.enabled'],
@@ -201,15 +203,38 @@ const MODELS_SECTIONS = [
             token: settings['model_deployment.huggingface.token'],
             org: settings['model_deployment.huggingface.org'],
             hardware: settings['model_deployment.huggingface.hardware'],
+            idleTimeoutSeconds:
+              settings['model_deployment.huggingface.idle_timeout_seconds'],
             priority: settings['model_deployment.huggingface.priority'],
           },
           hostinger: {
             enabled: settings['model_deployment.hostinger.enabled'],
             apiKey: settings['model_deployment.hostinger.api_key'],
+            idleTimeoutSeconds:
+              settings['model_deployment.hostinger.idle_timeout_seconds'],
           },
           runpod: {
             enabled: settings['model_deployment.runpod.enabled'],
             apiKey: settings['model_deployment.runpod.api_key'],
+            idleTimeoutSeconds:
+              settings['model_deployment.runpod.idle_timeout_seconds'],
+          },
+          colab: {
+            enabled: settings['model_deployment.colab.enabled'],
+            accessToken: settings['model_deployment.colab.access_token'],
+            projectId: settings['model_deployment.colab.project_id'],
+            region: settings['model_deployment.colab.region'],
+            hardware: settings['model_deployment.colab.hardware'],
+            idleTimeoutSeconds:
+              settings['model_deployment.colab.idle_timeout_seconds'],
+          },
+          kaggle: {
+            enabled: settings['model_deployment.kaggle.enabled'],
+            username: settings['model_deployment.kaggle.username'],
+            apiKey: settings['model_deployment.kaggle.api_key'],
+            accelerator: settings['model_deployment.kaggle.accelerator'],
+            idleTimeoutSeconds:
+              settings['model_deployment.kaggle.idle_timeout_seconds'],
           },
         }}
       />

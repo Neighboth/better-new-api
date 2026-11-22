@@ -2,8 +2,10 @@ package deepseekweb
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
@@ -15,37 +17,137 @@ type attachment struct {
 	source types.FileSource
 }
 
-// buildPrompt flattens an OpenAI style conversation into the single prompt the
-// web endpoint accepts. DeepSeek Web keeps conversation state server side, so a
-// stateless relay has to resend the whole history as text.
-func buildPrompt(messages []dto.Message) string {
-	var builder strings.Builder
-	for _, message := range messages {
+// buildPrompt flattens an OpenAI style request into the single prompt the
+// web endpoint accepts, preserving system instructions, response_format,
+// tool definitions, and multi-turn tool call history.
+func buildPrompt(req *dto.GeneralOpenAIRequest) string {
+	if req == nil {
+		return ""
+	}
+
+	var sysParts []string
+	if instr := strings.TrimSpace(req.Instruction); instr != "" {
+		sysParts = append(sysParts, instr)
+	}
+
+	var convParts []string
+	for _, message := range req.Messages {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
 		text := strings.TrimSpace(message.StringContent())
-		if text == "" {
+
+		if role == "system" || role == "developer" {
+			if text != "" {
+				sysParts = append(sysParts, text)
+			}
 			continue
 		}
-		if builder.Len() > 0 {
-			builder.WriteString("\n\n")
+
+		if role == "assistant" {
+			var assistantParts []string
+			if text != "" {
+				assistantParts = append(assistantParts, text)
+			}
+			if len(message.ToolCalls) > 0 {
+				for _, tc := range message.ParseToolCalls() {
+					callPayload := map[string]any{
+						"id":        tc.ID,
+						"name":      tc.Function.Name,
+						"arguments": tc.Function.Arguments,
+					}
+					if raw, err := common.Marshal(callPayload); err == nil {
+						assistantParts = append(assistantParts, "<tool_call>\n"+string(raw)+"\n</tool_call>")
+					}
+				}
+			}
+			if len(assistantParts) > 0 {
+				convParts = append(convParts, "Assistant: "+strings.Join(assistantParts, "\n"))
+			}
+			continue
 		}
-		builder.WriteString(roleLabel(message.Role))
-		builder.WriteString(": ")
-		builder.WriteString(text)
+
+		if role == "tool" || role == "function" {
+			label := "Tool Result"
+			if message.ToolCallId != "" {
+				label = fmt.Sprintf("Tool Result (tool_call_id=%s)", message.ToolCallId)
+			} else if message.Name != nil && strings.TrimSpace(*message.Name) != "" {
+				label = fmt.Sprintf("Tool Result (name=%s)", strings.TrimSpace(*message.Name))
+			}
+			if text == "" {
+				text = "{}"
+			}
+			convParts = append(convParts, label+": "+text)
+			continue
+		}
+
+		if text != "" {
+			convParts = append(convParts, "User: "+text)
+		}
 	}
-	return strings.TrimSpace(builder.String())
+
+	if req.ResponseFormat != nil {
+		switch strings.ToLower(strings.TrimSpace(req.ResponseFormat.Type)) {
+		case "json_object":
+			sysParts = append(sysParts, "You must respond with valid JSON only, with no surrounding markdown or commentary.")
+		case "json_schema":
+			if len(req.ResponseFormat.JsonSchema) > 0 {
+				sysParts = append(sysParts, "You must respond with valid JSON matching this schema:\n"+string(req.ResponseFormat.JsonSchema))
+			} else {
+				sysParts = append(sysParts, "You must respond with valid JSON only.")
+			}
+		}
+	}
+
+	if len(req.Tools) > 0 && !isToolChoiceNone(req.ToolChoice) {
+		sysParts = append(sysParts, buildToolsInstruction(req.Tools, req.ToolChoice))
+	}
+
+	var sections []string
+	if len(sysParts) > 0 {
+		sections = append(sections, "<system_instructions>\n"+strings.Join(sysParts, "\n\n")+"\n</system_instructions>")
+	}
+	if len(convParts) > 0 {
+		sections = append(sections, strings.Join(convParts, "\n\n"))
+	}
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
 }
 
-func roleLabel(role string) string {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "system", "developer":
-		return "System"
-	case "assistant":
-		return "Assistant"
-	case "tool", "function":
-		return "Tool"
-	default:
-		return "User"
+func buildToolsInstruction(tools []dto.ToolCallRequest, toolChoice any) string {
+	type toolSpec struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+		Parameters  any    `json:"parameters,omitempty"`
 	}
+	specs := make([]toolSpec, 0, len(tools))
+	for _, t := range tools {
+		if strings.TrimSpace(t.Function.Name) == "" {
+			continue
+		}
+		specs = append(specs, toolSpec{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		})
+	}
+	toolsJSON, err := common.Marshal(specs)
+	if err != nil {
+		toolsJSON = []byte("[]")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<tools>\n")
+	sb.Write(toolsJSON)
+	sb.WriteString("\n</tools>\n")
+	sb.WriteString("To call a tool, respond ONLY with one or more <tool_call> blocks in this exact format:\n")
+	sb.WriteString("<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"arg\": \"value\"}}\n</tool_call>\n")
+
+	if forcedName := extractForcedToolName(toolChoice); forcedName != "" {
+		sb.WriteString(fmt.Sprintf("You MUST call the tool %q.", forcedName))
+	} else if isToolChoiceRequired(toolChoice) {
+		sb.WriteString("You MUST call at least one tool from <tools>.")
+	} else {
+		sb.WriteString("Call a tool when needed; otherwise answer the user directly without <tool_call> tags.")
+	}
+	return sb.String()
 }
 
 // collectAttachments gathers every image and document the caller attached,

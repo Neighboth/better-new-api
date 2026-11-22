@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -26,19 +25,11 @@ const ChannelName = "deepseekweb"
 // mirror deployment.
 const DefaultBaseURL = defaultBaseURL
 
+const ctxKeyHasTools = "deepseekweb_has_tools"
+
 var ModelList = []string{
 	"deepseek-chat",
 	"deepseek-reasoner",
-}
-
-var (
-	tokenCacheMu sync.RWMutex
-	tokenCache   = make(map[string]cachedToken)
-)
-
-type cachedToken struct {
-	token     string
-	expiresAt time.Time
 }
 
 type Adaptor struct{}
@@ -118,7 +109,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		}
 	}
 
-	prompt := buildPrompt(openAIRequest.Messages)
+	hasTools := len(openAIRequest.Tools) > 0 && !isToolChoiceNone(openAIRequest.ToolChoice)
+	c.Set(ctxKeyHasTools, hasTools)
+
+	prompt := buildPrompt(&openAIRequest)
 	if prompt == "" {
 		prompt = "Hello"
 	}
@@ -144,6 +138,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	// intent survives under ContextKeyIsStream, so a non-streaming caller still
 	// receives one JSON body instead of an event stream.
 	isStream := common.GetContextKeyBool(c, constant.ContextKeyIsStream)
+	hasTools := c.GetBool(ctxKeyHasTools)
 	if isStream {
 		helper.SetEventStreamHeaders(c)
 	}
@@ -153,6 +148,14 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 	state, streamErr := readCompletionStream(resp.Body, func(delta streamDelta) {
 		if !isStream {
+			return
+		}
+		if hasTools {
+			// Buffer content until stream ends so <tool_call> blocks can be parsed cleanly,
+			// while still streaming reasoning deltas live.
+			if delta.reasoning != "" {
+				a.writeStreamDelta(c, info, responseID, createdTime, streamDelta{reasoning: delta.reasoning})
+			}
 			return
 		}
 		a.writeStreamDelta(c, info, responseID, createdTime, delta)
@@ -167,8 +170,29 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil, types.NewError(errors.New("deepseek web: boş yanıt alındı (empty response from upstream)"), types.ErrorCodeBadResponse)
 	}
 
+	var toolCalls []dto.ToolCallResponse
+	cleanContent := totalContent
+	if hasTools {
+		cleanContent, toolCalls = parseToolCalls(totalContent)
+	}
+
 	tokenUsage := completionUsage(info, state, totalContent, totalReasoning)
 	if isStream {
+		if hasTools {
+			if len(toolCalls) > 0 {
+				if cleanContent != "" {
+					a.writeStreamDelta(c, info, responseID, createdTime, streamDelta{content: cleanContent})
+				}
+				a.writeStreamToolCalls(c, info, responseID, createdTime, toolCalls)
+			} else if totalContent != "" {
+				a.writeStreamDelta(c, info, responseID, createdTime, streamDelta{content: totalContent})
+			}
+		}
+		finishReason := "stop"
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+		}
+		a.writeStreamFinish(c, info, responseID, createdTime, finishReason)
 		c.Writer.Write([]byte("data: [DONE]\n\n"))
 		c.Writer.Flush()
 	} else {
@@ -176,10 +200,24 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		if totalReasoning != "" {
 			reasoning = &totalReasoning
 		}
-		content := totalContent
-		if strings.TrimSpace(content) == "" {
-			content = totalReasoning
-			reasoning = nil
+		finishReason := "stop"
+		msg := dto.Message{
+			Role:             "assistant",
+			ReasoningContent: reasoning,
+		}
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+			if cleanContent != "" {
+				msg.Content = cleanContent
+			}
+			msg.SetToolCalls(toolCalls)
+		} else {
+			content := cleanContent
+			if strings.TrimSpace(content) == "" {
+				content = totalReasoning
+				msg.ReasoningContent = nil
+			}
+			msg.Content = content
 		}
 		c.JSON(http.StatusOK, dto.OpenAITextResponse{
 			Id:      responseID,
@@ -188,13 +226,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			Model:   info.OriginModelName,
 			Choices: []dto.OpenAITextResponseChoice{
 				{
-					Index: 0,
-					Message: dto.Message{
-						Role:             "assistant",
-						Content:          content,
-						ReasoningContent: reasoning,
-					},
-					FinishReason: "stop",
+					Index:        0,
+					Message:      msg,
+					FinishReason: finishReason,
 				},
 			},
 			Usage: *tokenUsage,
@@ -225,6 +259,52 @@ func (a *Adaptor) writeStreamDelta(c *gin.Context, info *relaycommon.RelayInfo, 
 		Model:   info.OriginModelName,
 		Choices: []dto.ChatCompletionsStreamResponseChoice{
 			{Index: 0, Delta: choiceDelta},
+		},
+	})
+	if marshalErr != nil {
+		return
+	}
+	c.Writer.Write([]byte("data: " + string(chunk) + "\n\n"))
+	c.Writer.Flush()
+}
+
+func (a *Adaptor) writeStreamToolCalls(c *gin.Context, info *relaycommon.RelayInfo, responseID string, createdTime int64, toolCalls []dto.ToolCallResponse) {
+	if len(toolCalls) == 0 {
+		return
+	}
+	chunk, marshalErr := common.Marshal(dto.ChatCompletionsStreamResponse{
+		Id:      responseID,
+		Object:  "chat.completion.chunk",
+		Created: createdTime,
+		Model:   info.OriginModelName,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Index: 0,
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					Role:      "assistant",
+					ToolCalls: toolCalls,
+				},
+			},
+		},
+	})
+	if marshalErr != nil {
+		return
+	}
+	c.Writer.Write([]byte("data: " + string(chunk) + "\n\n"))
+	c.Writer.Flush()
+}
+
+func (a *Adaptor) writeStreamFinish(c *gin.Context, info *relaycommon.RelayInfo, responseID string, createdTime int64, finishReason string) {
+	chunk, marshalErr := common.Marshal(dto.ChatCompletionsStreamResponse{
+		Id:      responseID,
+		Object:  "chat.completion.chunk",
+		Created: createdTime,
+		Model:   info.OriginModelName,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Index:        0,
+				FinishReason: &finishReason,
+			},
 		},
 	})
 	if marshalErr != nil {

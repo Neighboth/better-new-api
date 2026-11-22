@@ -11,6 +11,8 @@ export interface ParsedDeploymentProviders {
   hfEnabled: boolean
   hostingerEnabled: boolean
   runpodEnabled: boolean
+  colabEnabled: boolean
+  kaggleEnabled: boolean
   anyEnabled: boolean
 }
 
@@ -25,23 +27,40 @@ export function parseDeploymentProviders(
   const hf = findProvider('huggingface') ?? findProvider('hugging face spaces')
   const hostinger = findProvider('hostinger')
   const runpod = findProvider('runpod')
+  const colab = findProvider('colab') ?? findProvider('google colab')
+  const kaggle = findProvider('kaggle')
 
   const ionetEnabled = Boolean(ionet?.enabled)
   const modalEnabled = Boolean(modal?.enabled)
   const hfEnabled = Boolean(hf?.enabled)
   const hostingerEnabled = Boolean(hostinger?.enabled)
   const runpodEnabled = Boolean(runpod?.enabled)
+  const colabEnabled = Boolean(colab?.enabled)
+  const kaggleEnabled = Boolean(kaggle?.enabled)
   const anyEnabled = Boolean(
     (ionetEnabled && (ionet?.configured ?? true)) ||
       (modalEnabled && (modal?.configured ?? true)) ||
       (hfEnabled && (hf?.configured ?? true)) ||
       (hostingerEnabled && (hostinger?.configured ?? true)) ||
       (runpodEnabled && (runpod?.configured ?? true)) ||
+      (colabEnabled && (colab?.configured ?? true)) ||
+      (kaggleEnabled && (kaggle?.configured ?? true)) ||
       ionetEnabled ||
       modalEnabled ||
       hfEnabled ||
       hostingerEnabled ||
-      runpodEnabled
+      runpodEnabled ||
+      colabEnabled ||
+      kaggleEnabled
   )
-  return { ionetEnabled, modalEnabled, hfEnabled, hostingerEnabled, runpodEnabled, anyEnabled }
+  return {
+    ionetEnabled,
+    modalEnabled,
+    hfEnabled,
+    hostingerEnabled,
+    runpodEnabled,
+    colabEnabled,
+    kaggleEnabled,
+    anyEnabled,
+  }
 }

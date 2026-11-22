@@ -88,3 +88,43 @@ func TestDoResponseReportsEmptyUpstreamAsError(t *testing.T) {
 	_, apiErr := (&Adaptor{}).DoResponse(c, empty, info)
 	require.NotNil(t, apiErr, "an empty upstream answer must be reported as an error")
 }
+
+func TestDoResponseParsesToolCallsNonStreamingAndStreaming(t *testing.T) {
+	toolPayload := `data: {"v":{"response":{"fragments":[{"id":1,"type":"RESPONSE","content":"<tool_call>{\"name\":\"get_weather\",\"arguments\":{\"city\":\"Izmir\"}}</tool_call>"}]}}}` + "\n" +
+		`data: {"p":"response/status","o":"SET","v":"FINISHED"}` + "\n"
+
+	t.Run("non-streaming", func(t *testing.T) {
+		c, recorder := newResponseContext(t, false)
+		c.Set(ctxKeyHasTools, true)
+		info := &relaycommon.RelayInfo{OriginModelName: "deepseek-chat"}
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(toolPayload)),
+		}
+		_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+		require.Nil(t, apiErr)
+		body := recorder.Body.String()
+		assert.Contains(t, body, `"finish_reason":"tool_calls"`)
+		assert.Contains(t, body, `"get_weather"`)
+		assert.Contains(t, body, `"tool_calls"`)
+	})
+
+	t.Run("streaming", func(t *testing.T) {
+		c, recorder := newResponseContext(t, true)
+		c.Set(ctxKeyHasTools, true)
+		info := &relaycommon.RelayInfo{OriginModelName: "deepseek-chat"}
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(toolPayload)),
+		}
+		_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+		require.Nil(t, apiErr)
+		body := recorder.Body.String()
+		assert.Contains(t, body, `"tool_calls"`)
+		assert.Contains(t, body, `"get_weather"`)
+		assert.Contains(t, body, `"finish_reason":"tool_calls"`)
+		assert.Contains(t, body, "data: [DONE]")
+	})
+}

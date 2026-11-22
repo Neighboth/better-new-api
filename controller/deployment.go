@@ -43,6 +43,12 @@ func GetModelDeploymentSettings(c *gin.Context) {
 
 	runpodEnabled := common.OptionMap["model_deployment.runpod.enabled"] == "true"
 	hasRunpodKey := strings.TrimSpace(common.OptionMap["model_deployment.runpod.api_key"]) != ""
+
+	colabEnabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
+	hasColabKey := strings.TrimSpace(common.OptionMap["model_deployment.colab.access_token"]) != ""
+
+	kaggleEnabled := common.OptionMap["model_deployment.kaggle.enabled"] == "true"
+	hasKaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
@@ -76,6 +82,18 @@ func GetModelDeploymentSettings(c *gin.Context) {
 				"enabled":     runpodEnabled,
 				"configured":  hasRunpodKey,
 				"can_connect": runpodEnabled && hasRunpodKey,
+			},
+			{
+				"provider":    "colab",
+				"enabled":     colabEnabled,
+				"configured":  hasColabKey,
+				"can_connect": colabEnabled && hasColabKey,
+			},
+			{
+				"provider":    "kaggle",
+				"enabled":     kaggleEnabled,
+				"configured":  hasKaggleKey,
+				"can_connect": kaggleEnabled && hasKaggleKey,
 			},
 		},
 	})

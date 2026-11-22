@@ -688,3 +688,110 @@ export async function checkClusterNameAvailability(name: string): Promise<{
   })
   return res.data
 }
+
+export interface NotebookDeploymentItem {
+  id: number
+  provider: 'colab' | 'kaggle'
+  name: string
+  model_repo: string
+  model_file?: string
+  task_type: 'text' | 'image' | 'video' | 'audio' | 'embeddings'
+  accelerator: string
+  idle_timeout_seconds: number
+  status: string
+  remote_id?: string
+  remote_url?: string
+  endpoint_url?: string
+  script?: string
+  error_message?: string
+  created_time: number
+  updated_time: number
+}
+
+export interface ModelTestResult {
+  type: 'text' | 'image' | 'video' | 'audio'
+  text?: string
+  media_url?: string
+  latency_ms: number
+  raw?: string
+}
+
+export async function listNotebookDeployments(
+  provider?: 'colab' | 'kaggle'
+): Promise<{
+  success: boolean
+  message?: string
+  data?: NotebookDeploymentItem[]
+}> {
+  const res = await api.get('/api/deployments/notebooks', {
+    params: provider ? { provider } : undefined,
+  })
+  return res.data
+}
+
+export async function createNotebookDeployment(payload: {
+  provider: 'colab' | 'kaggle'
+  name: string
+  model_repo: string
+  model_file?: string
+  task_type: string
+  accelerator: string
+  idle_timeout_seconds?: number
+  endpoint_url?: string
+  hf_token?: string
+}): Promise<{
+  success: boolean
+  message?: string
+  data?: NotebookDeploymentItem
+}> {
+  const res = await api.post('/api/deployments/notebooks', payload)
+  return res.data
+}
+
+export async function updateNotebookDeployment(
+  id: number,
+  payload: { endpoint_url?: string; status?: string }
+): Promise<{
+  success: boolean
+  message?: string
+  data?: NotebookDeploymentItem
+}> {
+  const res = await api.put(`/api/deployments/notebooks/${id}`, payload)
+  return res.data
+}
+
+export async function deleteNotebookDeployment(id: number): Promise<{
+  success: boolean
+  message?: string
+}> {
+  const res = await api.delete(`/api/deployments/notebooks/${id}`)
+  return res.data
+}
+
+export async function testNotebookDeployment(
+  id: number,
+  payload: { prompt?: string; endpoint_url?: string }
+): Promise<{
+  success: boolean
+  message?: string
+  data?: ModelTestResult
+}> {
+  const res = await api.post(`/api/deployments/notebooks/${id}/test`, payload)
+  return res.data
+}
+
+export async function testHfEndpoint(
+  name: string,
+  payload: { prompt?: string; namespace?: string }
+): Promise<{
+  success: boolean
+  message?: string
+  data?: ModelTestResult
+}> {
+  const res = await api.post(
+    `/api/deployments/huggingface/endpoints/${encodeURIComponent(name)}/test`,
+    { prompt: payload.prompt },
+    { params: payload.namespace ? { namespace: payload.namespace } : undefined }
+  )
+  return res.data
+}

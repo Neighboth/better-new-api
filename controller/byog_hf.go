@@ -23,6 +23,7 @@ type HfRepoItem struct {
 	Gated         bool   `json:"gated"`
 	Private       bool   `json:"private"`
 	ParameterSize string `json:"parameter_size"`
+	PipelineTag   string `json:"pipeline_tag"`
 }
 
 type HfFileDetail struct {
@@ -115,6 +116,8 @@ func SearchHuggingFaceModels(c *gin.Context) {
 			author = parts[0]
 		}
 
+		pipelineTag, _ := r["pipeline_tag"].(string)
+
 		results = append(results, HfRepoItem{
 			Id:            repoId,
 			Author:        author,
@@ -123,6 +126,7 @@ func SearchHuggingFaceModels(c *gin.Context) {
 			Gated:         isGated,
 			Private:       isPrivate,
 			ParameterSize: huggingFaceParameterSize(repoId, r),
+			PipelineTag:   pipelineTag,
 		})
 	}
 

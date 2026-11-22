@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { Eye, Info, Trash2 } from 'lucide-react'
+import { Eye, Info, Play, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
@@ -49,6 +49,7 @@ function toTimestamp(value: unknown): number | undefined {
 
 export function useHfEndpointsColumns(opts: {
   onViewDetails: (endpoint: HfEndpointRow) => void
+  onTest?: (endpoint: HfEndpointRow) => void
   onDelete: (endpoint: HfEndpointRow) => void
 }): ColumnDef<HfEndpointRow>[] {
   const { t } = useTranslation()
@@ -205,6 +206,16 @@ export function useHfEndpointsColumns(opts: {
       enableSorting: false,
       cell: ({ row }) => (
         <div className='-ml-2.5 flex items-center gap-1'>
+          {opts.onTest ? (
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={() => opts.onTest?.(row.original)}
+              aria-label={t('Test')}
+            >
+              <Play />
+            </Button>
+          ) : null}
           <Button
             variant='ghost'
             size='icon-sm'

@@ -9,24 +9,56 @@ import (
 )
 
 func TestBuildPromptFlattensConversation(t *testing.T) {
-	prompt := buildPrompt([]dto.Message{
-		{Role: "system", Content: "Be terse."},
-		{Role: "user", Content: "Hi"},
-		{Role: "assistant", Content: "Hello"},
-		{Role: "user", Content: []any{
-			map[string]any{"type": "text", "text": "What is this?"},
-			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "http://example.com/a.png"}},
-		}},
+	prompt := buildPrompt(&dto.GeneralOpenAIRequest{
+		Messages: []dto.Message{
+			{Role: "system", Content: "Be terse."},
+			{Role: "developer", Content: "Use metric units."},
+			{Role: "user", Content: "Hi"},
+			{Role: "assistant", Content: "Hello"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "What is this?"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "http://example.com/a.png"}},
+			}},
+		},
 	})
 
-	assert.Equal(t, "System: Be terse.\n\nUser: Hi\n\nAssistant: Hello\n\nUser: What is this?", prompt)
+	expected := "<system_instructions>\nBe terse.\n\nUse metric units.\n</system_instructions>\n\nUser: Hi\n\nAssistant: Hello\n\nUser: What is this?"
+	assert.Equal(t, expected, prompt)
+}
+
+func TestBuildPromptIncludesToolsAndToolResults(t *testing.T) {
+	prompt := buildPrompt(&dto.GeneralOpenAIRequest{
+		Tools: []dto.ToolCallRequest{
+			{
+				Type: "function",
+				Function: dto.FunctionRequest{
+					Name:        "get_weather",
+					Description: "Get weather for a city",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+		},
+		ToolChoice: "required",
+		Messages: []dto.Message{
+			{Role: "user", Content: "Weather in Ankara?"},
+			{Role: "assistant", ToolCalls: []byte(`[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Ankara\"}"}}]`)},
+			{Role: "tool", ToolCallId: "call_1", Content: `{"temp":18}`},
+		},
+	})
+
+	assert.Contains(t, prompt, "<tools>")
+	assert.Contains(t, prompt, "get_weather")
+	assert.Contains(t, prompt, "You MUST call at least one tool")
+	assert.Contains(t, prompt, "Tool Result (tool_call_id=call_1): {\"temp\":18}")
 }
 
 func TestBuildPromptSkipsEmptyMessages(t *testing.T) {
-	prompt := buildPrompt([]dto.Message{
-		{Role: "user", Content: "  "},
-		{Role: "user"},
-		{Role: "assistant", Content: "answer"},
+	prompt := buildPrompt(&dto.GeneralOpenAIRequest{
+		Messages: []dto.Message{
+			{Role: "user", Content: "  "},
+			{Role: "user"},
+			{Role: "assistant", Content: "answer"},
+		},
 	})
 	assert.Equal(t, "Assistant: answer", prompt)
 }

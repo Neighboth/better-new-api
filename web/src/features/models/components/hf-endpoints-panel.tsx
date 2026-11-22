@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { AlertCircle, Plus } from 'lucide-react'
+import { AlertCircle, ExternalLink, Loader2, Play, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
+import { HfModelPickerDialog } from '@/components/hf-model-picker-dialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,8 @@ import {
   createHfEndpoint,
   deleteHfEndpoint,
   listHfEndpoints,
+  testHfEndpoint,
+  type ModelTestResult,
 } from '../api'
 import {
   normalizeHfStatus,
@@ -94,11 +97,18 @@ export function HfEndpointsPanel() {
       : undefined
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [hfPickerOpen, setHfPickerOpen] = useState(false)
   const [name, setName] = useState('')
   const [repository, setRepository] = useState('')
   const [hardware, setHardware] = useState<string>('t4-small')
   const [task, setTask] = useState('text-generation')
   const [isProtected, setIsProtected] = useState(true)
+
+  const [testTarget, setTestTarget] = useState<HfEndpointRow | null>(null)
+  const [testPrompt, setTestPrompt] = useState('Hello!')
+  const [testResult, setTestResult] = useState<ModelTestResult | null>(null)
+  const [testError, setTestError] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
 
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsEndpoint, setDetailsEndpoint] =
@@ -185,10 +195,37 @@ export function HfEndpointsPanel() {
     }
   }
 
+  const handleRunTest = async () => {
+    if (!testTarget) return
+    setTesting(true)
+    setTestError(null)
+    setTestResult(null)
+    try {
+      const res = await testHfEndpoint(testTarget.name, {
+        prompt: testPrompt.trim(),
+        namespace: testTarget.namespace,
+      })
+      if (res?.success && res.data) {
+        setTestResult(res.data)
+      } else {
+        setTestError(res?.message || t('Model test failed'))
+      }
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : t('Model test failed'))
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const columns = useHfEndpointsColumns({
     onViewDetails: (endpoint) => {
       setDetailsEndpoint(endpoint)
       setDetailsOpen(true)
+    },
+    onTest: (endpoint) => {
+      setTestTarget(endpoint)
+      setTestResult(null)
+      setTestError(null)
     },
     onDelete: (endpoint) => {
       setDeleteTarget(endpoint)
@@ -308,11 +345,22 @@ export function HfEndpointsPanel() {
               <label className='text-sm font-medium'>
                 {t('Model repository')}
               </label>
-              <Input
-                placeholder='meta-llama/Llama-3-8B'
-                value={repository}
-                onChange={(e) => setRepository(e.target.value)}
-              />
+              <div className='flex gap-2'>
+                <Input
+                  placeholder='meta-llama/Llama-3-8B'
+                  value={repository}
+                  onChange={(e) => setRepository(e.target.value)}
+                />
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='shrink-0 gap-1.5'
+                  onClick={() => setHfPickerOpen(true)}
+                >
+                  <Search className='h-4 w-4' />
+                  {t('Select from Hugging Face')}
+                </Button>
+              </div>
             </div>
             <div className='grid gap-4 sm:grid-cols-2'>
               <div className='space-y-1'>
@@ -401,6 +449,120 @@ export function HfEndpointsPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <HfModelPickerDialog
+        open={hfPickerOpen}
+        onOpenChange={setHfPickerOpen}
+        onSelect={(picked) => {
+          setRepository(picked.repoId)
+          if (picked.pipelineTag) {
+            setTask(picked.pipelineTag)
+          }
+          if (!name.trim()) {
+            const base = picked.repoId.split('/').pop() ?? 'hf-model'
+            setName(base.toLowerCase().replace(/[^a-z0-9-]+/g, '-').slice(0, 32))
+          }
+        }}
+      />
+
+      <Dialog
+        open={Boolean(testTarget)}
+        onOpenChange={(open) => {
+          if (!open) setTestTarget(null)
+        }}
+      >
+        <DialogContent className='max-w-xl'>
+          <DialogHeader>
+            <DialogTitle>
+              {t('Test Model')}: {testTarget?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className='space-y-4 py-2'>
+            <div className='flex gap-2'>
+              <Input
+                value={testPrompt}
+                onChange={(e) => setTestPrompt(e.target.value)}
+                placeholder={t('Enter test prompt...')}
+              />
+              <Button disabled={testing} onClick={handleRunTest}>
+                {testing ? (
+                  <Loader2 className='h-4 w-4 mr-1.5 animate-spin' />
+                ) : (
+                  <Play className='h-4 w-4 mr-1.5' />
+                )}
+                {t('Test')}
+              </Button>
+            </div>
+            {testError ? (
+              <div className='rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive'>
+                {testError}
+              </div>
+            ) : null}
+            {testResult ? (
+              <div className='space-y-3 rounded-lg border p-3 bg-muted/20'>
+                <div className='flex items-center justify-between text-xs text-muted-foreground'>
+                  <span className='capitalize font-medium'>
+                    {t('Response')} ({testResult.type})
+                  </span>
+                  <span>{testResult.latency_ms} ms</span>
+                </div>
+                {testResult.type === 'video' && testResult.media_url ? (
+                  <div className='space-y-2'>
+                    <video
+                      src={testResult.media_url}
+                      controls
+                      className='w-full rounded-md max-h-72 bg-black'
+                    />
+                    <a
+                      href={testResult.media_url}
+                      target='_blank'
+                      rel='noreferrer'
+                      className='text-xs text-primary underline inline-flex items-center gap-1 break-all'
+                    >
+                      {testResult.media_url}
+                      <ExternalLink className='h-3 w-3 shrink-0' />
+                    </a>
+                  </div>
+                ) : testResult.type === 'image' && testResult.media_url ? (
+                  <div className='space-y-2'>
+                    <img
+                      src={testResult.media_url}
+                      alt='Generated output'
+                      className='w-full rounded-md max-h-72 object-contain'
+                    />
+                    <a
+                      href={testResult.media_url}
+                      target='_blank'
+                      rel='noreferrer'
+                      className='text-xs text-primary underline inline-flex items-center gap-1 break-all'
+                    >
+                      {testResult.media_url}
+                      <ExternalLink className='h-3 w-3 shrink-0' />
+                    </a>
+                  </div>
+                ) : testResult.type === 'audio' && testResult.media_url ? (
+                  <div className='space-y-2'>
+                    <audio src={testResult.media_url} controls className='w-full' />
+                    <a
+                      href={testResult.media_url}
+                      target='_blank'
+                      rel='noreferrer'
+                      className='text-xs text-primary underline inline-flex items-center gap-1 break-all'
+                    >
+                      {testResult.media_url}
+                      <ExternalLink className='h-3 w-3 shrink-0' />
+                    </a>
+                  </div>
+                ) : (
+                  <pre className='max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-xs border'>
+                    {testResult.text || testResult.raw}
+                  </pre>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

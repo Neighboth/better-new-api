@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,16 +149,26 @@ func CreateHfEndpoint(c *gin.Context) {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
+	scaleToZeroMinutes := 15
+	common.OptionMapRWMutex.RLock()
+	if idleStr := strings.TrimSpace(common.OptionMap["model_deployment.huggingface.idle_timeout_seconds"]); idleStr != "" {
+		if idleSec, convErr := strconv.Atoi(idleStr); convErr == nil && idleSec > 0 {
+			scaleToZeroMinutes = (idleSec + 59) / 60
+		}
+	}
+	common.OptionMapRWMutex.RUnlock()
+
 	created, err := hfendpoints.NewClient(token).CreateEndpoint(hfendpoints.CreateEndpointRequest{
-		Name:       req.Name,
-		Namespace:  namespace,
-		Repository: req.Repository,
-		Revision:   req.Revision,
-		Task:       req.Task,
-		Framework:  req.Framework,
-		Hardware:   req.Hardware,
-		Region:     req.Region,
-		Protected:  req.Protected,
+		Name:                      req.Name,
+		Namespace:                 namespace,
+		Repository:                req.Repository,
+		Revision:                  req.Revision,
+		Task:                      req.Task,
+		Framework:                 req.Framework,
+		Hardware:                  req.Hardware,
+		Region:                    req.Region,
+		Protected:                 req.Protected,
+		ScaleToZeroTimeoutMinutes: scaleToZeroMinutes,
 	})
 	if err != nil {
 		common.ApiError(c, err)

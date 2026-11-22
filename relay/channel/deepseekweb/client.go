@@ -70,7 +70,7 @@ func newWebClient(ctx context.Context, apiKey, baseURL string) (*webClient, erro
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	token, err := resolveToken(ctx, apiKey, baseURL)
+	token, err := resolveToken(apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -388,90 +388,23 @@ func (c *webClient) completion(ctx context.Context, sessionID, prompt string, fi
 }
 
 // resolveToken turns a channel key into a DeepSeek user token. The key is either
-// the raw userToken, its JSON wrapper, or "email:password" for an interactive
-// login.
-func resolveToken(ctx context.Context, apiKey, baseURL string) (string, error) {
+// the raw userToken or its JSON wrapper from chat.deepseek.com Local Storage.
+func resolveToken(apiKey string) (string, error) {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return "", errors.New("deepseek web credentials missing: enter username and password or user token")
+		return "", errors.New("deepseek web credentials missing: enter your DeepSeek userToken")
 	}
 	if strings.HasPrefix(apiKey, "{") {
 		var tokenObj map[string]any
 		if err := common.Unmarshal([]byte(apiKey), &tokenObj); err == nil {
 			for _, key := range []string{"value", "token", "userToken"} {
-				if val, ok := tokenObj[key].(string); ok && val != "" {
-					return val, nil
+				if val, ok := tokenObj[key].(string); ok && strings.TrimSpace(val) != "" {
+					return strings.TrimSpace(val), nil
 				}
 			}
 		}
 	}
-	apiKey = strings.Trim(apiKey, "\"")
-	if !strings.Contains(apiKey, ":") {
-		return apiKey, nil
-	}
-
-	parts := strings.SplitN(apiKey, ":", 2)
-	email, password := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-
-	tokenCacheMu.RLock()
-	cached, ok := tokenCache[email]
-	tokenCacheMu.RUnlock()
-	if ok && time.Now().Before(cached.expiresAt) {
-		return cached.token, nil
-	}
-
-	payload, err := common.Marshal(map[string]string{"email": email, "password": password, "mobile": email})
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v0/users/login", bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", browserUserAgent)
-	req.Header.Set("Origin", "https://chat.deepseek.com")
-	req.Header.Set("Referer", "https://chat.deepseek.com/")
-	req.Header.Set("x-client-platform", "web")
-	req.Header.Set("x-app-version", clientAppVersion)
-	req.Header.Set("x-client-locale", "zh_CN")
-	req.Header.Set("x-client-version", clientVersion)
-
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return "", fmt.Errorf("deepseek login failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusAccepted {
-		return "", errors.New("deepseek web: upstream asked for a CAPTCHA/security verification (HTTP 202); log in to chat.deepseek.com in a browser and paste the userToken from Local Storage into the channel key")
-	}
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return "", fmt.Errorf("deepseek login failed (HTTP %d): %s", resp.StatusCode, truncateForError(raw))
-	}
-
-	var loginResp struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
-		Msg string `json:"msg"`
-	}
-	if err := common.DecodeJson(resp.Body, &loginResp); err != nil {
-		return "", fmt.Errorf("failed to decode login response: %w", err)
-	}
-	if loginResp.Data.Token == "" {
-		if loginResp.Msg != "" {
-			return "", fmt.Errorf("deepseek login failed: %s", loginResp.Msg)
-		}
-		return "", errors.New("deepseek login returned empty token")
-	}
-
-	tokenCacheMu.Lock()
-	tokenCache[email] = cachedToken{token: loginResp.Data.Token, expiresAt: time.Now().Add(12 * time.Hour)}
-	tokenCacheMu.Unlock()
-
-	return loginResp.Data.Token, nil
+	return strings.Trim(apiKey, "\""), nil
 }
 
 // readAttachment materialises a caller supplied attachment into bytes.

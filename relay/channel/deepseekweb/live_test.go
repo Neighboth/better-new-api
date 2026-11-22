@@ -139,7 +139,7 @@ func TestLiveAttachmentThroughAdaptorPipeline(t *testing.T) {
 	sessionID, err := client.createSession(ctx)
 	require.NoError(t, err)
 
-	resp, err := client.completion(ctx, sessionID, buildPrompt(messages), fileIDs, false)
+	resp, err := client.completion(ctx, sessionID, buildPrompt(&dto.GeneralOpenAIRequest{Messages: messages}), fileIDs, false)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

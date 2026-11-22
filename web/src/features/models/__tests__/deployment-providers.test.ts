@@ -10,6 +10,8 @@ describe('parseDeploymentProviders', () => {
       hfEnabled: false,
       hostingerEnabled: false,
       runpodEnabled: false,
+      colabEnabled: false,
+      kaggleEnabled: false,
       anyEnabled: false,
     })
   })
@@ -27,8 +29,20 @@ describe('parseDeploymentProviders', () => {
       hfEnabled: true,
       hostingerEnabled: false,
       runpodEnabled: false,
+      colabEnabled: false,
+      kaggleEnabled: false,
       anyEnabled: true,
     })
+  })
+
+  it('reports enabled when colab or kaggle is enabled', () => {
+    const res = parseDeploymentProviders([
+      { provider: 'colab', enabled: true, configured: true },
+      { provider: 'kaggle', enabled: true, configured: false },
+    ])
+    expect(res.colabEnabled).toBe(true)
+    expect(res.kaggleEnabled).toBe(true)
+    expect(res.anyEnabled).toBe(true)
   })
 
   it('tolerates missing payloads', () => {

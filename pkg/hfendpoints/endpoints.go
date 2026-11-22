@@ -159,15 +159,16 @@ func (c *Client) ListEndpoints(namespace string) ([]Endpoint, error) {
 }
 
 type CreateEndpointRequest struct {
-	Name       string
-	Namespace  string
-	Repository string
-	Revision   string
-	Task       string
-	Framework  string
-	Hardware   string
-	Region     string
-	Protected  bool
+	Name                      string
+	Namespace                 string
+	Repository                string
+	Revision                  string
+	Task                      string
+	Framework                 string
+	Hardware                  string
+	Region                    string
+	Protected                 bool
+	ScaleToZeroTimeoutMinutes int
 }
 
 // BuildCreatePayload renders the Inference Endpoints v2 create body.
@@ -185,13 +186,17 @@ func BuildCreatePayload(req CreateEndpointRequest) map[string]any {
 	if req.Protected {
 		endpointType = "private"
 	}
+	scaleToZeroTimeout := req.ScaleToZeroTimeoutMinutes
+	if scaleToZeroTimeout <= 0 {
+		scaleToZeroTimeout = 15
+	}
 	compute := map[string]any{
 		"accelerator":  hw.Accelerator,
 		"instanceSize": hw.InstanceSize,
 		"scaling": map[string]any{
 			"minReplica":          0,
 			"maxReplica":          1,
-			"scaleToZeroTimeout": 15,
+			"scaleToZeroTimeout": scaleToZeroTimeout,
 		},
 	}
 	if hw.InstanceType != "" {
