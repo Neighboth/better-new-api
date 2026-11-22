@@ -29,12 +29,15 @@ type AcceleratorSpec struct {
 // SupportedAccelerators lists the CPU, GPU, and TPU options for Google Colab.
 var SupportedAccelerators = []AcceleratorSpec{
 	{ID: "CPU", Label: "CPU (Standard)", Kind: "cpu", Variant: "VARIANT_UNSPECIFIED", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_UNSPECIFIED"},
-	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
-	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 80GB", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_UNSPECIFIED"},
+	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
+	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGH_MEM"},
 	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
 	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
+	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED"},
 }
 
 // LookupAccelerator resolves an accelerator ID to its spec, defaulting to T4.

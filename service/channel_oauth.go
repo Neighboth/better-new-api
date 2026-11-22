@@ -20,6 +20,7 @@ const (
 	ChannelOAuthCodex       = "codex"
 	ChannelOAuthAntigravity = "antigravity"
 	ChannelOAuthClaudeSub   = "claudesub"
+	ChannelOAuthColab       = "colab"
 
 	codexOAuthClientID     = "app_EMoamEEZ73f0CkXaXp7hrann"
 	codexOAuthRedirectURI  = "http://localhost:1455/auth/callback"
@@ -72,6 +73,26 @@ func GetAntigravityOAuthClientSecret() string {
 		return strings.TrimSpace(v)
 	}
 	return xorDecode(antigravityDefaultSecretEncoded, 0x5A)
+}
+
+func GetColabOAuthClientID() string {
+	if v := strings.TrimSpace(os.Getenv("COLAB_OAUTH_CLIENT_ID")); v != "" {
+		return v
+	}
+	if v, ok := common.OptionMap["colab_oauth_client_id"]; ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return GetAntigravityOAuthClientID()
+}
+
+func GetColabOAuthClientSecret() string {
+	if v := strings.TrimSpace(os.Getenv("COLAB_OAUTH_CLIENT_SECRET")); v != "" {
+		return v
+	}
+	if v, ok := common.OptionMap["colab_oauth_client_secret"]; ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return GetAntigravityOAuthClientSecret()
 }
 
 var (
@@ -140,6 +161,13 @@ func (s *ChannelOAuthService) Generate(provider string) (*ChannelOAuthFlow, erro
 		}
 		redirectURI = antigravityRedirectURI
 		scopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"
+	case ChannelOAuthColab:
+		authEndpoint, clientID = antigravityOAuthAuthorizeURL, GetColabOAuthClientID()
+		if clientID == "" {
+			return nil, fmt.Errorf("Google Colab OAuth client ID is not configured")
+		}
+		redirectURI = antigravityRedirectURI
+		scopes = "https://www.googleapis.com/auth/colaboratory https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
 	default:
 		return nil, fmt.Errorf("unsupported channel OAuth provider")
 	}
@@ -260,6 +288,10 @@ func (s *ChannelOAuthService) Exchange(ctx context.Context, provider, sessionID,
 	}
 	if provider == ChannelOAuthAntigravity {
 		if secret := GetAntigravityOAuthClientSecret(); secret != "" {
+			form.Set("client_secret", secret)
+		}
+	} else if provider == ChannelOAuthColab {
+		if secret := GetColabOAuthClientSecret(); secret != "" {
 			form.Set("client_secret", secret)
 		}
 	} else if provider != ChannelOAuthCodex && provider != ChannelOAuthClaudeSub {
@@ -426,6 +458,9 @@ func oauthClientID(provider string) string {
 	if provider == ChannelOAuthAntigravity {
 		return GetAntigravityOAuthClientID()
 	}
+	if provider == ChannelOAuthColab {
+		return GetColabOAuthClientID()
+	}
 	if provider == ChannelOAuthClaudeSub {
 		return claudeOAuthClientID
 	}
@@ -433,11 +468,64 @@ func oauthClientID(provider string) string {
 }
 
 func oauthTokenURL(provider string) string {
-	if provider == ChannelOAuthAntigravity {
+	if provider == ChannelOAuthAntigravity || provider == ChannelOAuthColab {
 		return antigravityOAuthTokenURL
 	}
 	if provider == ChannelOAuthClaudeSub {
 		return claudeOAuthTokenURL
 	}
 	return codexOAuthTokenURL
+}
+
+// RefreshColabToken exchanges a Google OAuth refresh token for a fresh Colab access token.
+func RefreshColabToken(ctx context.Context, refreshToken string) (string, time.Time, error) {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return "", time.Time{}, fmt.Errorf("colab refresh token is empty")
+	}
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {GetColabOAuthClientID()},
+		"refresh_token": {refreshToken},
+	}
+	if secret := GetColabOAuthClientSecret(); secret != "" {
+		form.Set("client_secret", secret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, antigravityOAuthTokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	var token struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	if err := common.DecodeJson(resp.Body, &token); err != nil {
+		return "", time.Time{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || strings.TrimSpace(token.AccessToken) == "" {
+		msg := token.Description
+		if msg == "" {
+			msg = token.Error
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		return "", time.Time{}, fmt.Errorf("colab token refresh failed: %s", msg)
+	}
+	expiresIn := token.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 3600
+	}
+	return strings.TrimSpace(token.AccessToken), time.Now().Add(time.Duration(expiresIn) * time.Second), nil
 }

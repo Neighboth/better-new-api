@@ -25,12 +25,28 @@ type HardwareOption struct {
 var hardwareOptions = map[string]HardwareOption{
 	"cpu-basic":     {Accelerator: "cpu", InstanceSize: "x2"},
 	"hf-cpu-basic":  {Accelerator: "cpu", InstanceSize: "x2"},
+	"cpu-upgrade":   {Accelerator: "cpu", InstanceSize: "x4"},
 	"t4-small":      {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-t4"},
 	"hf-t4-small":   {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-t4"},
+	"t4-medium":     {Accelerator: "gpu", InstanceSize: "x2", InstanceType: "nvidia-t4"},
+	"l4x1":          {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-l4"},
+	"l4x4":          {Accelerator: "gpu", InstanceSize: "x4", InstanceType: "nvidia-l4"},
 	"a10g-small":    {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-a10g"},
 	"hf-a10g-small": {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-a10g"},
+	"a10g-large":    {Accelerator: "gpu", InstanceSize: "x4", InstanceType: "nvidia-a10g"},
+	"l40sx1":        {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-l40s"},
+	"l40sx4":        {Accelerator: "gpu", InstanceSize: "x4", InstanceType: "nvidia-l40s"},
 	"a100-large":    {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-a100"},
 	"hf-a100-large": {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-a100"},
+	"a100x2":        {Accelerator: "gpu", InstanceSize: "x2", InstanceType: "nvidia-a100"},
+	"a100x4":        {Accelerator: "gpu", InstanceSize: "x4", InstanceType: "nvidia-a100"},
+	"a100x8":        {Accelerator: "gpu", InstanceSize: "x8", InstanceType: "nvidia-a100"},
+	"h100x1":        {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-h100"},
+	"h100x2":        {Accelerator: "gpu", InstanceSize: "x2", InstanceType: "nvidia-h100"},
+	"h100x4":        {Accelerator: "gpu", InstanceSize: "x4", InstanceType: "nvidia-h100"},
+	"h100x8":        {Accelerator: "gpu", InstanceSize: "x8", InstanceType: "nvidia-h100"},
+	"h200x1":        {Accelerator: "gpu", InstanceSize: "x1", InstanceType: "nvidia-h200"},
+	"h200x8":        {Accelerator: "gpu", InstanceSize: "x8", InstanceType: "nvidia-h200"},
 }
 
 // LookupHardware returns the compute block for a settings hardware key.

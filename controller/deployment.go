@@ -45,13 +45,21 @@ func GetModelDeploymentSettings(c *gin.Context) {
 	hasRunpodKey := strings.TrimSpace(common.OptionMap["model_deployment.runpod.api_key"]) != ""
 
 	colabEnabled := common.OptionMap["model_deployment.colab.enabled"] == "true"
-	hasColabKey := strings.TrimSpace(common.OptionMap["model_deployment.colab.access_token"]) != ""
+	hasColabKey := strings.TrimSpace(common.OptionMap["model_deployment.colab.access_token"]) != "" ||
+		strings.TrimSpace(common.OptionMap["model_deployment.colab.refresh_token"]) != ""
+	colabEmail := strings.TrimSpace(common.OptionMap["model_deployment.colab.account_email"])
+	globalPriority := strings.TrimSpace(common.OptionMap["model_deployment.priority"])
+	if globalPriority == "" {
+		globalPriority = "deployments_first"
+	}
 
 	kaggleEnabled := common.OptionMap["model_deployment.kaggle.enabled"] == "true"
 	hasKaggleKey := strings.TrimSpace(common.OptionMap["model_deployment.kaggle.api_key"]) != ""
 	common.OptionMapRWMutex.RUnlock()
 
 	common.ApiSuccess(c, gin.H{
+		"priority":    globalPriority,
+		"colab_email": colabEmail,
 		"providers": []gin.H{
 			{
 				"provider":    "io.net",

@@ -181,6 +181,7 @@ const MODELS_SECTIONS = [
     build: (settings: ModelSettings) => (
       <UnifiedDeploymentSettingsSection
         defaultValues={{
+          priority: settings['model_deployment.priority'],
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],
@@ -191,21 +192,17 @@ const MODELS_SECTIONS = [
             enabled: settings['model_deployment.modal.enabled'],
             tokenId: settings['model_deployment.modal.token_id'],
             tokenSecret: settings['model_deployment.modal.token_secret'],
-            workspace: settings['model_deployment.modal.workspace'],
             sharedVolumePath:
               settings['model_deployment.modal.shared_volume_path'],
             idleTimeoutSeconds:
               settings['model_deployment.modal.idle_timeout_seconds'],
-            priority: settings['model_deployment.modal.priority'],
           },
           huggingface: {
             enabled: settings['model_deployment.huggingface.enabled'],
             token: settings['model_deployment.huggingface.token'],
             org: settings['model_deployment.huggingface.org'],
-            hardware: settings['model_deployment.huggingface.hardware'],
             idleTimeoutSeconds:
               settings['model_deployment.huggingface.idle_timeout_seconds'],
-            priority: settings['model_deployment.huggingface.priority'],
           },
           hostinger: {
             enabled: settings['model_deployment.hostinger.enabled'],
@@ -222,9 +219,10 @@ const MODELS_SECTIONS = [
           colab: {
             enabled: settings['model_deployment.colab.enabled'],
             accessToken: settings['model_deployment.colab.access_token'],
+            refreshToken: settings['model_deployment.colab.refresh_token'],
+            accountEmail: settings['model_deployment.colab.account_email'],
             projectId: settings['model_deployment.colab.project_id'],
             region: settings['model_deployment.colab.region'],
-            hardware: settings['model_deployment.colab.hardware'],
             idleTimeoutSeconds:
               settings['model_deployment.colab.idle_timeout_seconds'],
           },
@@ -232,7 +230,6 @@ const MODELS_SECTIONS = [
             enabled: settings['model_deployment.kaggle.enabled'],
             username: settings['model_deployment.kaggle.username'],
             apiKey: settings['model_deployment.kaggle.api_key'],
-            accelerator: settings['model_deployment.kaggle.accelerator'],
             idleTimeoutSeconds:
               settings['model_deployment.kaggle.idle_timeout_seconds'],
           },

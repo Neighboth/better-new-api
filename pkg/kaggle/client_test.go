@@ -36,6 +36,8 @@ func TestKaggleClientLifecycle(t *testing.T) {
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/kernels/list":
+			assert.Equal(t, "mine", r.URL.Query().Get("group"))
+			assert.Empty(t, r.URL.Query().Get("mine"))
 			_, _ = w.Write([]byte(`[{"ref":"alice/test"}]`))
 		case r.Method == http.MethodPost && r.URL.Path == "/kernels/push":
 			body, _ := io.ReadAll(r.Body)

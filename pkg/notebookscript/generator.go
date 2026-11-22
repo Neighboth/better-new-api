@@ -7,14 +7,15 @@ import (
 
 // Config holds parameters for generating a Colab/Kaggle model serving script.
 type Config struct {
-	Provider           string
-	DeploymentName     string
-	ModelRepo          string
-	ModelFile          string
-	TaskType           string // text, image, video, audio, embeddings
-	Accelerator        string
-	IdleTimeoutSeconds int
-	HFToken            string
+	Provider             string
+	DeploymentName       string
+	ModelRepo            string
+	ModelFile            string
+	TaskType             string // text, image, video, audio, embeddings
+	Accelerator          string
+	FallbackAccelerators []string
+	IdleTimeoutSeconds   int
+	HFToken              string
 }
 
 // NormalizeTaskType maps arbitrary/HF pipeline_tag values into supported task types.
@@ -42,12 +43,15 @@ func pyQuote(s string) string {
 	return `"` + s + `"`
 }
 
-// Generate returns a self-contained Python serving script for Colab or Kaggle.
+// Generate returns a self-contained Python serving script for Colab, Kaggle, Modal, or GPU containers.
 func Generate(cfg Config) string {
 	task := NormalizeTaskType(cfg.TaskType)
 	idle := cfg.IdleTimeoutSeconds
 	if idle < 0 {
 		idle = 0
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "modal") {
+		return generateModalScript(cfg, task, idle)
 	}
 
 	var pipPackages string
@@ -248,4 +252,66 @@ if __name__ == "__main__":
 		pyQuote(task),
 		taskHandler,
 	)
+}
+
+func generateModalScript(cfg Config, task string, idle int) string {
+	gpus := []string{}
+	if strings.TrimSpace(cfg.Accelerator) != "" && !strings.EqualFold(cfg.Accelerator, "CPU") {
+		gpus = append(gpus, cfg.Accelerator)
+	}
+	for _, fb := range cfg.FallbackAccelerators {
+		fb = strings.TrimSpace(fb)
+		if fb != "" && !strings.EqualFold(fb, "CPU") {
+			gpus = append(gpus, fb)
+		}
+	}
+	gpuArg := "None"
+	if len(gpus) == 1 {
+		gpuArg = pyQuote(gpus[0])
+	} else if len(gpus) > 1 {
+		quoted := make([]string, len(gpus))
+		for i, g := range gpus {
+			quoted[i] = pyQuote(g)
+		}
+		gpuArg = "[" + strings.Join(quoted, ", ") + "]"
+	}
+	scaledownLine := ""
+	if idle > 0 {
+		scaledownLine = fmt.Sprintf("\n    scaledown_window=%d,", idle)
+	}
+	appName := cfg.DeploymentName
+	if strings.TrimSpace(appName) == "" {
+		appName = "model-server"
+	}
+	return fmt.Sprintf(`# Auto-generated Better-New-API Modal serving script
+# Model: %s | Task: %s | GPU(s): %s
+import modal
+
+app = modal.App(%s)
+image = modal.Image.debian_slim().pip_install("vllm", "diffusers", "transformers", "accelerate", "huggingface_hub", "fastapi", "uvicorn")
+volume = modal.Volume.from_name("model-weights", create_if_missing=True)
+
+MODEL_REPO = %s
+TASK_TYPE = %s
+
+@app.function(
+    image=image,
+    gpu=%s,
+    volumes={"/models": volume},
+    timeout=3600,%s
+)
+@modal.web_server(port=8000)
+def serve():
+    import subprocess
+    if TASK_TYPE in ("text", "embeddings"):
+        subprocess.Popen([
+            "python", "-m", "vllm.entrypoints.openai.api_server",
+            "--model", MODEL_REPO,
+            "--download-dir", "/models",
+            "--host", "0.0.0.0",
+            "--port", "8000",
+        ])
+    else:
+        subprocess.Popen(["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"])
+`, cfg.ModelRepo, task, gpuArg, pyQuote(appName), pyQuote(cfg.ModelRepo), pyQuote(task), gpuArg, scaledownLine)
 }

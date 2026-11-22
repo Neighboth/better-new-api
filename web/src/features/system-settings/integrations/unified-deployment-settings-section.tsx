@@ -1,13 +1,20 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, LogOut, Wand2, XCircle } from 'lucide-react'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import {
   Form,
   FormControl,
@@ -26,18 +33,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { api } from '@/lib/api'
 import { testDeploymentConnectionWithKey } from '@/features/models/api'
+import { api } from '@/lib/api'
 
-import {
-  SettingsForm,
-  SettingsFormGrid,
-} from '../components/settings-form-layout'
+import { SettingsForm, SettingsFormGrid } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const schema = z.object({
+  // Global dispatch priority
+  priority: z.string().optional(),
+
   // io.net
   ionetEnabled: z.boolean(),
   ionetApiKey: z.string().optional(),
@@ -47,18 +54,14 @@ const schema = z.object({
   modalEnabled: z.boolean(),
   modalTokenId: z.string().optional(),
   modalTokenSecret: z.string().optional(),
-  modalWorkspace: z.string().optional(),
   modalSharedVolumePath: z.string().optional(),
   modalIdleTimeoutSeconds: z.number().min(0).optional(),
-  modalPriority: z.string().optional(),
 
   // Hugging Face Spaces
   hfEnabled: z.boolean(),
   hfToken: z.string().optional(),
   hfSpaceOrg: z.string().optional(),
-  hfHardware: z.string().optional(),
   hfIdleTimeoutSeconds: z.number().min(0).optional(),
-  hfPriority: z.string().optional(),
 
   // Hostinger GPU VPS
   hostingerEnabled: z.boolean(),
@@ -72,31 +75,91 @@ const schema = z.object({
 
   // Google Colab
   colabEnabled: z.boolean(),
-  colabAccessToken: z.string().optional(),
   colabProjectId: z.string().optional(),
   colabRegion: z.string().optional(),
-  colabHardware: z.string().optional(),
   colabIdleTimeoutSeconds: z.number().min(0).optional(),
 
   // Kaggle
   kaggleEnabled: z.boolean(),
   kaggleUsername: z.string().optional(),
   kaggleApiKey: z.string().optional(),
-  kaggleAccelerator: z.string().optional(),
   kaggleIdleTimeoutSeconds: z.number().min(0).optional(),
 })
 
 type Values = z.infer<typeof schema>
 
-/**
- * Turns a backend failure of the Hostinger probe into a message of the
- * interface language. The backend answers with a machine readable `code`
- * (invalid token, rejected, unreachable, unexpected response); without the
- * code the English message of the backend would be shown in every language.
- */
+function IdleSleepField({
+  form,
+  name,
+}: {
+  form: UseFormReturn<Values>
+  name:
+    | 'ionetIdleTimeoutSeconds'
+    | 'modalIdleTimeoutSeconds'
+    | 'hfIdleTimeoutSeconds'
+    | 'hostingerIdleTimeoutSeconds'
+    | 'runpodIdleTimeoutSeconds'
+    | 'colabIdleTimeoutSeconds'
+    | 'kaggleIdleTimeoutSeconds'
+}) {
+  const { t } = useTranslation()
+  const value = form.watch(name) ?? 0
+  const isEnabled = value > 0
+
+  return (
+    <div className='rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3'>
+      <div className='flex items-center justify-between gap-4'>
+        <div>
+          <div className='text-sm font-medium'>
+            {t('Auto-sleep when idle')}
+          </div>
+          <div className='text-xs text-muted-foreground'>
+            {t(
+              'Automatically scale down / sleep instances when inactive. Disable to keep instances running.'
+            )}
+          </div>
+        </div>
+        <Switch
+          checked={isEnabled}
+          onCheckedChange={(checked) => {
+            form.setValue(name, checked ? 300 : 0, { shouldDirty: true })
+          }}
+        />
+      </div>
+
+      {isEnabled && (
+        <FormField
+          control={form.control}
+          name={name}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+              <FormControl>
+                <Input
+                  type='number'
+                  min={1}
+                  placeholder='300'
+                  value={field.value ?? 300}
+                  onChange={(e) => {
+                    const parsed = Number.parseInt(e.target.value, 10)
+                    field.onChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
+                  }}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
+    </div>
+  )
+}
+
 function localizeHostingerError(
   t: (key: string, options?: Record<string, unknown>) => string,
-  payload: { code?: string; status?: number; error?: string; message?: string } | undefined
+  payload:
+    | { code?: string; status?: number; error?: string; message?: string }
+    | undefined
 ): string {
   const code = payload?.code ?? ''
   const status = payload?.status
@@ -127,6 +190,7 @@ export function UnifiedDeploymentSettingsSection({
   defaultValues,
 }: {
   defaultValues: {
+    priority?: string
     ionet?: {
       enabled?: boolean
       apiKey?: string
@@ -136,18 +200,14 @@ export function UnifiedDeploymentSettingsSection({
       enabled?: boolean
       tokenId?: string
       tokenSecret?: string
-      workspace?: string
       sharedVolumePath?: string
       idleTimeoutSeconds?: number
-      priority?: string
     }
     huggingface?: {
       enabled?: boolean
       token?: string
       org?: string
-      hardware?: string
       idleTimeoutSeconds?: number
-      priority?: string
     }
     hostinger?: {
       enabled?: boolean
@@ -162,16 +222,16 @@ export function UnifiedDeploymentSettingsSection({
     colab?: {
       enabled?: boolean
       accessToken?: string
+      refreshToken?: string
+      accountEmail?: string
       projectId?: string
       region?: string
-      hardware?: string
       idleTimeoutSeconds?: number
     }
     kaggle?: {
       enabled?: boolean
       username?: string
       apiKey?: string
-      accelerator?: string
       idleTimeoutSeconds?: number
     }
   }
@@ -182,6 +242,8 @@ export function UnifiedDeploymentSettingsSection({
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
+      priority: defaultValues.priority || 'deployments_first',
+
       ionetEnabled: defaultValues.ionet?.enabled ?? false,
       ionetApiKey: defaultValues.ionet?.apiKey ?? '',
       ionetIdleTimeoutSeconds: defaultValues.ionet?.idleTimeoutSeconds ?? 300,
@@ -189,18 +251,14 @@ export function UnifiedDeploymentSettingsSection({
       modalEnabled: defaultValues.modal?.enabled ?? false,
       modalTokenId: defaultValues.modal?.tokenId ?? '',
       modalTokenSecret: defaultValues.modal?.tokenSecret ?? '',
-      modalWorkspace: defaultValues.modal?.workspace ?? '',
       modalSharedVolumePath:
         defaultValues.modal?.sharedVolumePath ?? '/vol/models',
       modalIdleTimeoutSeconds: defaultValues.modal?.idleTimeoutSeconds ?? 300,
-      modalPriority: defaultValues.modal?.priority ?? 'modal_first',
 
       hfEnabled: defaultValues.huggingface?.enabled ?? false,
       hfToken: defaultValues.huggingface?.token ?? '',
       hfSpaceOrg: defaultValues.huggingface?.org ?? '',
-      hfHardware: defaultValues.huggingface?.hardware ?? 't4-small',
       hfIdleTimeoutSeconds: defaultValues.huggingface?.idleTimeoutSeconds ?? 300,
-      hfPriority: defaultValues.huggingface?.priority ?? 'hf_first',
 
       hostingerEnabled: defaultValues.hostinger?.enabled ?? false,
       hostingerApiKey: defaultValues.hostinger?.apiKey ?? '',
@@ -213,16 +271,13 @@ export function UnifiedDeploymentSettingsSection({
         defaultValues.runpod?.idleTimeoutSeconds ?? 300,
 
       colabEnabled: defaultValues.colab?.enabled ?? false,
-      colabAccessToken: defaultValues.colab?.accessToken ?? '',
       colabProjectId: defaultValues.colab?.projectId ?? '',
       colabRegion: defaultValues.colab?.region ?? 'us-central1',
-      colabHardware: defaultValues.colab?.hardware ?? 'NVIDIA_TESLA_T4',
       colabIdleTimeoutSeconds: defaultValues.colab?.idleTimeoutSeconds ?? 300,
 
       kaggleEnabled: defaultValues.kaggle?.enabled ?? false,
       kaggleUsername: defaultValues.kaggle?.username ?? '',
       kaggleApiKey: defaultValues.kaggle?.apiKey ?? '',
-      kaggleAccelerator: defaultValues.kaggle?.accelerator ?? 'NvidiaTeslaT4',
       kaggleIdleTimeoutSeconds:
         defaultValues.kaggle?.idleTimeoutSeconds ?? 300,
     },
@@ -232,6 +287,20 @@ export function UnifiedDeploymentSettingsSection({
   const ionetEnabled = form.watch('ionetEnabled')
   const modalEnabled = form.watch('modalEnabled')
   const hfEnabled = form.watch('hfEnabled')
+
+  // Colab OAuth state (matches AntiGravity OAuth flow)
+  const [colabConnectedEmail, setColabConnectedEmail] = useState<string>(
+    defaultValues.colab?.accountEmail ?? ''
+  )
+  const [colabConnected, setColabConnected] = useState<boolean>(
+    Boolean(
+      defaultValues.colab?.accessToken || defaultValues.colab?.refreshToken
+    )
+  )
+  const [colabOAuthSessionId, setColabOAuthSessionId] = useState('')
+  const [colabOAuthUrl, setColabOAuthUrl] = useState('')
+  const [colabCallbackUrl, setColabCallbackUrl] = useState('')
+  const [colabOAuthExchanging, setColabOAuthExchanging] = useState(false)
 
   const [ioTestState, setIoTestState] = useState<{
     loading: boolean
@@ -252,7 +321,13 @@ export function UnifiedDeploymentSettingsSection({
     error: string | null
     catalog: string | null
     gpuGroups: number | null
-  }>({ loading: false, ok: null, error: null, catalog: null, gpuGroups: null })
+  }>({
+    loading: false,
+    ok: null,
+    error: null,
+    catalog: null,
+    gpuGroups: null,
+  })
 
   const [runpodTestState, setRunpodTestState] = useState<{
     loading: boolean
@@ -271,6 +346,65 @@ export function UnifiedDeploymentSettingsSection({
     ok: boolean | null
     error: string | null
   }>({ loading: false, ok: null, error: null })
+
+  const handleStartColabOAuth = async () => {
+    try {
+      const res = await api.post('/api/deployments/colab/oauth/start')
+      if (res.data?.success && res.data?.data) {
+        setColabOAuthSessionId(res.data.data.session_id)
+        setColabOAuthUrl(res.data.data.auth_url)
+        setColabCallbackUrl('')
+        try {
+          window.open(res.data.data.auth_url, '_blank', 'noopener,noreferrer')
+        } catch {
+          // ignore popup blocker
+        }
+      } else {
+        toast.error(res.data?.message || t('Failed to start OAuth flow'))
+      }
+    } catch (e: any) {
+      toast.error(e?.message || t('Failed to start OAuth flow'))
+    }
+  }
+
+  const handleExchangeColabOAuth = async () => {
+    if (!colabOAuthSessionId || !colabCallbackUrl.trim()) return
+    setColabOAuthExchanging(true)
+    try {
+      const res = await api.post('/api/deployments/colab/oauth/exchange', {
+        session_id: colabOAuthSessionId,
+        callback: colabCallbackUrl.trim(),
+      })
+      if (res.data?.success) {
+        setColabConnected(true)
+        setColabConnectedEmail(res.data?.data?.email ?? '')
+        if (res.data?.data?.project_id && !form.getValues('colabProjectId')) {
+          form.setValue('colabProjectId', res.data.data.project_id)
+        }
+        setColabOAuthUrl('')
+        setColabCallbackUrl('')
+        toast.success(t('Successfully connected to Google Colab'))
+      } else {
+        toast.error(res.data?.message || t('Failed to exchange OAuth credentials'))
+      }
+    } catch (e: any) {
+      toast.error(e?.message || t('Failed to exchange OAuth credentials'))
+    } finally {
+      setColabOAuthExchanging(false)
+    }
+  }
+
+  const handleDisconnectColabOAuth = async () => {
+    try {
+      await api.post('/api/deployments/colab/oauth/disconnect')
+      setColabConnected(false)
+      setColabConnectedEmail('')
+      setColabTestState({ loading: false, ok: null, error: null })
+      toast.success(t('Google Colab disconnected'))
+    } catch (e: any) {
+      toast.error(e?.message || t('Disconnect failed'))
+    }
+  }
 
   const handleTestIoConnection = async () => {
     const key = form.getValues('ionetApiKey')
@@ -385,7 +519,9 @@ export function UnifiedDeploymentSettingsSection({
       }
     } catch (e: any) {
       const localized = localizeHostingerError(t, e?.response?.data)
-      const message = e?.response?.data?.message ? localized : e?.message || localized
+      const message = e?.response?.data?.message
+        ? localized
+        : e?.message || localized
       setHostingerTestState({
         loading: false,
         ok: false,
@@ -430,16 +566,9 @@ export function UnifiedDeploymentSettingsSection({
   }
 
   const handleTestColabConnection = async () => {
-    const token = form.getValues('colabAccessToken')
-    if (!token) {
-      toast.error(t('Please enter a Google Colab OAuth token first'))
-      return
-    }
     setColabTestState({ loading: true, ok: null, error: null })
     try {
-      const res = await api.post('/api/deployments/colab/test-connection', {
-        access_token: token,
-      })
+      const res = await api.post('/api/deployments/colab/test-connection', {})
       if (res.data?.success) {
         setColabTestState({ loading: false, ok: true, error: null })
         toast.success(t('Connected to Google Colab successfully'))
@@ -497,7 +626,12 @@ export function UnifiedDeploymentSettingsSection({
 
   async function onSubmit(values: Values) {
     try {
-      // io.net options
+      await updateOption.mutateAsync({
+        key: 'model_deployment.priority',
+        value: String(values.priority || 'deployments_first'),
+      })
+
+      // io.net
       await updateOption.mutateAsync({
         key: 'model_deployment.ionet.enabled',
         value: String(values.ionetEnabled),
@@ -508,10 +642,10 @@ export function UnifiedDeploymentSettingsSection({
       })
       await updateOption.mutateAsync({
         key: 'model_deployment.ionet.idle_timeout_seconds',
-        value: String(values.ionetIdleTimeoutSeconds ?? 300),
+        value: String(values.ionetIdleTimeoutSeconds ?? 0),
       })
 
-      // Modal options
+      // Modal
       await updateOption.mutateAsync({
         key: 'model_deployment.modal.enabled',
         value: String(values.modalEnabled),
@@ -525,23 +659,15 @@ export function UnifiedDeploymentSettingsSection({
         value: String(values.modalTokenSecret ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'model_deployment.modal.workspace',
-        value: String(values.modalWorkspace ?? ''),
-      })
-      await updateOption.mutateAsync({
         key: 'model_deployment.modal.shared_volume_path',
         value: String(values.modalSharedVolumePath ?? '/vol/models'),
       })
       await updateOption.mutateAsync({
         key: 'model_deployment.modal.idle_timeout_seconds',
-        value: String(values.modalIdleTimeoutSeconds ?? 300),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.modal.priority',
-        value: String(values.modalPriority ?? 'modal_first'),
+        value: String(values.modalIdleTimeoutSeconds ?? 0),
       })
 
-      // Hugging Face options
+      // Hugging Face Spaces
       await updateOption.mutateAsync({
         key: 'model_deployment.huggingface.enabled',
         value: String(values.hfEnabled),
@@ -559,19 +685,11 @@ export function UnifiedDeploymentSettingsSection({
         value: String(values.hfSpaceOrg ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'model_deployment.huggingface.hardware',
-        value: String(values.hfHardware ?? 't4-small'),
-      })
-      await updateOption.mutateAsync({
         key: 'model_deployment.huggingface.idle_timeout_seconds',
-        value: String(values.hfIdleTimeoutSeconds ?? 300),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.huggingface.priority',
-        value: String(values.hfPriority ?? 'hf_first'),
+        value: String(values.hfIdleTimeoutSeconds ?? 0),
       })
 
-      // Hostinger options
+      // Hostinger
       await updateOption.mutateAsync({
         key: 'model_deployment.hostinger.enabled',
         value: String(values.hostingerEnabled),
@@ -582,10 +700,10 @@ export function UnifiedDeploymentSettingsSection({
       })
       await updateOption.mutateAsync({
         key: 'model_deployment.hostinger.idle_timeout_seconds',
-        value: String(values.hostingerIdleTimeoutSeconds ?? 300),
+        value: String(values.hostingerIdleTimeoutSeconds ?? 0),
       })
 
-      // RunPod options
+      // RunPod
       await updateOption.mutateAsync({
         key: 'model_deployment.runpod.enabled',
         value: String(values.runpodEnabled),
@@ -596,17 +714,13 @@ export function UnifiedDeploymentSettingsSection({
       })
       await updateOption.mutateAsync({
         key: 'model_deployment.runpod.idle_timeout_seconds',
-        value: String(values.runpodIdleTimeoutSeconds ?? 300),
+        value: String(values.runpodIdleTimeoutSeconds ?? 0),
       })
 
-      // Google Colab options
+      // Google Colab
       await updateOption.mutateAsync({
         key: 'model_deployment.colab.enabled',
         value: String(values.colabEnabled),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.colab.access_token',
-        value: String(values.colabAccessToken ?? ''),
       })
       await updateOption.mutateAsync({
         key: 'model_deployment.colab.project_id',
@@ -617,15 +731,11 @@ export function UnifiedDeploymentSettingsSection({
         value: String(values.colabRegion ?? 'us-central1'),
       })
       await updateOption.mutateAsync({
-        key: 'model_deployment.colab.hardware',
-        value: String(values.colabHardware ?? 'NVIDIA_TESLA_T4'),
-      })
-      await updateOption.mutateAsync({
         key: 'model_deployment.colab.idle_timeout_seconds',
-        value: String(values.colabIdleTimeoutSeconds ?? 300),
+        value: String(values.colabIdleTimeoutSeconds ?? 0),
       })
 
-      // Kaggle options
+      // Kaggle
       await updateOption.mutateAsync({
         key: 'model_deployment.kaggle.enabled',
         value: String(values.kaggleEnabled),
@@ -639,12 +749,8 @@ export function UnifiedDeploymentSettingsSection({
         value: String(values.kaggleApiKey ?? ''),
       })
       await updateOption.mutateAsync({
-        key: 'model_deployment.kaggle.accelerator',
-        value: String(values.kaggleAccelerator ?? 'NvidiaTeslaT4'),
-      })
-      await updateOption.mutateAsync({
         key: 'model_deployment.kaggle.idle_timeout_seconds',
-        value: String(values.kaggleIdleTimeoutSeconds ?? 300),
+        value: String(values.kaggleIdleTimeoutSeconds ?? 0),
       })
 
       form.reset(values)
@@ -655,19 +761,68 @@ export function UnifiedDeploymentSettingsSection({
   }
 
   return (
-    <SettingsSection
-      title={t('Model Deployment Settings')}
-    >
+    <SettingsSection title={t('Model Deployment Settings')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
-          {/* Provider 1: io.net */}
+          {/* Global Dispatch Priority Card */}
+          <Card className='border border-border/70 shadow-sm'>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base font-semibold'>
+                {t('Dispatch Priority')}
+              </CardTitle>
+              <CardDescription className='text-xs mt-1'>
+                {t(
+                  'Global routing preference between Model Deployments and upstream API channels.'
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='pt-0'>
+              <FormField
+                control={form.control}
+                name='priority'
+                render={({ field }) => (
+                  <FormItem>
+                    <Select
+                      value={field.value ?? 'deployments_first'}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='deployments_first'>
+                          {t(
+                            'Deployments First (Prefer deployments, fallback to channels)'
+                          )}
+                        </SelectItem>
+                        <SelectItem value='channels_first'>
+                          {t(
+                            'Channels First (Prefer configured channels, fallback to deployments)'
+                          )}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          {/* io.net */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <CardTitle className='text-base font-semibold'>io.net Cloud</CardTitle>
+                  <CardTitle className='text-base font-semibold'>
+                    io.net Cloud
+                  </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy serverless GPU clusters and containers on io.net decentralized compute network.')}
+                    {t(
+                      'Deploy serverless GPU clusters and containers on io.net decentralized compute network.'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -733,44 +888,23 @@ export function UnifiedDeploymentSettingsSection({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name='ionetIdleTimeoutSeconds'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={0}
-                          placeholder='300'
-                          value={field.value ?? 300}
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseInt(e.target.value, 10) || 0
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription className='text-xs'>
-                        {t('Automatically scale down / sleep instances when inactive')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <IdleSleepField form={form} name='ionetIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Provider 2: Modal */}
+          {/* Modal */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <CardTitle className='text-base font-semibold'>Modal Deployment</CardTitle>
+                  <CardTitle className='text-base font-semibold'>
+                    Modal Deployment
+                  </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Serverless AI deployment on Modal with GPU auto-scaling, persistent cache, and idle sleep.')}
+                    {t(
+                      'Serverless AI deployment on Modal with GPU auto-scaling, persistent cache, and idle sleep.'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -834,122 +968,46 @@ export function UnifiedDeploymentSettingsSection({
                   />
                 </SettingsFormGrid>
 
-                <SettingsFormGrid>
-                  <FormField
-                    control={form.control}
-                    name='modalWorkspace'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Workspace')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='my-org'
-                            {...field}
-                            value={field.value ?? ''}
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Modal workspace name')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <FormField
+                  control={form.control}
+                  name='modalSharedVolumePath'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Shared Volume Path')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='/vol/models'
+                          {...field}
+                          value={field.value ?? ''}
+                        />
+                      </FormControl>
+                      <FormDescription className='text-xs'>
+                        {t(
+                          'Modal persistent volume for weights (saves bandwidth and GPU cost)'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                  <FormField
-                    control={form.control}
-                    name='modalSharedVolumePath'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Shared Volume Path')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='/vol/models'
-                            {...field}
-                            value={field.value ?? ''}
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Modal persistent volume for weights (saves bandwidth and GPU cost)')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsFormGrid>
-
-                <SettingsFormGrid>
-                  <FormField
-                    control={form.control}
-                    name='modalIdleTimeoutSeconds'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min={0}
-                            placeholder='300'
-                            value={field.value ?? 300}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 0
-                              )
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Automatically scale down / sleep instances when inactive')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='modalPriority'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Dispatch Priority')}</FormLabel>
-                        <Select
-                          value={field.value ?? 'modal_first'}
-                          onValueChange={field.onChange}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value='modal_first'>
-                              {t('Modal First (Prefer Modal, fallback to channels)')}
-                            </SelectItem>
-                            <SelectItem value='channels_first'>
-                              {t('Channels First (Prefer configured channels, fallback to Modal)')}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className='text-xs'>
-                          {t('Routing preference between Modal and external API channels')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsFormGrid>
+                <IdleSleepField form={form} name='modalIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Provider 3: Hugging Face Spaces */}
+          {/* Hugging Face Spaces */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <CardTitle className='text-base font-semibold'>Hugging Face Spaces</CardTitle>
+                  <CardTitle className='text-base font-semibold'>
+                    Hugging Face Spaces
+                  </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy models directly on Hugging Face Spaces with hardware acceleration.')}
+                    {t(
+                      'Deploy models directly on Hugging Face Spaces with hardware acceleration.'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -1033,7 +1091,9 @@ export function UnifiedDeploymentSettingsSection({
                           />
                         </FormControl>
                         <FormDescription className='text-xs'>
-                          {t('Target Organization or Username for Spaces creation')}
+                          {t(
+                            'Target Organization or Username for Spaces creation'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -1041,101 +1101,12 @@ export function UnifiedDeploymentSettingsSection({
                   />
                 </SettingsFormGrid>
 
-                <SettingsFormGrid>
-                  <FormField
-                    control={form.control}
-                    name='hfHardware'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Default Hardware Tier')}</FormLabel>
-                        <Select
-                          value={field.value ?? 't4-small'}
-                          onValueChange={field.onChange}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value='cpu-basic'>CPU Basic (Free)</SelectItem>
-                            <SelectItem value='t4-small'>Nvidia T4 (Small)</SelectItem>
-                            <SelectItem value='a10g-small'>Nvidia A10G (Small)</SelectItem>
-                            <SelectItem value='a100-large'>Nvidia A100 (Large)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className='text-xs'>
-                          {t('Compute tier to request for new Spaces')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='hfPriority'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Dispatch Priority')}</FormLabel>
-                        <Select
-                          value={field.value ?? 'hf_first'}
-                          onValueChange={field.onChange}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value='hf_first'>
-                              {t('Hugging Face First')}
-                            </SelectItem>
-                            <SelectItem value='channels_first'>
-                              {t('Channels First')}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className='text-xs'>
-                          {t('Routing preference between Hugging Face and external API channels')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsFormGrid>
-
-                <FormField
-                  control={form.control}
-                  name='hfIdleTimeoutSeconds'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min={0}
-                          placeholder='300'
-                          value={field.value ?? 300}
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseInt(e.target.value, 10) || 0
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription className='text-xs'>
-                        {t('Automatically scale down / sleep instances when inactive')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <IdleSleepField form={form} name='hfIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Hostinger GPU VPS Card */}
+          {/* Hostinger GPU VPS */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
@@ -1144,7 +1115,9 @@ export function UnifiedDeploymentSettingsSection({
                     {t('Hostinger GPU Hosting')}
                   </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy and run models on Hostinger on-demand NVIDIA GPU servers with hourly billing.')}
+                    {t(
+                      'Deploy and run models on Hostinger on-demand NVIDIA GPU servers with hourly billing.'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -1166,101 +1139,65 @@ export function UnifiedDeploymentSettingsSection({
 
             {form.watch('hostingerEnabled') && (
               <CardContent className='space-y-4 pt-0'>
-                <div className='grid gap-4 sm:grid-cols-2'>
-                  <FormField
-                    control={form.control}
-                    name='hostingerApiKey'
-                    render={({ field }) => (
-                      <FormItem className='sm:col-span-2'>
-                        <FormLabel>{t('Hostinger API Key / Token')}</FormLabel>
-                        <div className='flex gap-2'>
-                          <FormControl>
-                            <Input
-                              type='password'
-                              placeholder='hst_...'
-                              {...field}
-                              value={field.value ?? ''}
-                            />
-                          </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='shrink-0'
-                            disabled={hostingerTestState.loading || !field.value}
-                            onClick={handleTestHostingerConnection}
-                          >
-                            {hostingerTestState.loading && (
-                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-                            )}
-                            {t('Test Connection')}
-                          </Button>
-                        </div>
-                        {hostingerTestState.ok === true && (
-                          <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
-                            <CheckCircle2 className='h-3.5 w-3.5' />
-                            {hostingerTestState.catalog === 'gpu'
-                              ? t(
-                                  'Successfully connected to Hostinger GPU Hosting ({{count}} GPU models in the catalog)',
-                                  { count: hostingerTestState.gpuGroups ?? 0 }
-                                )
-                              : t('Successfully connected to Hostinger')}
-                          </p>
-                        )}
-                        {hostingerTestState.ok === false && (
-                          <p className='flex items-center gap-1 text-xs text-destructive'>
-                            <XCircle className='h-3.5 w-3.5' />
-                            {hostingerTestState.error}
-                          </p>
-                        )}
-                        <FormDescription className='text-xs space-y-1'>
-                          <span className='block'>
-                            {t(
-                              'This integration connects to Hostinger GPU Hosting (hostinger.com/gpu-hosting), the hourly NVIDIA GPU server product of Hostinger. Create a token in hPanel under Account > API; a random string is rejected.'
-                            )}
-                          </span>
-                          <span className='block'>
-                            {t(
-                              'The connection test calls the official GPU catalog on developers.hostinger.com; only a real 2xx answer counts as connected.'
-                            )}
-                          </span>
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name='hostingerIdleTimeoutSeconds'
-                    render={({ field }) => (
-                      <FormItem className='sm:col-span-2'>
-                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                <FormField
+                  control={form.control}
+                  name='hostingerApiKey'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Hostinger API Key / Token')}</FormLabel>
+                      <div className='flex gap-2'>
                         <FormControl>
                           <Input
-                            type='number'
-                            min={0}
-                            placeholder='300'
-                            value={field.value ?? 300}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 0
-                              )
-                            }
+                            type='password'
+                            placeholder='hst_...'
+                            {...field}
+                            value={field.value ?? ''}
                           />
                         </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Automatically scale down / sleep instances when inactive')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='shrink-0'
+                          disabled={hostingerTestState.loading || !field.value}
+                          onClick={handleTestHostingerConnection}
+                        >
+                          {hostingerTestState.loading && (
+                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                          )}
+                          {t('Test Connection')}
+                        </Button>
+                      </div>
+                      {hostingerTestState.ok === true && (
+                        <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                          <CheckCircle2 className='h-3.5 w-3.5' />
+                          {hostingerTestState.catalog === 'gpu'
+                            ? t(
+                                'Successfully connected to Hostinger GPU Hosting ({{count}} GPU models in the catalog)',
+                                { count: hostingerTestState.gpuGroups ?? 0 }
+                              )
+                            : t('Successfully connected to Hostinger')}
+                        </p>
+                      )}
+                      {hostingerTestState.ok === false && (
+                        <p className='flex items-center gap-1 text-xs text-destructive'>
+                          <XCircle className='h-3.5 w-3.5' />
+                          {hostingerTestState.error}
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <IdleSleepField
+                  form={form}
+                  name='hostingerIdleTimeoutSeconds'
+                />
               </CardContent>
             )}
           </Card>
 
-          {/* RunPod GPU Cloud Card */}
+          {/* RunPod GPU Cloud */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
@@ -1269,7 +1206,9 @@ export function UnifiedDeploymentSettingsSection({
                     RunPod GPU Cloud
                   </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy AI models to RunPod serverless and dedicated GPU infrastructure (RTX 4090, A100, H100).')}
+                    {t(
+                      'Deploy AI models to RunPod serverless and dedicated GPU infrastructure (RTX 4090, A100, H100).'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -1291,87 +1230,62 @@ export function UnifiedDeploymentSettingsSection({
 
             {form.watch('runpodEnabled') && (
               <CardContent className='space-y-4 pt-0'>
-                <div className='grid gap-4 sm:grid-cols-2'>
-                  <FormField
-                    control={form.control}
-                    name='runpodApiKey'
-                    render={({ field }) => (
-                      <FormItem className='sm:col-span-2'>
-                        <FormLabel>{t('RunPod API Key')}</FormLabel>
-                        <div className='flex gap-2'>
-                          <FormControl>
-                            <Input
-                              type='password'
-                              placeholder='rpa_...'
-                              {...field}
-                              value={field.value ?? ''}
-                            />
-                          </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            className='shrink-0'
-                            disabled={runpodTestState.loading || !field.value}
-                            onClick={handleTestRunPodConnection}
-                          >
-                            {runpodTestState.loading && (
-                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-                            )}
-                            {t('Test Connection')}
-                          </Button>
-                        </div>
-                        {runpodTestState.ok === true && (
-                          <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
-                            <CheckCircle2 className='h-3.5 w-3.5' />
-                            {t('Successfully connected to RunPod')}
-                          </p>
-                        )}
-                        {runpodTestState.ok === false && (
-                          <p className='flex items-center gap-1 text-xs text-destructive'>
-                            <XCircle className='h-3.5 w-3.5' />
-                            {runpodTestState.error}
-                          </p>
-                        )}
-                        <FormDescription className='text-xs'>
-                          {t('Your personal RunPod API key from Settings -> API Keys.')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name='runpodIdleTimeoutSeconds'
-                    render={({ field }) => (
-                      <FormItem className='sm:col-span-2'>
-                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
+                <FormField
+                  control={form.control}
+                  name='runpodApiKey'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('RunPod API Key')}</FormLabel>
+                      <div className='flex gap-2'>
                         <FormControl>
                           <Input
-                            type='number'
-                            min={0}
-                            placeholder='300'
-                            value={field.value ?? 300}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 0
-                              )
-                            }
+                            type='password'
+                            placeholder='rpa_...'
+                            {...field}
+                            value={field.value ?? ''}
                           />
                         </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Automatically scale down / sleep instances when inactive')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='shrink-0'
+                          disabled={runpodTestState.loading || !field.value}
+                          onClick={handleTestRunPodConnection}
+                        >
+                          {runpodTestState.loading && (
+                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                          )}
+                          {t('Test Connection')}
+                        </Button>
+                      </div>
+                      {runpodTestState.ok === true && (
+                        <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                          <CheckCircle2 className='h-3.5 w-3.5' />
+                          {t('Successfully connected to RunPod')}
+                        </p>
+                      )}
+                      {runpodTestState.ok === false && (
+                        <p className='flex items-center gap-1 text-xs text-destructive'>
+                          <XCircle className='h-3.5 w-3.5' />
+                          {runpodTestState.error}
+                        </p>
+                      )}
+                      <FormDescription className='text-xs'>
+                        {t(
+                          'Your personal RunPod API key from Settings -> API Keys.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <IdleSleepField form={form} name='runpodIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Google Colab Card */}
+          {/* Google Colab (OAuth Login like AntiGravity + Auto-Refresh) */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
@@ -1380,7 +1294,9 @@ export function UnifiedDeploymentSettingsSection({
                     Google Colab
                   </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Provision Google Colab CPU, GPU, and TPU runtimes via the Colab Runtime API and serve Hugging Face models.')}
+                    {t(
+                      'Provision Google Colab CPU, GPU, and TPU runtimes via Google OAuth with automatic token refresh.'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -1402,54 +1318,118 @@ export function UnifiedDeploymentSettingsSection({
 
             {form.watch('colabEnabled') && (
               <CardContent className='pt-0 space-y-4'>
-                <FormField
-                  control={form.control}
-                  name='colabAccessToken'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Google Colab OAuth Access Token')}</FormLabel>
-                      <div className='flex gap-2'>
-                        <FormControl>
-                          <Input
-                            type='password'
-                            placeholder='ya29....'
-                            {...field}
-                            value={field.value ?? ''}
-                          />
-                        </FormControl>
+                <div className='border-border/60 flex flex-col gap-3 rounded-lg border bg-muted/20 p-4'>
+                  <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                    <div className='space-y-1'>
+                      <div className='flex items-center gap-2 font-semibold text-sm'>
+                        <span>{t('Google Colab OAuth Integration')}</span>
+                        {colabConnected && (
+                          <Badge
+                            variant='outline'
+                            className='text-[11px] border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
+                          >
+                            {t('Connected & Auto-Refresh Active')}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className='text-muted-foreground text-xs'>
+                        {colabConnected
+                          ? t('Signed in as {{email}}', {
+                              email: colabConnectedEmail || 'Google Account',
+                            })
+                          : t(
+                              'Sign in with Google in a new tab and paste the redirected localhost URL below.'
+                            )}
+                      </div>
+                    </div>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Button
+                        type='button'
+                        variant='default'
+                        size='sm'
+                        onClick={handleStartColabOAuth}
+                      >
+                        <Wand2 className='mr-2 h-4 w-4' />
+                        {t('1. Start OAuth Login')}
+                      </Button>
+                      {colabConnected && (
+                        <>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            disabled={colabTestState.loading}
+                            onClick={handleTestColabConnection}
+                          >
+                            {colabTestState.loading && (
+                              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                            )}
+                            {t('Test Connection')}
+                          </Button>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='text-destructive hover:text-destructive'
+                            onClick={handleDisconnectColabOAuth}
+                          >
+                            <LogOut className='mr-1.5 h-3.5 w-3.5' />
+                            {t('Disconnect')}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {colabOAuthUrl && (
+                    <div className='flex flex-col gap-2 pt-2 border-t'>
+                      <div className='text-xs font-medium text-primary'>
+                        <a
+                          href={colabOAuthUrl}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='hover:underline'
+                        >
+                          {t(
+                            'If the window did not open, click here to log in (New Tab)'
+                          )}
+                        </a>
+                      </div>
+                      <div className='flex items-center gap-2'>
+                        <Input
+                          placeholder='http://localhost:8085/callback?code=...'
+                          value={colabCallbackUrl}
+                          onChange={(e) => setColabCallbackUrl(e.target.value)}
+                          className='text-xs'
+                        />
                         <Button
                           type='button'
-                          variant='outline'
                           size='sm'
-                          className='shrink-0'
-                          disabled={colabTestState.loading || !field.value}
-                          onClick={handleTestColabConnection}
+                          onClick={handleExchangeColabOAuth}
+                          disabled={colabOAuthExchanging || !colabCallbackUrl}
                         >
-                          {colabTestState.loading && (
+                          {colabOAuthExchanging && (
                             <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
                           )}
-                          {t('Test Connection')}
+                          {t('Verify and Get')}
                         </Button>
                       </div>
-                      {colabTestState.ok === true && (
-                        <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
-                          <CheckCircle2 className='h-3.5 w-3.5' />
-                          {t('Successfully connected to Google Colab')}
-                        </p>
-                      )}
-                      {colabTestState.ok === false && (
-                        <p className='flex items-center gap-1 text-xs text-destructive'>
-                          <XCircle className='h-3.5 w-3.5' />
-                          {colabTestState.error}
-                        </p>
-                      )}
-                      <FormDescription className='text-xs'>
-                        {t('OAuth 2.0 Bearer token with https://www.googleapis.com/auth/colaboratory scope (or gcloud auth print-access-token).')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
+                    </div>
                   )}
-                />
+
+                  {colabTestState.ok === true && (
+                    <p className='flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400'>
+                      <CheckCircle2 className='h-3.5 w-3.5' />
+                      {t('Successfully connected to Google Colab')}
+                    </p>
+                  )}
+                  {colabTestState.ok === false && (
+                    <p className='flex items-center gap-1 text-xs text-destructive'>
+                      <XCircle className='h-3.5 w-3.5' />
+                      {colabTestState.error}
+                    </p>
+                  )}
+                </div>
 
                 <SettingsFormGrid>
                   <FormField
@@ -1465,9 +1445,6 @@ export function UnifiedDeploymentSettingsSection({
                             value={field.value ?? ''}
                           />
                         </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Optional Google Cloud project ID for Colab Enterprise')}
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1486,81 +1463,18 @@ export function UnifiedDeploymentSettingsSection({
                             value={field.value ?? ''}
                           />
                         </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Compute region (e.g. us-central1)')}
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </SettingsFormGrid>
 
-                <SettingsFormGrid>
-                  <FormField
-                    control={form.control}
-                    name='colabHardware'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Default Accelerator')}</FormLabel>
-                        <Select
-                          value={field.value ?? 'NVIDIA_TESLA_T4'}
-                          onValueChange={field.onChange}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value='CPU'>CPU (Standard)</SelectItem>
-                            <SelectItem value='NVIDIA_TESLA_T4'>GPU: NVIDIA Tesla T4</SelectItem>
-                            <SelectItem value='NVIDIA_L4'>GPU: NVIDIA L4</SelectItem>
-                            <SelectItem value='NVIDIA_TESLA_A100'>GPU: NVIDIA A100</SelectItem>
-                            <SelectItem value='NVIDIA_H100_80GB'>GPU: NVIDIA H100 80GB</SelectItem>
-                            <SelectItem value='TPU_V2_8'>TPU: v2-8</SelectItem>
-                            <SelectItem value='TPU_V5E_1'>TPU: v5e-1</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className='text-xs'>
-                          {t('Default CPU, GPU, or TPU runtime tier')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='colabIdleTimeoutSeconds'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min={0}
-                            placeholder='300'
-                            value={field.value ?? 300}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 0
-                              )
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Automatically scale down / sleep instances when inactive')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsFormGrid>
+                <IdleSleepField form={form} name='colabIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Kaggle Card */}
+          {/* Kaggle */}
           <Card className='border border-border/70 shadow-sm'>
             <CardHeader className='pb-3'>
               <div className='flex items-center justify-between'>
@@ -1569,7 +1483,9 @@ export function UnifiedDeploymentSettingsSection({
                     Kaggle
                   </CardTitle>
                   <CardDescription className='text-xs mt-1'>
-                    {t('Deploy and run Hugging Face models on Kaggle Kernels with CPU, GPU (T4 x2, P100, L4), or TPU (v3-8, v5e-8, v6e-8).')}
+                    {t(
+                      'Deploy and run Hugging Face models on Kaggle Kernels with CPU, GPU (T4 x2, P100, L4), or TPU (v3-8, v5e-8, v6e-8).'
+                    )}
                   </CardDescription>
                 </div>
                 <FormField
@@ -1655,7 +1571,9 @@ export function UnifiedDeploymentSettingsSection({
                           </p>
                         )}
                         <FormDescription className='text-xs'>
-                          {t('From Kaggle Account -> Settings -> API -> Create New Token')}
+                          {t(
+                            'From Kaggle Account -> Settings -> API -> Create New Token'
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -1663,72 +1581,11 @@ export function UnifiedDeploymentSettingsSection({
                   />
                 </SettingsFormGrid>
 
-                <SettingsFormGrid>
-                  <FormField
-                    control={form.control}
-                    name='kaggleAccelerator'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Default Accelerator')}</FormLabel>
-                        <Select
-                          value={field.value ?? 'NvidiaTeslaT4'}
-                          onValueChange={field.onChange}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value='CPU'>CPU (4 cores, 30 GB RAM)</SelectItem>
-                            <SelectItem value='NvidiaTeslaT4'>GPU: NVIDIA Tesla T4 x2</SelectItem>
-                            <SelectItem value='NvidiaP100'>GPU: NVIDIA Tesla P100</SelectItem>
-                            <SelectItem value='NvidiaL4'>GPU: NVIDIA L4</SelectItem>
-                            <SelectItem value='TpuV38'>TPU: v3-8</SelectItem>
-                            <SelectItem value='TpuV5E8'>TPU: v5e-8</SelectItem>
-                            <SelectItem value='TpuV6E8'>TPU: v6e-8</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription className='text-xs'>
-                          {t('Default CPU, GPU, or TPU hardware accelerator for Kaggle kernels')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='kaggleIdleTimeoutSeconds'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Idle Sleep Timeout (Seconds)')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min={0}
-                            placeholder='300'
-                            value={field.value ?? 300}
-                            onChange={(e) =>
-                              field.onChange(
-                                Number.parseInt(e.target.value, 10) || 0
-                              )
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Automatically scale down / sleep instances when inactive')}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsFormGrid>
+                <IdleSleepField form={form} name='kaggleIdleTimeoutSeconds' />
               </CardContent>
             )}
           </Card>
 
-          {/* Unified Single Save Button */}
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={isSubmitting || updateOption.isPending}

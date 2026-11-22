@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Check,
   Copy,
   ExternalLink,
   Eye,
   Loader2,
   Play,
-  Plus,
   Search,
   Trash2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -63,26 +63,11 @@ import {
   type ModelTestResult,
   type NotebookDeploymentItem,
 } from '../api'
-
-const KAGGLE_ACCELERATORS = [
-  { id: 'CPU', label: 'CPU (4 cores, 30 GB RAM)' },
-  { id: 'NvidiaTeslaT4', label: 'GPU: NVIDIA Tesla T4 x2' },
-  { id: 'NvidiaP100', label: 'GPU: NVIDIA Tesla P100' },
-  { id: 'NvidiaL4', label: 'GPU: NVIDIA L4' },
-  { id: 'TpuV38', label: 'TPU: v3-8' },
-  { id: 'TpuV5E8', label: 'TPU: v5e-8' },
-  { id: 'TpuV6E8', label: 'TPU: v6e-8' },
-] as const
-
-const COLAB_ACCELERATORS = [
-  { id: 'CPU', label: 'CPU (Standard)' },
-  { id: 'NVIDIA_TESLA_T4', label: 'GPU: NVIDIA Tesla T4' },
-  { id: 'NVIDIA_L4', label: 'GPU: NVIDIA L4' },
-  { id: 'NVIDIA_TESLA_A100', label: 'GPU: NVIDIA A100' },
-  { id: 'NVIDIA_H100_80GB', label: 'GPU: NVIDIA H100 80GB' },
-  { id: 'TPU_V2_8', label: 'TPU: v2-8' },
-  { id: 'TPU_V5E_1', label: 'TPU: v5e-1' },
-] as const
+import {
+  PROVIDER_HARDWARE_CATALOG,
+  PROVIDER_LABELS,
+  type DeploymentProviderId,
+} from '../lib/hardware-catalog'
 
 const TASK_TYPES = [
   { id: 'text', label: 'Text Generation (LLM)' },
@@ -92,40 +77,82 @@ const TASK_TYPES = [
   { id: 'embeddings', label: 'Embeddings' },
 ] as const
 
-export function NotebookDeploymentsPanel({
-  provider,
+function parseFallbacks(raw?: string): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function UnifiedDeploymentsPanel({
+  enabledProviders,
+  createOpen,
+  onCreateOpenChange,
 }: {
-  provider: 'colab' | 'kaggle'
+  enabledProviders: DeploymentProviderId[]
+  createOpen: boolean
+  onCreateOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const accelerators =
-    provider === 'kaggle' ? KAGGLE_ACCELERATORS : COLAB_ACCELERATORS
-  const defaultAccelerator =
-    provider === 'kaggle' ? 'NvidiaTeslaT4' : 'NVIDIA_TESLA_T4'
-  const providerTitle = provider === 'kaggle' ? 'Kaggle' : 'Google Colab'
 
-  const [createOpen, setCreateOpen] = useState(false)
+  const defaultProvider: DeploymentProviderId =
+    enabledProviders[0] ?? 'modal'
+
+  const [provider, setProvider] =
+    useState<DeploymentProviderId>(defaultProvider)
   const [hfPickerOpen, setHfPickerOpen] = useState(false)
   const [name, setName] = useState('')
   const [modelRepo, setModelRepo] = useState('')
   const [modelFile, setModelFile] = useState('')
   const [taskType, setTaskType] = useState<string>('text')
-  const [accelerator, setAccelerator] = useState<string>(defaultAccelerator)
-  const [idleTimeoutSeconds, setIdleTimeoutSeconds] = useState<number>(300)
+  const [accelerator, setAccelerator] = useState<string>(
+    PROVIDER_HARDWARE_CATALOG[defaultProvider][0]?.id ?? 'CPU'
+  )
+  const [fallbackAccelerators, setFallbackAccelerators] = useState<string[]>(
+    []
+  )
   const [endpointUrlInput, setEndpointUrlInput] = useState('')
   const [hfToken, setHfToken] = useState('')
 
-  const [detailsItem, setDetailsItem] = useState<NotebookDeploymentItem | null>(
-    null
-  )
+  useEffect(() => {
+    if (
+      enabledProviders.length > 0 &&
+      !enabledProviders.includes(provider)
+    ) {
+      const next = enabledProviders[0]
+      setProvider(next)
+      setAccelerator(PROVIDER_HARDWARE_CATALOG[next][0]?.id ?? 'CPU')
+      setFallbackAccelerators([])
+    }
+  }, [enabledProviders, provider])
+
+  const handleProviderChange = (next: DeploymentProviderId) => {
+    setProvider(next)
+    setAccelerator(PROVIDER_HARDWARE_CATALOG[next][0]?.id ?? 'CPU')
+    setFallbackAccelerators([])
+  }
+
+  const toggleFallback = (id: string) => {
+    if (id === accelerator) return
+    setFallbackAccelerators((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const [detailsItem, setDetailsItem] =
+    useState<NotebookDeploymentItem | null>(null)
   const [editEndpointUrl, setEditEndpointUrl] = useState('')
   const [savingEndpoint, setSavingEndpoint] = useState(false)
 
-  const [testTarget, setTestTarget] = useState<NotebookDeploymentItem | null>(
-    null
+  const [testTarget, setTestTarget] =
+    useState<NotebookDeploymentItem | null>(null)
+  const [testPrompt, setTestPrompt] = useState(
+    'Hello! Describe yourself briefly.'
   )
-  const [testPrompt, setTestPrompt] = useState('Hello! Describe yourself briefly.')
   const [testResult, setTestResult] = useState<ModelTestResult | null>(null)
   const [testError, setTestError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
@@ -135,12 +162,13 @@ export function NotebookDeploymentsPanel({
   const [deleting, setDeleting] = useState(false)
 
   const listQuery = useQuery({
-    queryKey: ['notebook-deployments', provider],
-    queryFn: () => listNotebookDeployments(provider),
+    queryKey: ['notebook-deployments', 'all'],
+    queryFn: () => listNotebookDeployments(),
     staleTime: 15 * 1000,
   })
 
   const items = listQuery.data?.data ?? []
+  const hardwareOptions = PROVIDER_HARDWARE_CATALOG[provider] ?? []
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -151,21 +179,22 @@ export function NotebookDeploymentsPanel({
         model_file: modelFile.trim() || undefined,
         task_type: taskType,
         accelerator,
-        idle_timeout_seconds: idleTimeoutSeconds,
+        fallback_accelerators: fallbackAccelerators,
         endpoint_url: endpointUrlInput.trim() || undefined,
         hf_token: hfToken.trim() || undefined,
       }),
     onSuccess: (res) => {
       if (res?.success) {
         toast.success(t('Deployment created successfully'))
-        setCreateOpen(false)
+        onCreateOpenChange(false)
         setName('')
         setModelRepo('')
         setModelFile('')
+        setFallbackAccelerators([])
         setEndpointUrlInput('')
         setHfToken('')
         queryClient.invalidateQueries({
-          queryKey: ['notebook-deployments', provider],
+          queryKey: ['notebook-deployments', 'all'],
         })
         return
       }
@@ -197,7 +226,7 @@ export function NotebookDeploymentsPanel({
         setDetailsItem(res.data)
         toast.success(t('Endpoint URL updated'))
         queryClient.invalidateQueries({
-          queryKey: ['notebook-deployments', provider],
+          queryKey: ['notebook-deployments', 'all'],
         })
       } else {
         toast.error(res?.message || t('Failed to update endpoint URL'))
@@ -238,7 +267,7 @@ export function NotebookDeploymentsPanel({
       if (res?.success) {
         toast.success(t('Deleted successfully'))
         queryClient.invalidateQueries({
-          queryKey: ['notebook-deployments', provider],
+          queryKey: ['notebook-deployments', 'all'],
         })
       } else {
         toast.error(res?.message || t('Delete failed'))
@@ -253,24 +282,15 @@ export function NotebookDeploymentsPanel({
 
   return (
     <div className='flex h-full min-h-0 flex-col gap-4'>
-      <div className='flex items-center justify-between gap-2'>
-        <div className='text-sm text-muted-foreground'>
-          {t('{{provider}} Model Deployments', { provider: providerTitle })}
-        </div>
-        <Button size='sm' onClick={() => setCreateOpen(true)}>
-          <Plus className='h-4 w-4 mr-1.5' />
-          {t('Create deployment')}
-        </Button>
-      </div>
-
       <div className='rounded-lg border overflow-auto'>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Provider')}</TableHead>
               <TableHead>{t('Model')}</TableHead>
               <TableHead>{t('Task')}</TableHead>
-              <TableHead>{t('Accelerator')}</TableHead>
+              <TableHead>{t('Hardware')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead>{t('Created')}</TableHead>
               <TableHead className='text-right'>{t('Actions')}</TableHead>
@@ -279,110 +299,160 @@ export function NotebookDeploymentsPanel({
           <TableBody>
             {listQuery.isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className='text-center py-8'>
+                <TableCell colSpan={8} className='text-center py-8'>
                   <Loader2 className='h-5 w-5 animate-spin mx-auto text-muted-foreground' />
                 </TableCell>
               </TableRow>
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className='text-center py-10 text-muted-foreground text-sm'
                 >
                   {t('No deployments available. Create one to get started.')}
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className='font-medium font-mono text-xs'>
-                    {item.name}
-                  </TableCell>
-                  <TableCell className='font-mono text-xs'>
-                    <div>{item.model_repo}</div>
-                    {item.model_file ? (
-                      <div className='text-[11px] text-muted-foreground'>
-                        {item.model_file}
+              items.map((item) => {
+                const fallbacks = parseFallbacks(item.fallback_accelerators)
+                const providerLabel =
+                  PROVIDER_LABELS[item.provider as DeploymentProviderId] ??
+                  item.provider
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className='font-medium font-mono text-xs'>
+                      {item.name}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant='outline' className='text-xs'>
+                        {providerLabel}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className='font-mono text-xs'>
+                      <div>{item.model_repo}</div>
+                      {item.model_file ? (
+                        <div className='text-[11px] text-muted-foreground'>
+                          {item.model_file}
+                        </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant='secondary'
+                        className='text-xs capitalize'
+                      >
+                        {item.task_type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className='font-mono text-xs'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        <Badge variant='default' className='text-[11px]'>
+                          {item.accelerator}
+                        </Badge>
+                        {fallbacks.map((fb) => (
+                          <Badge
+                            key={fb}
+                            variant='secondary'
+                            className='text-[10px]'
+                          >
+                            {fb}
+                          </Badge>
+                        ))}
                       </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant='secondary' className='text-xs capitalize'>
-                      {item.task_type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className='font-mono text-xs'>
-                    {item.accelerator}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant='outline' className='text-xs capitalize'>
-                      {item.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className='font-mono text-xs'>
-                    {formatTimestampToDate(item.created_time)}
-                  </TableCell>
-                  <TableCell className='text-right'>
-                    <div className='flex items-center justify-end gap-1'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        className='h-7 text-xs gap-1'
-                        onClick={() => {
-                          setTestTarget(item)
-                          setTestResult(null)
-                          setTestError(null)
-                        }}
-                      >
-                        <Play className='h-3 w-3' />
-                        {t('Test')}
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        onClick={() => {
-                          setDetailsItem(item)
-                          setEditEndpointUrl(item.endpoint_url ?? '')
-                        }}
-                        aria-label={t('View details')}
-                      >
-                        <Eye className='h-4 w-4' />
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        className='text-destructive hover:text-destructive'
-                        onClick={() => setDeleteTarget(item)}
-                        aria-label={t('Delete')}
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant='outline' className='text-xs capitalize'>
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className='font-mono text-xs'>
+                      {formatTimestampToDate(item.created_time)}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      <div className='flex items-center justify-end gap-1'>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          className='h-7 text-xs gap-1'
+                          onClick={() => {
+                            setTestTarget(item)
+                            setTestResult(null)
+                            setTestError(null)
+                          }}
+                        >
+                          <Play className='h-3 w-3' />
+                          {t('Test')}
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          onClick={() => {
+                            setDetailsItem(item)
+                            setEditEndpointUrl(item.endpoint_url ?? '')
+                          }}
+                          aria-label={t('View details')}
+                        >
+                          <Eye className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon-sm'
+                          className='text-destructive hover:text-destructive'
+                          onClick={() => setDeleteTarget(item)}
+                          aria-label={t('Delete')}
+                        >
+                          <Trash2 className='h-4 w-4' />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Create Deployment Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className='max-w-xl'>
+      {/* Single Unified Create Deployment Dialog */}
+      <Dialog open={createOpen} onOpenChange={onCreateOpenChange}>
+        <DialogContent className='max-w-2xl max-h-[90vh] overflow-y-auto'>
           <DialogHeader>
-            <DialogTitle>
-              {t('Create {{provider}} Deployment', { provider: providerTitle })}
-            </DialogTitle>
+            <DialogTitle>{t('Create deployment')}</DialogTitle>
           </DialogHeader>
 
           <div className='grid gap-4 py-2'>
-            <div className='space-y-1.5'>
-              <label className='text-sm font-medium'>{t('Deployment Name')}</label>
-              <Input
-                placeholder='my-qwen-server'
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <label className='text-sm font-medium'>{t('Provider')}</label>
+                <Select
+                  value={provider}
+                  onValueChange={(v) =>
+                    handleProviderChange((v ?? defaultProvider) as DeploymentProviderId)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {enabledProviders.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {PROVIDER_LABELS[p]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className='space-y-1.5'>
+                <label className='text-sm font-medium'>
+                  {t('Deployment Name')}
+                </label>
+                <Input
+                  placeholder='my-qwen-server'
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className='space-y-1.5'>
@@ -414,7 +484,9 @@ export function NotebookDeploymentsPanel({
 
             <div className='grid gap-4 sm:grid-cols-2'>
               <div className='space-y-1.5'>
-                <label className='text-sm font-medium'>{t('Model Type / Task')}</label>
+                <label className='text-sm font-medium'>
+                  {t('Model Type / Task')}
+                </label>
                 <Select
                   value={taskType}
                   onValueChange={(v) => setTaskType(v ?? 'text')}
@@ -434,21 +506,25 @@ export function NotebookDeploymentsPanel({
 
               <div className='space-y-1.5'>
                 <label className='text-sm font-medium'>
-                  {t('Hardware Accelerator (CPU / GPU / TPU)')}
+                  {t('Default Hardware (CPU / GPU / TPU)')}
                 </label>
                 <Select
                   value={accelerator}
-                  onValueChange={(v) =>
-                    setAccelerator(v ?? defaultAccelerator)
-                  }
+                  onValueChange={(v) => {
+                    const next = v ?? hardwareOptions[0]?.id ?? 'CPU'
+                    setAccelerator(next)
+                    setFallbackAccelerators((prev) =>
+                      prev.filter((x) => x !== next)
+                    )
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {accelerators.map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id}>
-                        {acc.label}
+                    {hardwareOptions.map((hw) => (
+                      <SelectItem key={hw.id} value={hw.id}>
+                        {hw.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -456,22 +532,33 @@ export function NotebookDeploymentsPanel({
               </div>
             </div>
 
-            <div className='grid gap-4 sm:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <label className='text-sm font-medium'>
-                  {t('Idle Sleep Timeout (Seconds)')}
-                </label>
-                <Input
-                  type='number'
-                  min={0}
-                  value={idleTimeoutSeconds}
-                  onChange={(e) =>
-                    setIdleTimeoutSeconds(
-                      Number.parseInt(e.target.value, 10) || 0
-                    )
-                  }
-                />
+            <div className='space-y-2'>
+              <div className='text-sm font-medium'>
+                {t('Alternative / Fallback Hardware (if primary fails)')}
               </div>
+              <div className='flex flex-wrap gap-1.5 rounded-lg border p-2.5 bg-muted/20'>
+                {hardwareOptions
+                  .filter((hw) => hw.id !== accelerator)
+                  .map((hw) => {
+                    const selected = fallbackAccelerators.includes(hw.id)
+                    return (
+                      <Button
+                        key={hw.id}
+                        type='button'
+                        size='sm'
+                        variant={selected ? 'default' : 'outline'}
+                        className='h-7 text-xs gap-1'
+                        onClick={() => toggleFallback(hw.id)}
+                      >
+                        {selected && <Check className='h-3 w-3' />}
+                        {hw.label}
+                      </Button>
+                    )
+                  })}
+              </div>
+            </div>
+
+            <div className='grid gap-4 sm:grid-cols-2'>
               <div className='space-y-1.5'>
                 <label className='text-sm font-medium'>
                   {t('HF Token (Optional)')}
@@ -483,22 +570,21 @@ export function NotebookDeploymentsPanel({
                   onChange={(e) => setHfToken(e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className='space-y-1.5'>
-              <label className='text-sm font-medium'>
-                {t('Endpoint URL (Optional)')}
-              </label>
-              <Input
-                placeholder='https://xxxx.trycloudflare.com'
-                value={endpointUrlInput}
-                onChange={(e) => setEndpointUrlInput(e.target.value)}
-              />
+              <div className='space-y-1.5'>
+                <label className='text-sm font-medium'>
+                  {t('Endpoint URL (Optional)')}
+                </label>
+                <Input
+                  placeholder='https://xxxx.trycloudflare.com'
+                  value={endpointUrlInput}
+                  onChange={(e) => setEndpointUrlInput(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant='outline' onClick={() => setCreateOpen(false)}>
+            <Button variant='outline' onClick={() => onCreateOpenChange(false)}>
               {t('Cancel')}
             </Button>
             <Button
@@ -546,7 +632,7 @@ export function NotebookDeploymentsPanel({
                 </div>
                 <div>
                   <span className='text-muted-foreground'>
-                    {t('Accelerator')}:{' '}
+                    {t('Hardware')}:{' '}
                   </span>
                   <span className='font-mono font-semibold'>
                     {detailsItem.accelerator}

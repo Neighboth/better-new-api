@@ -691,12 +691,13 @@ export async function checkClusterNameAvailability(name: string): Promise<{
 
 export interface NotebookDeploymentItem {
   id: number
-  provider: 'colab' | 'kaggle'
+  provider: string
   name: string
   model_repo: string
   model_file?: string
   task_type: 'text' | 'image' | 'video' | 'audio' | 'embeddings'
   accelerator: string
+  fallback_accelerators?: string
   idle_timeout_seconds: number
   status: string
   remote_id?: string
@@ -717,7 +718,7 @@ export interface ModelTestResult {
 }
 
 export async function listNotebookDeployments(
-  provider?: 'colab' | 'kaggle'
+  provider?: string
 ): Promise<{
   success: boolean
   message?: string
@@ -730,13 +731,13 @@ export async function listNotebookDeployments(
 }
 
 export async function createNotebookDeployment(payload: {
-  provider: 'colab' | 'kaggle'
+  provider: string
   name: string
   model_repo: string
   model_file?: string
   task_type: string
   accelerator: string
-  idle_timeout_seconds?: number
+  fallback_accelerators?: string[]
   endpoint_url?: string
   hf_token?: string
 }): Promise<{

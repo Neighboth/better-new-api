@@ -402,22 +402,19 @@ export type ModelSettings = {
   'channel_affinity_setting.max_entries': number
   'channel_affinity_setting.default_ttl_seconds': number
   'channel_affinity_setting.rules': string
+  'model_deployment.priority'?: string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
   'model_deployment.ionet.idle_timeout_seconds'?: number
   'model_deployment.modal.enabled'?: boolean
   'model_deployment.modal.token_id'?: string
   'model_deployment.modal.token_secret'?: string
-  'model_deployment.modal.workspace'?: string
   'model_deployment.modal.shared_volume_path'?: string
   'model_deployment.modal.idle_timeout_seconds'?: number
-  'model_deployment.modal.priority'?: string
   'model_deployment.huggingface.enabled'?: boolean
   'model_deployment.huggingface.token'?: string
   'model_deployment.huggingface.org'?: string
-  'model_deployment.huggingface.hardware'?: string
   'model_deployment.huggingface.idle_timeout_seconds'?: number
-  'model_deployment.huggingface.priority'?: string
   'model_deployment.hostinger.enabled'?: boolean
   'model_deployment.hostinger.api_key'?: string
   'model_deployment.hostinger.idle_timeout_seconds'?: number
@@ -426,14 +423,14 @@ export type ModelSettings = {
   'model_deployment.runpod.idle_timeout_seconds'?: number
   'model_deployment.colab.enabled'?: boolean
   'model_deployment.colab.access_token'?: string
+  'model_deployment.colab.refresh_token'?: string
+  'model_deployment.colab.account_email'?: string
   'model_deployment.colab.project_id'?: string
   'model_deployment.colab.region'?: string
-  'model_deployment.colab.hardware'?: string
   'model_deployment.colab.idle_timeout_seconds'?: number
   'model_deployment.kaggle.enabled'?: boolean
   'model_deployment.kaggle.username'?: string
   'model_deployment.kaggle.api_key'?: string
-  'model_deployment.kaggle.accelerator'?: string
   'model_deployment.kaggle.idle_timeout_seconds'?: number
 }
 
