@@ -581,25 +581,46 @@ func buildAcceleratorCandidates(primary string, fallbacks []string) []string {
 	return out
 }
 
-var deploymentLogMu sync.Mutex
+var (
+	deploymentLogMu       sync.Mutex
+	leadingLogTimestampRe = regexp.MustCompile(`^[0-9]{2}:[0-9]{2}:[0-9]{2}\s+`)
+)
 
 func appendDeploymentLog(id int, line string) {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return
 	}
+	normBody := strings.TrimSpace(leadingLogTimestampRe.ReplaceAllString(line, ""))
 	deploymentLogMu.Lock()
 	defer deploymentLogMu.Unlock()
 	item, err := model.GetNotebookDeploymentByID(id)
 	if err != nil {
 		return
 	}
-	ts := time.Now().Format("15:04:05")
+	existing := strings.TrimSpace(item.Logs)
+	if existing != "" && normBody != "" {
+		lines := strings.Split(existing, "\n")
+		start := 0
+		if len(lines) > 20 {
+			start = len(lines) - 20
+		}
+		for _, prev := range lines[start:] {
+			prevBody := strings.TrimSpace(leadingLogTimestampRe.ReplaceAllString(strings.TrimSpace(prev), ""))
+			if prevBody == normBody {
+				return
+			}
+		}
+	}
 	next := item.Logs
 	if next != "" && !strings.HasSuffix(next, "\n") {
 		next += "\n"
 	}
-	next += ts + " " + line + "\n"
+	if leadingLogTimestampRe.MatchString(line) {
+		next += line + "\n"
+	} else {
+		next += time.Now().Format("15:04:05") + " " + line + "\n"
+	}
 	if len(next) > 65536 {
 		next = next[len(next)-65536:]
 	}
@@ -1138,14 +1159,16 @@ func provisionDeploymentAsync(p provisionParams) {
 					}
 					seenLines = lineIdx
 					appendDeploymentLog(p.ID, line)
-					if m := tunnelURLRe.FindString(line); m != "" && discoveredURL == "" {
-						discoveredURL = m
-						_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
-							"endpoint_url":   discoveredURL,
-							"status":         "starting",
-							"status_message": "Tunnel URL detected, verifying model server health...",
-							"updated_time":   time.Now().Unix(),
-						})
+					if strings.Contains(line, "[tunnel] Ready:") {
+						if m := tunnelURLRe.FindString(line); m != "" && discoveredURL == "" {
+							discoveredURL = m
+							_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+								"endpoint_url":   discoveredURL,
+								"status":         "starting",
+								"status_message": "Tunnel URL ready, verifying model server health...",
+								"updated_time":   time.Now().Unix(),
+							})
+						}
 					} else {
 						msg := strings.TrimSpace(line)
 						if len(msg) > 140 {
@@ -1162,7 +1185,7 @@ func provisionDeploymentAsync(p provisionParams) {
 				if err == nil || logCtx.Err() != nil {
 					return
 				}
-				if !loggedErr {
+				if !loggedErr && (strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "HTTP 403")) {
 					loggedErr = true
 					appendDeploymentLog(p.ID, fmt.Sprintf("[kaggle] Log stream: %v", err))
 				}
@@ -1174,7 +1197,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			}
 		}()
 
-		deadline := time.Now().Add(10 * time.Minute)
+		deadline := time.Now().Add(15 * time.Minute)
 		queuedSince := time.Now()
 		consecutiveStatusErrs := 0
 		for time.Now().Before(deadline) {
@@ -1482,7 +1505,7 @@ func probeHealth(baseURL string) bool {
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	target := strings.TrimRight(baseURL, "/") + "/health"
-	for i := 0; i < 36; i++ {
+	for i := 0; i < 60; i++ {
 		resp, err := client.Get(target)
 		if err == nil {
 			_ = resp.Body.Close()
@@ -1918,91 +1941,130 @@ func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTa
 	}
 
 	// Step A: Try async /_jobs endpoint first (prevents Cloudflare/proxy 524 timeouts and reports % progress).
+	jobsUnsupported := false
 	if !strings.HasSuffix(base, endpointPath) {
+		jobStartClient := &http.Client{Timeout: 60 * time.Second}
 		shortClient := &http.Client{Timeout: 15 * time.Second}
-		if jobReq, jErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/_jobs", bytes.NewReader(rawBody)); jErr == nil {
+		var jobResp *http.Response
+		var jobRespBytes []byte
+		var startErr error
+		for attempt := 0; attempt < 2; attempt++ {
+			jobReq, jErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/_jobs", bytes.NewReader(rawBody))
+			if jErr != nil {
+				startErr = jErr
+				break
+			}
 			jobReq.Header.Set("Content-Type", "application/json")
 			if bearerToken != "" {
 				jobReq.Header.Set("Authorization", "Bearer "+bearerToken)
 			}
-			if jobResp, doErr := shortClient.Do(jobReq); doErr == nil {
-				jobRespBytes, _ := io.ReadAll(io.LimitReader(jobResp.Body, 1<<20))
+			jobResp, startErr = jobStartClient.Do(jobReq)
+			if startErr == nil {
+				jobRespBytes, startErr = io.ReadAll(io.LimitReader(jobResp.Body, 1<<20))
 				_ = jobResp.Body.Close()
-				if jobResp.StatusCode >= 200 && jobResp.StatusCode < 300 {
-					var started struct {
-						JobID    string `json:"job_id"`
-						Progress int    `json:"progress"`
-						Stage    string `json:"stage"`
-					}
-					if common.Unmarshal(jobRespBytes, &started) == nil && started.JobID != "" {
-						if onProgress != nil {
-							onProgress(started.Progress, started.Stage)
-						}
-						pollURL := base + "/_jobs/" + url.PathEscape(started.JobID)
-						deadline := time.Now().Add(20 * time.Minute)
-						consecutiveErrs := 0
-						for time.Now().Before(deadline) {
-							select {
-							case <-ctx.Done():
-								return nil, ctx.Err()
-							case <-time.After(1500 * time.Millisecond):
-							}
-							pollReq, pErr := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
-							if pErr != nil {
-								return nil, pErr
-							}
-							if bearerToken != "" {
-								pollReq.Header.Set("Authorization", "Bearer "+bearerToken)
-							}
-							pResp, pDoErr := shortClient.Do(pollReq)
-							if pDoErr != nil {
-								consecutiveErrs++
-								if consecutiveErrs >= 8 {
-									return nil, fmt.Errorf("model test job polling failed: %w", pDoErr)
-								}
-								continue
-							}
-							pBytes, _ := io.ReadAll(io.LimitReader(pResp.Body, 8<<20))
-							_ = pResp.Body.Close()
-							if pResp.StatusCode == http.StatusBadGateway || pResp.StatusCode == http.StatusServiceUnavailable || pResp.StatusCode == http.StatusGatewayTimeout || pResp.StatusCode == 524 {
-								consecutiveErrs++
-								if consecutiveErrs >= 8 {
-									return nil, fmt.Errorf("model endpoint returned HTTP %d during job poll", pResp.StatusCode)
-								}
-								continue
-							}
-							if pResp.StatusCode < 200 || pResp.StatusCode >= 300 {
-								return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", pResp.StatusCode, strings.TrimSpace(string(pBytes)))
-							}
-							consecutiveErrs = 0
-							var st struct {
-								Status   string          `json:"status"`
-								Progress int             `json:"progress"`
-								Stage    string          `json:"stage"`
-								Result   json.RawMessage `json:"result"`
-								Error    string          `json:"error"`
-							}
-							if uErr := common.Unmarshal(pBytes, &st); uErr != nil {
-								continue
-							}
-							if onProgress != nil {
-								onProgress(st.Progress, st.Stage)
-							}
-							if st.Status == "completed" {
-								return parseModelTestJSON(st.Result, task, time.Since(start).Milliseconds())
-							}
-							if st.Status == "failed" {
-								if st.Error != "" {
-									return nil, fmt.Errorf("model endpoint error: %s", st.Error)
-								}
-								return nil, fmt.Errorf("model job failed")
-							}
-						}
-						return nil, fmt.Errorf("model test timed out after 20 minutes")
-					}
+				if startErr == nil && jobResp.StatusCode != http.StatusBadGateway && jobResp.StatusCode != http.StatusServiceUnavailable && jobResp.StatusCode != http.StatusGatewayTimeout && jobResp.StatusCode != 524 {
+					break
+				}
+				if jobResp.StatusCode == http.StatusBadGateway || jobResp.StatusCode == http.StatusServiceUnavailable || jobResp.StatusCode == http.StatusGatewayTimeout || jobResp.StatusCode == 524 {
+					startErr = fmt.Errorf("model endpoint returned HTTP %d", jobResp.StatusCode)
 				}
 			}
+			if attempt == 0 {
+				time.Sleep(2 * time.Second)
+			}
 		}
+
+		if startErr != nil {
+			return nil, fmt.Errorf("failed to start async model job: %w", startErr)
+		}
+		if jobResp != nil && (jobResp.StatusCode == http.StatusNotFound || jobResp.StatusCode == http.StatusMethodNotAllowed) {
+			jobsUnsupported = true
+		} else if jobResp != nil && jobResp.StatusCode >= 200 && jobResp.StatusCode < 300 {
+			var started struct {
+				JobID    string `json:"job_id"`
+				Progress int    `json:"progress"`
+				Stage    string `json:"stage"`
+			}
+			if common.Unmarshal(jobRespBytes, &started) == nil && started.JobID != "" {
+				if onProgress != nil {
+					onProgress(started.Progress, started.Stage)
+				}
+				pollURL := base + "/_jobs/" + url.PathEscape(started.JobID)
+				deadline := time.Now().Add(20 * time.Minute)
+				consecutiveErrs := 0
+				for time.Now().Before(deadline) {
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case <-time.After(1500 * time.Millisecond):
+					}
+					pollReq, pErr := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+					if pErr != nil {
+						return nil, pErr
+					}
+					if bearerToken != "" {
+						pollReq.Header.Set("Authorization", "Bearer "+bearerToken)
+					}
+					pResp, pDoErr := shortClient.Do(pollReq)
+					if pDoErr != nil {
+						consecutiveErrs++
+						if consecutiveErrs >= 8 {
+							return nil, fmt.Errorf("model test job polling failed: %w", pDoErr)
+						}
+						continue
+					}
+					pBytes, _ := io.ReadAll(io.LimitReader(pResp.Body, 8<<20))
+					_ = pResp.Body.Close()
+					if pResp.StatusCode == http.StatusBadGateway || pResp.StatusCode == http.StatusServiceUnavailable || pResp.StatusCode == http.StatusGatewayTimeout || pResp.StatusCode == 524 {
+						consecutiveErrs++
+						if consecutiveErrs >= 8 {
+							return nil, fmt.Errorf("model endpoint returned HTTP %d during job poll", pResp.StatusCode)
+						}
+						continue
+					}
+					if pResp.StatusCode < 200 || pResp.StatusCode >= 300 {
+						return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", pResp.StatusCode, strings.TrimSpace(string(pBytes)))
+					}
+					consecutiveErrs = 0
+					var st struct {
+						Status   string          `json:"status"`
+						Progress int             `json:"progress"`
+						Stage    string          `json:"stage"`
+						Result   json.RawMessage `json:"result"`
+						Error    string          `json:"error"`
+					}
+					if uErr := common.Unmarshal(pBytes, &st); uErr != nil {
+						continue
+					}
+					if onProgress != nil {
+						onProgress(st.Progress, st.Stage)
+					}
+					if st.Status == "completed" {
+						return parseModelTestJSON(st.Result, task, time.Since(start).Milliseconds())
+					}
+					if st.Status == "failed" {
+						if st.Error != "" {
+							return nil, fmt.Errorf("model endpoint error: %s", st.Error)
+						}
+						return nil, fmt.Errorf("model job failed")
+					}
+				}
+				return nil, fmt.Errorf("model test timed out after 20 minutes")
+			}
+			return nil, fmt.Errorf("model endpoint returned invalid /_jobs response")
+		} else if jobResp != nil {
+			msg := strings.TrimSpace(string(jobRespBytes))
+			if len(msg) > 400 {
+				msg = msg[:400] + "..."
+			}
+			return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", jobResp.StatusCode, msg)
+		}
+	} else {
+		jobsUnsupported = true
+	}
+
+	if !jobsUnsupported {
+		return nil, fmt.Errorf("async model test did not complete")
 	}
 
 	// Step B: Direct HTTP fallback (external providers or legacy servers without /_jobs).
@@ -2046,6 +2108,9 @@ func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTa
 		return nil, fmt.Errorf("failed to read model test response: %w", reqErr)
 	}
 	latency := time.Since(start).Milliseconds()
+	if resp.StatusCode == 524 {
+		return nil, fmt.Errorf("model endpoint timed out (HTTP 524); recreate the deployment to enable async /_jobs progress")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := strings.TrimSpace(string(respBytes))
 		if len(msg) > 400 {

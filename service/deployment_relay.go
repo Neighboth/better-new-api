@@ -132,10 +132,11 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 		!bytes.Contains(bodyBytes, []byte(`"stream":true`)) && !bytes.Contains(bodyBytes, []byte(`"stream": true`))
 
 	if isJobEligible {
+		jobStartClient := &http.Client{Timeout: 60 * time.Second}
 		shortClient := &http.Client{Timeout: 15 * time.Second}
 		if jReq, jErr := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, baseEndpoint+"/_jobs", bytes.NewReader(bodyBytes)); jErr == nil {
 			jReq.Header.Set("Content-Type", "application/json")
-			if jResp, doErr := shortClient.Do(jReq); doErr == nil {
+			if jResp, doErr := jobStartClient.Do(jReq); doErr == nil {
 				jBytes, _ := io.ReadAll(io.LimitReader(jResp.Body, 1<<20))
 				_ = jResp.Body.Close()
 				if jResp.StatusCode >= 200 && jResp.StatusCode < 300 {

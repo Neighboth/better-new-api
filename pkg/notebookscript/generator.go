@@ -76,6 +76,7 @@ func Generate(cfg Config) string {
 	var pipPackages string
 	var extraPipArgs string
 	var needsTorch bool
+	var isGGUF bool
 	var taskHandler string
 
 	switch task {
@@ -154,14 +155,27 @@ def _execute_task(body, base_url, set_progress=None):
     if set_progress:
         set_progress(20, "Model loaded, generating video frames...")
     def _cb(_p, step, _ts, kw):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+        stage = f"Generating video step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(90, pct)}%)")
         if set_progress:
-            pct = 20 + int(((step + 1) / max(1, steps)) * 70)
-            set_progress(min(90, pct), f"Generating video step {step + 1}/{steps}")
+            set_progress(min(90, pct), stage)
+        time.sleep(0.001)
         return kw
+    def _legacy_cb(step, _ts, _latents):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+        stage = f"Generating video step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(90, pct)}%)")
+        if set_progress:
+            set_progress(min(90, pct), stage)
+        time.sleep(0.001)
     try:
         result = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback_on_step_end=_cb)
     except TypeError:
-        result = pipe(prompt=prompt, num_frames=num_frames)
+        try:
+            result = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1)
+        except TypeError:
+            result = pipe(prompt=prompt, num_frames=num_frames)
     frames = result.frames[0]
     if set_progress:
         set_progress(92, "Encoding MP4 video...")
@@ -362,20 +376,36 @@ def _execute_task(body, base_url, set_progress=None):
         set_progress(20, "Model loaded, generating image...")
     if hasattr(pipe, "_engine"):
         def _on_step(step, total, _t):
+            pct = 20 + int((step / max(1, total)) * 75)
+            stage = f"Generating image step {step}/{total}"
+            _log(f"[infer] {stage} ({min(95, pct)}%)")
             if set_progress:
-                pct = 20 + int((step / max(1, total)) * 75)
-                set_progress(min(95, pct), f"Generating image step {step}/{total}")
+                set_progress(min(95, pct), stage)
+            time.sleep(0.001)
         img = pipe(prompt=prompt, width=width, height=height, num_inference_steps=steps, progress_callback=_on_step).images[0]
     else:
         def _cb(_p, step, _ts, kw):
+            pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+            stage = f"Generating image step {step + 1}/{steps}"
+            _log(f"[infer] {stage} ({min(95, pct)}%)")
             if set_progress:
-                pct = 20 + int(((step + 1) / max(1, steps)) * 75)
-                set_progress(min(95, pct), f"Generating image step {step + 1}/{steps}")
+                set_progress(min(95, pct), stage)
+            time.sleep(0.001)
             return kw
+        def _legacy_cb(step, _ts, _latents):
+            pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+            stage = f"Generating image step {step + 1}/{steps}"
+            _log(f"[infer] {stage} ({min(95, pct)}%)")
+            if set_progress:
+                set_progress(min(95, pct), stage)
+            time.sleep(0.001)
         try:
             img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
         except TypeError:
-            img = pipe(prompt=prompt).images[0]
+            try:
+                img = pipe(prompt=prompt, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1).images[0]
+            except TypeError:
+                img = pipe(prompt=prompt).images[0]
     filename = f"{uuid.uuid4().hex}.png"
     out_path = os.path.join(OUTPUT_DIR, filename)
     img.save(out_path)
@@ -468,14 +498,14 @@ async def create_embeddings(req: Request):
     return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
-		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
+		isGGUF = strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
 			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
 		if isGGUF {
 			pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("huggingface_hub", "huggingface_hub"), ("llama-cpp-python", "llama_cpp")]`
 			if strings.TrimSpace(cfg.Accelerator) == "" || strings.EqualFold(strings.TrimSpace(cfg.Accelerator), "CPU") {
 				extraPipArgs = `["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu"]`
 			} else {
-				extraPipArgs = `["--prefer-binary"]`
+				extraPipArgs = `["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu124"]`
 			}
 			taskHandler = `
 from huggingface_hub import hf_hub_download, list_repo_files
@@ -587,6 +617,31 @@ async def chat_completions(req: Request):
 
 	if extraPipArgs == "" {
 		extraPipArgs = "[]"
+	}
+	ggufWheelHelper := ""
+	if isGGUF {
+		ggufWheelHelper = `
+def _find_llama_cpp_wheel():
+    try:
+        py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}-cp{sys.version_info.major}{sys.version_info.minor}-linux_x86_64.whl"
+        has_gpu = os.path.exists("/dev/nvidia0")
+        req = urllib.request.Request(
+            "https://api.github.com/repos/JamePeng/llama-cpp-python/releases?per_page=15",
+            headers={"User-Agent": "BetterNewAPI-Deployer/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rels = json.loads(resp.read().decode("utf-8"))
+        prefs = ("cu124", "cu126", "cu128", "cu122") if has_gpu else ("basic", "cpu")
+        for pref in prefs:
+            for rel in rels:
+                for asset in rel.get("assets", []):
+                    name = asset.get("name", "")
+                    if py_tag in name and pref in name:
+                        return asset.get("browser_download_url")
+    except Exception:
+        pass
+    return None
+`
 	}
 	torchImport := ""
 	if needsTorch {
@@ -740,11 +795,30 @@ _log(f"[boot] Python {sys.version.split()[0]} | CPUs={os.cpu_count()} | GPU={_gp
 
 threading.Thread(target=_start_cloudflared, daemon=True).start()
 
+%s
 def _ensure_packages(specs, extra_args=None):
     missing = [pkg for pkg, mod in specs if importlib.util.find_spec(mod) is None]
     if not missing:
         _log("[setup] All required packages already installed", push_callback=True)
         return
+    if "_find_llama_cpp_wheel" in globals():
+        target_pkg = next((p for p in missing if "llama" in p and "cpp" in p), None)
+        if target_pkg:
+            whl = _find_llama_cpp_wheel()
+            if whl:
+                _log(f"[setup] Installing prebuilt wheel: {whl}", push_callback=True)
+                wcmd = [sys.executable, "-m", "pip", "install", "--progress-bar", "off", whl]
+                wproc = subprocess.Popen(wcmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                if wproc.stdout is not None:
+                    for raw_line in wproc.stdout:
+                        s = raw_line.rstrip()
+                        if s:
+                            _log(f"[pip] {s}", push_callback=any(k in s for k in ("Downloading", "Successfully", "ERROR")))
+                if wproc.wait() == 0:
+                    missing = [p for p in missing if p != target_pkg]
+                    if not missing:
+                        _log("[setup] Package installation complete", push_callback=True)
+                        return
     _log(f"[setup] Installing packages: {', '.join(missing)}", push_callback=True)
     cmd = [sys.executable, "-m", "pip", "install", "--progress-bar", "off"] + (extra_args or []) + missing
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -866,7 +940,7 @@ async def start_job(req: Request):
     return {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued..."}
 
 @app.get("/_jobs/{job_id}")
-def get_job(job_id: str):
+async def get_job(job_id: str):
     touch()
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -891,6 +965,7 @@ if __name__ == "__main__":
 		pyQuote(cfg.CallbackURL),
 		pyQuote(cfg.ShutdownToken),
 		idle,
+		ggufWheelHelper,
 		pipPackages,
 		extraPipArgs,
 		torchImport,

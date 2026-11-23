@@ -9,7 +9,6 @@ import {
   Play,
   Power,
   PowerOff,
-  RefreshCw,
   Terminal,
   Trash2,
   X,
@@ -389,7 +388,7 @@ export function UnifiedDeploymentsPanel({
     enabled: Boolean(detailsItem) && detailsTab === 'logs',
     refetchOnWindowFocus: false,
     refetchInterval:
-      Boolean(detailsItem) && detailsTab === 'logs' ? 2500 : false,
+      Boolean(detailsItem) && detailsTab === 'logs' ? 1000 : false,
   })
 
   useEffect(() => {
@@ -695,13 +694,24 @@ export function UnifiedDeploymentsPanel({
       setTestProgress(startRes.data.progress ?? 0)
       setTestStage(startRes.data.stage || t('Starting test...'))
 
+      let consecutivePollErrors = 0
       while (!testPollCancelledRef.current) {
         await new Promise((r) => setTimeout(r, 1200))
         if (testPollCancelledRef.current) break
-        const pollRes = await getNotebookDeploymentTestStatus(
-          testTarget.id,
-          jobId
-        )
+        let pollRes
+        try {
+          pollRes = await getNotebookDeploymentTestStatus(
+            testTarget.id,
+            jobId
+          )
+          consecutivePollErrors = 0
+        } catch (pollErr) {
+          consecutivePollErrors += 1
+          if (consecutivePollErrors >= 5) {
+            throw pollErr
+          }
+          continue
+        }
         if (!pollRes?.success || !pollRes.data) {
           setTestError(pollRes?.message || t('Model test failed'))
           break
@@ -1863,21 +1873,6 @@ export function UnifiedDeploymentsPanel({
                           t('Streaming live deployment logs...')}
                       </span>
                       <div className='flex items-center gap-1.5'>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          size='sm'
-                          className='h-7 text-xs'
-                          onClick={() => void logsQuery.refetch()}
-                        >
-                          <RefreshCw
-                            className={cn(
-                              'h-3 w-3 mr-1',
-                              logsQuery.isFetching && 'animate-spin'
-                            )}
-                          />
-                          {t('Refresh')}
-                        </Button>
                         <Button
                           type='button'
                           variant='outline'

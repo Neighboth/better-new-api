@@ -223,14 +223,27 @@ def _execute_task(body, base_url, set_progress=None):
     if set_progress:
         set_progress(20, "Model loaded, generating video frames...")
     def _cb(_p, step, _ts, kw):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+        stage = f"Generating video step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(90, pct)}%)")
         if set_progress:
-            pct = 20 + int(((step + 1) / max(1, steps)) * 70)
-            set_progress(min(90, pct), f"Generating video step {step + 1}/{steps}")
+            set_progress(min(90, pct), stage)
+        time.sleep(0.001)
         return kw
+    def _legacy_cb(step, _ts, _latents):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+        stage = f"Generating video step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(90, pct)}%)")
+        if set_progress:
+            set_progress(min(90, pct), stage)
+        time.sleep(0.001)
     try:
         frames = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback_on_step_end=_cb).frames[0]
     except TypeError:
-        frames = pipe(prompt=prompt, num_frames=num_frames).frames[0]
+        try:
+            frames = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1).frames[0]
+        except TypeError:
+            frames = pipe(prompt=prompt, num_frames=num_frames).frames[0]
     if set_progress:
         set_progress(92, "Encoding MP4 video...")
     fn = f"{uuid.uuid4().hex}.mp4"
@@ -331,9 +344,12 @@ def _execute_task(body, base_url, set_progress=None):
     if set_progress:
         set_progress(20, "Model loaded, generating image...")
     def _on_step(step, total, _t):
+        pct = 20 + int((step / max(1, total)) * 75)
+        stage = f"Generating image step {step}/{total}"
+        _log(f"[infer] {stage} ({min(95, pct)}%)")
         if set_progress:
-            pct = 20 + int((step / max(1, total)) * 75)
-            set_progress(min(95, pct), f"Generating image step {step}/{total}")
+            set_progress(min(95, pct), stage)
+        time.sleep(0.001)
     img = pipe(prompt=prompt, width=width, height=height, num_inference_steps=steps, progress_callback=_on_step).images[0]
     fn = f"{uuid.uuid4().hex}.png"
     out = os.path.join(OUT_DIR, fn)
@@ -465,14 +481,27 @@ def _execute_task(body, base_url, set_progress=None):
     if set_progress:
         set_progress(20, "Model loaded, generating image...")
     def _cb(_p, step, _ts, kw):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+        stage = f"Generating image step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(95, pct)}%)")
         if set_progress:
-            pct = 20 + int(((step + 1) / max(1, steps)) * 75)
-            set_progress(min(95, pct), f"Generating image step {step + 1}/{steps}")
+            set_progress(min(95, pct), stage)
+        time.sleep(0.001)
         return kw
+    def _legacy_cb(step, _ts, _latents):
+        pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+        stage = f"Generating image step {step + 1}/{steps}"
+        _log(f"[infer] {stage} ({min(95, pct)}%)")
+        if set_progress:
+            set_progress(min(95, pct), stage)
+        time.sleep(0.001)
     try:
         img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
     except TypeError:
-        img = pipe(prompt=prompt).images[0]
+        try:
+            img = pipe(prompt=prompt, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1).images[0]
+        except TypeError:
+            img = pipe(prompt=prompt).images[0]
     fn = f"{uuid.uuid4().hex}.png"
     out = os.path.join(OUT_DIR, fn)
     img.save(out)
@@ -790,7 +819,7 @@ def fastapi_app():
         return {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued..."}
 
     @web_app.get("/_jobs/{job_id}")
-    def get_job(job_id: str):
+    async def get_job(job_id: str):
         with _jobs_lock:
             job = _jobs.get(job_id)
             if not job:
