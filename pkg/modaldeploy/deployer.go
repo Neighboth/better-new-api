@@ -1,6 +1,7 @@
 package modaldeploy
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -48,6 +49,7 @@ type DeployConfig struct {
 	TokenSecret          string
 	HFToken              string
 	SharedVolumePath     string
+	ShutdownToken        string
 }
 
 func pyQuote(s string) string {
@@ -129,12 +131,14 @@ func BuildAppScript(cfg DeployConfig) string {
 	var extraPipOpts string
 	var aptChain string
 	var taskCode string
+	imageBase := `modal.Image.debian_slim(python_version="3.11")`
 
 	switch task {
 	case "video":
-		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub", "safetensors", "omegaconf"`
+		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "imageio[ffmpeg]", "torch", "huggingface_hub", "safetensors", "omegaconf", "gguf"`
 		taskCode = `
 import json
+import time
 import torch
 from diffusers import DiffusionPipeline
 from huggingface_hub import hf_hub_download, list_repo_files
@@ -144,14 +148,18 @@ _pipe = None
 def get_pipe():
     nonlocal _pipe
     if _pipe is None:
+        t0 = time.time()
+        _log(f"[model] Preparing video model {MODEL_REPO} (cuda={torch.cuda.is_available()})...")
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
         entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
         main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
         explicit_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
         explicit_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
         repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+        _log(f"[model] Repo contains {len(repo_files)} files")
         has_index = "model_index.json" in repo_files
         if has_index and not explicit_file.lower().endswith((".safetensors", ".ckpt")):
+            _log(f"[model] Loading diffusers pipeline from {MODEL_REPO}...")
             _pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=dtype)
         else:
             target = explicit_file
@@ -160,8 +168,9 @@ def get_pipe():
                 if not cands:
                     raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
                 target = sorted(cands)[0]
+            _log(f"[model] Downloading checkpoint {explicit_repo}/{target}...")
             local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
-            from diffusers import StableVideoDiffusionPipeline
+            _log(f"[model] Downloaded checkpoint ({os.path.getsize(local_ckpt) / (1024*1024):.1f} MB)")
             _pipe = None
             _v_errs = []
             for _cls_name in ("StableVideoDiffusionPipeline", "CogVideoXPipeline", "WanPipeline"):
@@ -169,6 +178,7 @@ def get_pipe():
                     import diffusers as _diff
                     _cls = getattr(_diff, _cls_name, None)
                     if _cls is not None and hasattr(_cls, "from_single_file"):
+                        _log(f"[model] Trying {_cls_name}.from_single_file...")
                         _pipe = _cls.from_single_file(local_ckpt, torch_dtype=dtype)
                         break
                 except Exception as _exc:
@@ -180,6 +190,7 @@ def get_pipe():
             fn = entry.get("file") or ""
             if not fn or role == "main":
                 continue
+            _log(f"[model] Downloading component ({role}): {fn}...")
             lp = hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
             if role == "lora" and hasattr(_pipe, "load_lora_weights"):
                 _pipe.load_lora_weights(lp)
@@ -188,6 +199,7 @@ def get_pipe():
                 _pipe.vae = AutoencoderKL.from_single_file(lp, torch_dtype=dtype)
         if torch.cuda.is_available():
             _pipe = _pipe.to("cuda")
+        _log(f"[model] Video model ready in {time.time() - t0:.1f}s")
     return _pipe
 
 @web_app.post("/v1/videos/generations")
@@ -195,18 +207,108 @@ async def gen_video(req: Request):
     body = await req.json()
     prompt = body.get("prompt", "A serene mountain landscape")
     num_frames = int(body.get("num_frames", 16))
+    t0 = time.time()
+    _log(f"[infer] Generating video (frames={num_frames})...")
     pipe = get_pipe()
     frames = pipe(prompt=prompt, num_frames=num_frames).frames[0]
     fn = f"{uuid.uuid4().hex}.mp4"
     out = os.path.join(OUT_DIR, fn)
     export_to_video(frames, out, fps=8)
+    _log(f"[infer] Video generated in {time.time() - t0:.1f}s -> {fn}")
     base = str(req.base_url).rstrip("/")
     return {"data": [{"url": f"{base}/outputs/{fn}"}]}
 `
 	case "image":
-		pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub", "safetensors", "omegaconf"`
-		taskCode = `
+		isGGUFImage := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
+			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
+		if isGGUFImage {
+			if gpuArg != "None" {
+				imageBase = `modal.Image.from_registry("nvidia/cuda:12.4.1-devel-ubuntu22.04", add_python="3.11")`
+				aptChain = `.apt_install("cmake", "build-essential", "libgomp1").env({"CMAKE_ARGS": "-DSD_CUDA=ON"})`
+			} else {
+				aptChain = `.apt_install("cmake", "build-essential", "libgomp1", "libopenblas-dev").env({"CMAKE_ARGS": "-DGGML_OPENBLAS=ON"})`
+			}
+			pipPkgs = `"fastapi[standard]", "pillow", "huggingface_hub", "stable-diffusion-cpp-python"`
+			taskCode = `
 import json
+import time
+from huggingface_hub import hf_hub_download, list_repo_files
+from stable_diffusion_cpp import StableDiffusion
+
+_pipe = None
+def get_pipe():
+    nonlocal _pipe
+    if _pipe is None:
+        t0 = time.time()
+        _log(f"[model] Preparing GGUF image model {MODEL_REPO}...")
+        entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
+        main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
+        explicit_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
+        explicit_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
+        repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+        _log(f"[model] Repo contains {len(repo_files)} files")
+        target = explicit_file
+        if not target:
+            cands = [f for f in repo_files if f.lower().endswith(".gguf")]
+            if not cands:
+                raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
+            target = sorted(cands)[0]
+        _log(f"[model] Downloading GGUF checkpoint {explicit_repo}/{target}...")
+        local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+        _log(f"[model] Downloaded GGUF checkpoint ({os.path.getsize(local_ckpt) / (1024*1024):.1f} MB)")
+        sd_kw = {}
+        for entry in entries:
+            role = (entry.get("role") or "extra").lower()
+            fn = entry.get("file") or ""
+            if not fn or role == "main":
+                continue
+            _log(f"[model] Downloading component ({role}): {fn}...")
+            lp = hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            if role == "vae":
+                sd_kw["vae_path"] = lp
+            elif role == "text_encoder":
+                sd_kw["clip_l_path"] = lp
+            elif role == "text_encoder_2":
+                sd_kw["t5xxl_path"] = lp
+            elif role == "lora":
+                sd_kw["lora_model_dir"] = os.path.dirname(lp)
+        _log("[model] Initializing stable-diffusion.cpp engine...")
+        try:
+            sd = StableDiffusion(model_path=local_ckpt, **sd_kw)
+        except Exception as exc1:
+            _log(f"[model] Retrying with diffusion_model_path ({exc1})...")
+            sd = StableDiffusion(diffusion_model_path=local_ckpt, **sd_kw)
+
+        class _GGUFImageWrapper:
+            def __init__(self, engine):
+                self._engine = engine
+            def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20):
+                imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps)
+                return type("_Out", (), {"images": imgs})()
+
+        _pipe = _GGUFImageWrapper(sd)
+        _log(f"[model] GGUF image model ready in {time.time() - t0:.1f}s")
+    return _pipe
+
+@web_app.post("/v1/images/generations")
+async def gen_image(req: Request):
+    body = await req.json()
+    prompt = body.get("prompt", "A scenic landscape")
+    t0 = time.time()
+    _log("[infer] Generating image (GGUF)...")
+    img = get_pipe()(prompt=prompt).images[0]
+    fn = f"{uuid.uuid4().hex}.png"
+    out = os.path.join(OUT_DIR, fn)
+    img.save(out)
+    _log(f"[infer] Image generated in {time.time() - t0:.1f}s -> {fn}")
+    base = str(req.base_url).rstrip("/")
+    return {"data": [{"url": f"{base}/outputs/{fn}"}]}
+`
+		} else {
+			pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub", "safetensors", "omegaconf", "gguf"`
+			taskCode = `
+import json
+import time
 import torch
 from diffusers import AutoPipelineForText2Image
 from huggingface_hub import hf_hub_download, list_repo_files
@@ -215,27 +317,34 @@ _pipe = None
 def get_pipe():
     nonlocal _pipe
     if _pipe is None:
+        t0 = time.time()
+        _log(f"[model] Preparing image model {MODEL_REPO} (cuda={torch.cuda.is_available()})...")
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
         entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
         main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
         explicit_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
         explicit_repo = (main_entry.get("repo") if main_entry else "") or MODEL_REPO
         repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+        _log(f"[model] Repo contains {len(repo_files)} files")
         has_index = "model_index.json" in repo_files
-        if has_index and not explicit_file.lower().endswith((".safetensors", ".ckpt")):
+        if has_index and not explicit_file.lower().endswith((".safetensors", ".ckpt", ".gguf")):
+            _log(f"[model] Loading AutoPipelineForText2Image from {MODEL_REPO}...")
             _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None, torch_dtype=dtype)
         else:
             target = explicit_file
             if not target:
-                cands = [f for f in repo_files if f.lower().endswith((".safetensors", ".ckpt"))]
+                cands = [f for f in repo_files if f.lower().endswith((".safetensors", ".ckpt", ".gguf"))]
                 if not cands:
-                    raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+                    raise RuntimeError(f"No model_index.json or .safetensors/.ckpt/.gguf file found in {MODEL_REPO}")
                 target = sorted(cands)[0]
+            _log(f"[model] Downloading checkpoint {explicit_repo}/{target}...")
             local_ckpt = hf_hub_download(repo_id=explicit_repo, filename=target, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
+            _log(f"[model] Downloaded checkpoint ({os.path.getsize(local_ckpt) / (1024*1024):.1f} MB)")
             from diffusers import AutoencoderKL, StableDiffusionPipeline, StableDiffusionXLPipeline
             from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
             errs = []
             try:
+                _log("[model] Trying StableDiffusionPipeline.from_single_file...")
                 _pipe = StableDiffusionPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
             except Exception as exc:
                 msg = str(exc)
@@ -253,6 +362,7 @@ def get_pipe():
                         errs.append(f"StableDiffusionPipeline+fallback: {exc2}")
             if _pipe is None:
                 try:
+                    _log("[model] Trying StableDiffusionXLPipeline.from_single_file...")
                     _pipe = StableDiffusionXLPipeline.from_single_file(local_ckpt, torch_dtype=dtype)
                 except Exception as exc:
                     msg = str(exc)
@@ -273,6 +383,7 @@ def get_pipe():
                     import diffusers as _diff
                     _flux_cls = getattr(_diff, "FluxPipeline", None)
                     if _flux_cls is not None and hasattr(_flux_cls, "from_single_file"):
+                        _log("[model] Trying FluxPipeline.from_single_file...")
                         _pipe = _flux_cls.from_single_file(local_ckpt, torch_dtype=dtype)
                 except Exception as exc:
                     errs.append(f"FluxPipeline: {exc}")
@@ -283,6 +394,7 @@ def get_pipe():
             fn = entry.get("file") or ""
             if not fn or role == "main":
                 continue
+            _log(f"[model] Downloading component ({role}): {fn}...")
             lp = hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
             if role == "vae" and hasattr(_pipe, "vae"):
                 from diffusers import AutoencoderKL
@@ -295,19 +407,24 @@ def get_pipe():
                 getattr(_pipe, role).load_state_dict(sd, strict=False)
         if torch.cuda.is_available():
             _pipe = _pipe.to("cuda")
+        _log(f"[model] Image model ready in {time.time() - t0:.1f}s")
     return _pipe
 
 @web_app.post("/v1/images/generations")
 async def gen_image(req: Request):
     body = await req.json()
     prompt = body.get("prompt", "A scenic landscape")
+    t0 = time.time()
+    _log("[infer] Generating image...")
     img = get_pipe()(prompt=prompt).images[0]
     fn = f"{uuid.uuid4().hex}.png"
     out = os.path.join(OUT_DIR, fn)
     img.save(out)
+    _log(f"[infer] Image generated in {time.time() - t0:.1f}s -> {fn}")
     base = str(req.base_url).rstrip("/")
     return {"data": [{"url": f"{base}/outputs/{fn}"}]}
 `
+		}
 	case "audio":
 		pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "scipy", "soundfile", "torch", "huggingface_hub"`
 		taskCode = `
@@ -319,7 +436,10 @@ _pipe = None
 def get_pipe():
     nonlocal _pipe
     if _pipe is None:
+        t0 = time.time()
+        _log(f"[model] Loading audio model {MODEL_REPO} (cuda={torch.cuda.is_available()})...")
         _pipe = hf_pipeline("text-to-audio", model=MODEL_REPO, device=0 if torch.cuda.is_available() else -1, token=HF_TOKEN or None)
+        _log(f"[model] Audio model ready in {time.time() - t0:.1f}s")
     return _pipe
 
 @web_app.post("/v1/audio/speech")
@@ -327,10 +447,13 @@ def get_pipe():
 async def gen_audio(req: Request):
     body = await req.json()
     text = body.get("input") or body.get("prompt") or "Hello world"
+    t0 = time.time()
+    _log("[infer] Generating audio...")
     out = get_pipe()(text)
     fn = f"{uuid.uuid4().hex}.wav"
     out_path = os.path.join(OUT_DIR, fn)
     wavfile.write(out_path, rate=int(out.get("sampling_rate", 16000)), data=out["audio"])
+    _log(f"[infer] Audio generated in {time.time() - t0:.1f}s -> {fn}")
     base = str(req.base_url).rstrip("/")
     return {"url": f"{base}/outputs/{fn}", "data": [{"url": f"{base}/outputs/{fn}"}]}
 `
@@ -343,7 +466,10 @@ _model = None
 def get_model():
     nonlocal _model
     if _model is None:
+        t0 = time.time()
+        _log(f"[model] Loading embeddings model {MODEL_REPO}...")
         _model = SentenceTransformer(MODEL_REPO, cache_folder=CACHE_DIR, token=HF_TOKEN or None)
+        _log(f"[model] Embeddings model ready in {time.time() - t0:.1f}s")
     return _model
 
 @web_app.post("/v1/embeddings")
@@ -351,7 +477,9 @@ async def embeddings(req: Request):
     body = await req.json()
     inp = body.get("input", "")
     texts = inp if isinstance(inp, list) else [str(inp)]
+    t0 = time.time()
     vecs = get_model().encode(texts).tolist()
+    _log(f"[infer] Encoded {len(texts)} input(s) in {time.time() - t0:.2f}s")
     return {"object": "list", "model": MODEL_REPO, "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)]}
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
@@ -375,6 +503,7 @@ def get_llm():
     nonlocal _llm
     if _llm is not None:
         return _llm
+    t0 = time.time()
     entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
     main_entry = next((e for e in entries if (e.get("role") or "main") == "main" and e.get("file")), None)
     target_file = (main_entry.get("file") if main_entry else "") or MODEL_FILE
@@ -382,15 +511,19 @@ def get_llm():
     for entry in entries:
         fn = entry.get("file") or ""
         if fn and fn != target_file:
+            _log(f"[model] Downloading auxiliary file {fn}...")
             hf_hub_download(repo_id=entry.get("repo") or MODEL_REPO, filename=fn, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
     if not target_file:
         files = [f for f in list_repo_files(MODEL_REPO, token=HF_TOKEN or None) if f.lower().endswith(".gguf")]
         if not files:
             raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
         target_file = sorted(files)[0]
+    _log(f"[model] Downloading GGUF {target_repo}/{target_file}...")
     local_path = hf_hub_download(repo_id=target_repo, filename=target_file, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
     n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
+    _log(f"[model] Loading GGUF ({os.path.getsize(local_path)/(1024*1024):.1f} MB, gpu_layers={n_gpu})...")
     _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
+    _log(f"[model] GGUF model ready in {time.time() - t0:.1f}s")
     return _llm
 
 @web_app.post("/v1/chat/completions")
@@ -398,7 +531,10 @@ async def chat_completions(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
-    return get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+    t0 = time.time()
+    out = get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+    _log(f"[infer] GGUF chat completion done in {time.time() - t0:.2f}s")
+    return out
 `
 		} else {
 			pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "torch", "huggingface_hub"`
@@ -411,6 +547,8 @@ def get_backend():
     nonlocal _backend
     if _backend is not None:
         return _backend
+    t0 = time.time()
+    _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={torch.cuda.is_available()})...")
     tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, token=HF_TOKEN or None)
     mdl = AutoModelForCausalLM.from_pretrained(
         MODEL_REPO,
@@ -420,6 +558,7 @@ def get_backend():
         device_map="auto" if torch.cuda.is_available() else None,
     )
     _backend = (tok, mdl)
+    _log(f"[model] Transformers model ready in {time.time() - t0:.1f}s")
     return _backend
 
 @web_app.post("/v1/chat/completions")
@@ -427,6 +566,7 @@ async def chat_completions(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
+    t0 = time.time()
     tok, mdl = get_backend()
     prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
     inputs = tok(prompt, return_tensors="pt")
@@ -446,11 +586,12 @@ async def chat_completions(req: Request):
 	}
 
 	return fmt.Sprintf(`import os
+import time
 import uuid
 import modal
 
 app = modal.App(%s)
-image = modal.Image.debian_slim(python_version="3.11")%s.pip_install(%s%s)
+image = %s%s.pip_install(%s%s)
 volume = modal.Volume.from_name("better-new-api-models", create_if_missing=True)
 
 MODEL_REPO = %s
@@ -458,6 +599,7 @@ MODEL_FILE = %s
 MODEL_FILES_JSON = %s
 HF_TOKEN = %s
 CACHE_DIR = %s
+SHUTDOWN_TOKEN = %s
 OUT_DIR = "/tmp/model_outputs"
 
 @app.function(
@@ -468,25 +610,42 @@ OUT_DIR = "/tmp/model_outputs"
 )
 @modal.asgi_app()
 def fastapi_app():
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
 
     os.makedirs(OUT_DIR, exist_ok=True)
     web_app = FastAPI(title="Better-New-API Modal Server")
     web_app.mount("/outputs", StaticFiles(directory=OUT_DIR), name="outputs")
+    _log_lines = []
+
+    def _log(msg: str):
+        line = f"{time.strftime('%%H:%%M:%%S')} {msg}"
+        print(line, flush=True)
+        _log_lines.append(line)
+        if len(_log_lines) > 500:
+            del _log_lines[:len(_log_lines) - 500]
 
     @web_app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
+        _log(f"[error] {type(exc).__name__}: {exc}")
         return JSONResponse(status_code=500, content={"error": f"{type(exc).__name__}: {exc}"})
 
     @web_app.get("/health")
     def health():
         return {"status": "ok", "model": MODEL_REPO, "task": %s}
+
+    @web_app.get("/_logs")
+    def get_logs(req: Request):
+        tok = req.query_params.get("token") or req.headers.get("X-Shutdown-Token") or ""
+        if SHUTDOWN_TOKEN and tok != SHUTDOWN_TOKEN:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return {"logs": "\n".join(_log_lines)}
 %s
     return web_app
 `,
 		pyQuote(cfg.AppName),
+		imageBase,
 		aptChain,
 		pipPkgs,
 		extraPipOpts,
@@ -495,6 +654,7 @@ def fastapi_app():
 		pyQuote(modelFilesJSON),
 		pyQuote(cfg.HFToken),
 		pyQuote(volPath),
+		pyQuote(cfg.ShutdownToken),
 		gpuArg,
 		scaledownLine,
 		pyQuote(task),
@@ -663,6 +823,12 @@ func findOrBootstrapModalCommand(ctx context.Context) (modalCmd, error) {
 // Deploy deploys the Modal ASGI app using `modal deploy` and returns
 // the live *.modal.run endpoint URL.
 func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
+	return DeployWithLogger(ctx, cfg, nil)
+}
+
+// DeployWithLogger deploys the Modal ASGI app using `modal deploy`, streaming
+// each clean output line to onLog as it is produced, and returns the *.modal.run URL.
+func DeployWithLogger(ctx context.Context, cfg DeployConfig, onLog func(string)) (string, string, error) {
 	script := BuildAppScript(cfg)
 	cmdSpec, err := findOrBootstrapModalCommand(ctx)
 	if err != nil {
@@ -692,14 +858,41 @@ func Deploy(ctx context.Context, cfg DeployConfig) (string, string, error) {
 		"FORCE_COLOR=0",
 		"TERM=dumb",
 	)
-	outBytes, err := cmd.CombinedOutput()
-	outText := string(outBytes)
-	if err != nil {
+
+	stdout, pipeErr := cmd.StdoutPipe()
+	var outBuf strings.Builder
+	var runErr error
+	if pipeErr == nil {
+		cmd.Stderr = cmd.Stdout
+		if startErr := cmd.Start(); startErr != nil {
+			runErr = startErr
+		} else {
+			scanner := bufio.NewScanner(stdout)
+			scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+			for scanner.Scan() {
+				rawLine := scanner.Text()
+				outBuf.WriteString(rawLine)
+				outBuf.WriteByte('\n')
+				clean := strings.TrimSpace(ansiEscapeRegex.ReplaceAllString(rawLine, ""))
+				if clean != "" && onLog != nil {
+					onLog(clean)
+				}
+			}
+			runErr = cmd.Wait()
+		}
+	} else {
+		var outBytes []byte
+		outBytes, runErr = cmd.CombinedOutput()
+		outBuf.Write(outBytes)
+	}
+
+	outText := outBuf.String()
+	if runErr != nil {
 		msg := strings.TrimSpace(outText)
 		if len(msg) > 600 {
 			msg = msg[len(msg)-600:]
 		}
-		return "", script, fmt.Errorf("modal deploy failed: %v: %s", err, msg)
+		return "", script, fmt.Errorf("modal deploy failed: %v: %s", runErr, msg)
 	}
 
 	match := extractModalURL(outText)
@@ -751,7 +944,7 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 		"FORCE_COLOR=0",
 		"TERM=dumb",
 	)
-	cmd := cmdSpec.command(ctx, "app", "stop", trimmed)
+	cmd := cmdSpec.command(ctx, "app", "stop", "--yes", trimmed)
 	cmd.Env = env
 	outBytes, stopErr := cmd.CombinedOutput()
 	if stopErr == nil {
@@ -777,7 +970,7 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 					continue
 				}
 				if appID != "" && (strings.EqualFold(desc, trimmed) || strings.EqualFold(name, trimmed) || strings.EqualFold(appID, trimmed)) {
-					stopByID := cmdSpec.command(ctx, "app", "stop", appID)
+					stopByID := cmdSpec.command(ctx, "app", "stop", "--yes", appID)
 					stopByID.Env = env
 					if stopByID.Run() == nil {
 						stoppedAny = true

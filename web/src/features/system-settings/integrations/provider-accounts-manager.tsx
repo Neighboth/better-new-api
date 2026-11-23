@@ -452,7 +452,7 @@ export function ProviderAccountsManager({
                           {tierMeta ? t(tierMeta.label) : acc.tier}
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent alignItemWithTrigger={false} align='start'>
                         {tiers.map((tier) => (
                           <SelectItem key={tier.id} value={tier.id}>
                             {t(tier.label)}

@@ -1005,7 +1005,7 @@ export function UnifiedDeploymentsPanel({
                       <SelectTrigger className='w-full'>
                         <SelectValue>{PROVIDER_LABELS[provider]}</SelectValue>
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent alignItemWithTrigger={false} align='start'>
                         {enabledProviders.map((p) => (
                           <SelectItem key={p} value={p}>
                             {PROVIDER_LABELS[p]}
@@ -1031,7 +1031,7 @@ export function UnifiedDeploymentsPanel({
                               : t('Select account')}
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent alignItemWithTrigger={false} align='start'>
                           {accountsForProvider.map((acc) => (
                             <SelectItem key={acc.id} value={acc.id}>
                               {formatAccountLabel(acc)}
@@ -1069,7 +1069,7 @@ export function UnifiedDeploymentsPanel({
                         <SelectTrigger className='w-full'>
                           <SelectValue>{t(selectedTaskLabel)}</SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent alignItemWithTrigger={false} align='start'>
                           {TASK_TYPES.map((tk) => (
                             <SelectItem key={tk.id} value={tk.id}>
                               {t(tk.label)}
@@ -1210,7 +1210,7 @@ export function UnifiedDeploymentsPanel({
                             <SelectTrigger className='h-8 w-full text-xs'>
                               <SelectValue>{t(roleLabel)}</SelectValue>
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent alignItemWithTrigger={false} align='start'>
                               {FILE_ROLES.map((r) => (
                                 <SelectItem key={r.id} value={r.id}>
                                   {t(r.label)}
@@ -1367,7 +1367,7 @@ export function UnifiedDeploymentsPanel({
                     <SelectTrigger className='w-full'>
                       <SelectValue>{selectedHwLabel}</SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent alignItemWithTrigger={false} align='start'>
                       {hardwareOptions.map((hw) => (
                         <SelectItem key={hw.id} value={hw.id}>
                           {hw.label}

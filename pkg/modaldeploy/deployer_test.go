@@ -51,6 +51,7 @@ func TestBuildAppScriptNoTopLevelMLImports(t *testing.T) {
 		{AppName: "txt", ModelRepo: "Qwen/Qwen2.5-0.5B-Instruct", TaskType: "text", Accelerator: "T4"},
 		{AppName: "gguf", ModelRepo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF", TaskType: "text", Accelerator: "CPU"},
 		{AppName: "img", ModelRepo: "stabilityai/sdxl", TaskType: "image", Accelerator: "L4"},
+		{AppName: "imggguf", ModelRepo: "second-state/stable-diffusion-v1-5-GGUF", TaskType: "image", Accelerator: "CPU"},
 		{AppName: "vid", ModelRepo: "Wan-AI/Wan2.1", TaskType: "video", Accelerator: "A100"},
 		{AppName: "aud", ModelRepo: "suno/bark", TaskType: "audio", Accelerator: "T4"},
 		{AppName: "emb", ModelRepo: "BAAI/bge-small-en-v1.5", TaskType: "embeddings", Accelerator: "CPU"},
@@ -62,6 +63,7 @@ func TestBuildAppScriptNoTopLevelMLImports(t *testing.T) {
 		"from transformers",
 		"from sentence_transformers",
 		"from llama_cpp",
+		"from stable_diffusion_cpp",
 		"import torch",
 		"import scipy",
 		"@web_app.post",
@@ -87,6 +89,11 @@ func TestBuildAppScriptNoTopLevelMLImports(t *testing.T) {
 
 	textScript := BuildAppScript(cases[0])
 	assert.NotContains(t, textScript, "llama-cpp-python")
+
+	imgGGUFScript := BuildAppScript(cases[3])
+	assert.Contains(t, imgGGUFScript, "stable-diffusion-cpp-python")
+	assert.Contains(t, imgGGUFScript, "nonlocal _pipe")
+	assert.Contains(t, imgGGUFScript, "/_logs")
 }
 
 func TestExtractModalURL(t *testing.T) {

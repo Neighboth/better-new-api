@@ -81,7 +81,7 @@ func Generate(cfg Config) string {
 	switch task {
 	case "video":
 		needsTorch = true
-		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("imageio[ffmpeg]", "imageio"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf")]`
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("imageio[ffmpeg]", "imageio"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf"), ("gguf", "gguf")]`
 		taskHandler = `
 import uuid
 from diffusers import DiffusionPipeline
@@ -93,26 +93,32 @@ def get_pipe():
     global _pipe
     if _pipe is not None:
         return _pipe
-    _log(f"[model] Loading video model {MODEL_REPO}...")
+    _t0 = time.time()
+    _log(f"[model] Preparing video model {MODEL_REPO} (cuda={torch.cuda.is_available()})...", push_callback=True)
     _dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     _entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
     _main_entry = next((e for e in _entries if (e.get("role") or "main") == "main" and e.get("file")), None)
     _explicit_file = (_main_entry.get("file") if _main_entry else "") or MODEL_FILE
     _explicit_repo = (_main_entry.get("repo") if _main_entry else "") or MODEL_REPO
     _repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
+    _log(f"[model] Repo contains {len(_repo_files)} files")
     if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt")):
+        _log(f"[model] Loading DiffusionPipeline from {MODEL_REPO}...")
         _pipe = DiffusionPipeline.from_pretrained(MODEL_REPO, torch_dtype=_dtype, token=HF_TOKEN or None)
     else:
         _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt"))), "")
         if not _target:
             raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+        _log(f"[model] Downloading checkpoint {_explicit_repo}/{_target}...", push_callback=True)
         _ckpt = hf_hub_download(repo_id=_explicit_repo, filename=_target, token=HF_TOKEN or None)
+        _log(f"[model] Downloaded checkpoint ({os.path.getsize(_ckpt)/(1024*1024):.1f} MB)")
         import diffusers as _diff
         _v_errs = []
         for _cls_name in ("StableVideoDiffusionPipeline", "CogVideoXPipeline", "WanPipeline"):
             try:
                 _cls = getattr(_diff, _cls_name, None)
                 if _cls is not None and hasattr(_cls, "from_single_file"):
+                    _log(f"[model] Trying {_cls_name}.from_single_file...")
                     _pipe = _cls.from_single_file(_ckpt, torch_dtype=_dtype)
                     break
             except Exception as _exc:
@@ -124,6 +130,7 @@ def get_pipe():
         _fn = _entry.get("file") or ""
         if not _fn or _role == "main":
             continue
+        _log(f"[model] Downloading component ({_role}): {_fn}...")
         _lp = hf_hub_download(repo_id=_entry.get("repo") or MODEL_REPO, filename=_fn, token=HF_TOKEN or None)
         if _role == "lora" and hasattr(_pipe, "load_lora_weights"):
             _pipe.load_lora_weights(_lp)
@@ -132,7 +139,7 @@ def get_pipe():
             _pipe.vae = AutoencoderKL.from_single_file(_lp, torch_dtype=_dtype)
     if torch.cuda.is_available():
         _pipe = _pipe.to("cuda")
-    _log("[model] Video model ready")
+    _log(f"[model] Video model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _pipe
 
 @app.post("/v1/videos/generations")
@@ -141,45 +148,121 @@ async def generate_video(req: Request):
     body = await req.json()
     prompt = body.get("prompt", "A serene mountain landscape")
     num_frames = int(body.get("num_frames", 16))
+    _t0 = time.time()
+    _log(f"[infer] Generating video (frames={num_frames})...")
     result = get_pipe()(prompt=prompt, num_frames=num_frames)
     frames = result.frames[0]
     filename = f"{uuid.uuid4().hex}.mp4"
     out_path = os.path.join(OUTPUT_DIR, filename)
     export_to_video(frames, out_path, fps=8)
+    _log(f"[infer] Video generated in {time.time() - _t0:.1f}s -> {filename}")
     base = str(req.base_url).rstrip("/")
     return {"data": [{"url": f"{base}/outputs/{filename}"}]}
 `
 	case "image":
 		needsTorch = true
-		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf")]`
+		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf"), ("gguf", "gguf")]`
 		taskHandler = `
 import uuid
 from diffusers import AutoPipelineForText2Image
 from huggingface_hub import hf_hub_download, list_repo_files
+
+def _ensure_sd_cpp():
+    if importlib.util.find_spec("stable_diffusion_cpp") is not None:
+        return
+    _has_cuda = bool(shutil.which("nvcc") and os.path.exists("/dev/nvidia0"))
+    _log(f"[setup] Installing stable-diffusion-cpp-python (cuda={_has_cuda})...", push_callback=True)
+    _env = os.environ.copy()
+    if _has_cuda:
+        _env["CMAKE_ARGS"] = "-DSD_CUDA=ON"
+    _cmd = [sys.executable, "-m", "pip", "install", "--progress-bar", "off", "stable-diffusion-cpp-python"]
+    _proc = subprocess.Popen(_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=_env)
+    if _proc.stdout is not None:
+        for _ln in _proc.stdout:
+            _s = _ln.rstrip()
+            if _s:
+                _log(f"[pip] {_s}", push_callback=any(k in _s for k in ("Collecting", "Downloading", "Building", "Successfully", "ERROR")))
+    _rc = _proc.wait()
+    if _rc != 0 and _has_cuda:
+        _log("[setup] CUDA build failed for stable-diffusion-cpp-python, retrying CPU build...", push_callback=True)
+        _env.pop("CMAKE_ARGS", None)
+        _proc2 = subprocess.Popen(_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=_env)
+        if _proc2.stdout is not None:
+            for _ln in _proc2.stdout:
+                _s = _ln.rstrip()
+                if _s:
+                    _log(f"[pip] {_s}", push_callback=any(k in _s for k in ("Collecting", "Downloading", "Building", "Successfully", "ERROR")))
+        _rc = _proc2.wait()
+    if _rc != 0:
+        raise RuntimeError(f"Failed to install stable-diffusion-cpp-python (exit {_rc})")
+    _log("[setup] stable-diffusion-cpp-python ready", push_callback=True)
 
 _pipe = None
 def get_pipe():
     global _pipe
     if _pipe is not None:
         return _pipe
-    _log(f"[model] Loading image model {MODEL_REPO}...")
+    _t0 = time.time()
+    _log(f"[model] Preparing image model {MODEL_REPO} (cuda={torch.cuda.is_available()})...", push_callback=True)
     _dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     _entries = json.loads(MODEL_FILES_JSON) if MODEL_FILES_JSON else []
     _main_entry = next((e for e in _entries if (e.get("role") or "main") == "main" and e.get("file")), None)
     _explicit_file = (_main_entry.get("file") if _main_entry else "") or MODEL_FILE
     _explicit_repo = (_main_entry.get("repo") if _main_entry else "") or MODEL_REPO
     _repo_files = list_repo_files(MODEL_REPO, token=HF_TOKEN or None)
-    if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt")):
+    _log(f"[model] Repo contains {len(_repo_files)} files")
+    if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt", ".gguf")):
+        _log(f"[model] Loading AutoPipelineForText2Image from {MODEL_REPO}...")
         _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, torch_dtype=_dtype, token=HF_TOKEN or None)
     else:
-        _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt"))), "")
+        _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt", ".gguf"))), "")
         if not _target:
-            raise RuntimeError(f"No model_index.json or .safetensors/.ckpt file found in {MODEL_REPO}")
+            raise RuntimeError(f"No model_index.json or .safetensors/.ckpt/.gguf file found in {MODEL_REPO}")
+        _log(f"[model] Downloading checkpoint {_explicit_repo}/{_target}...", push_callback=True)
         _ckpt = hf_hub_download(repo_id=_explicit_repo, filename=_target, token=HF_TOKEN or None)
+        _log(f"[model] Downloaded checkpoint ({os.path.getsize(_ckpt)/(1024*1024):.1f} MB)")
+        if _target.lower().endswith(".gguf"):
+            _ensure_sd_cpp()
+            from stable_diffusion_cpp import StableDiffusion
+            _sd_kw = {}
+            for _entry in _entries:
+                _role = (_entry.get("role") or "extra").lower()
+                _fn = _entry.get("file") or ""
+                if not _fn or _role == "main":
+                    continue
+                _log(f"[model] Downloading GGUF component ({_role}): {_fn}...")
+                _lp = hf_hub_download(repo_id=_entry.get("repo") or MODEL_REPO, filename=_fn, token=HF_TOKEN or None)
+                if _role == "vae":
+                    _sd_kw["vae_path"] = _lp
+                elif _role == "text_encoder":
+                    _sd_kw["clip_l_path"] = _lp
+                elif _role == "text_encoder_2":
+                    _sd_kw["t5xxl_path"] = _lp
+                elif _role == "lora":
+                    _sd_kw["lora_model_dir"] = os.path.dirname(_lp)
+            _log("[model] Initializing stable-diffusion.cpp engine...")
+            try:
+                _sd = StableDiffusion(model_path=_ckpt, **_sd_kw)
+            except Exception as _exc1:
+                _log(f"[model] Retrying with diffusion_model_path ({_exc1})...")
+                _sd = StableDiffusion(diffusion_model_path=_ckpt, **_sd_kw)
+
+            class _GGUFImageWrapper:
+                def __init__(self, engine):
+                    self._engine = engine
+                def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20):
+                    _imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps)
+                    return type("_Out", (), {"images": _imgs})()
+
+            _pipe = _GGUFImageWrapper(_sd)
+            _log(f"[model] GGUF image model ready in {time.time() - _t0:.1f}s", push_callback=True)
+            return _pipe
+
         from diffusers import AutoencoderKL, StableDiffusionPipeline, StableDiffusionXLPipeline
         from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
         _errs = []
         try:
+            _log("[model] Trying StableDiffusionPipeline.from_single_file...")
             _pipe = StableDiffusionPipeline.from_single_file(_ckpt, torch_dtype=_dtype)
         except Exception as _exc:
             _msg = str(_exc)
@@ -197,6 +280,7 @@ def get_pipe():
                     _errs.append(f"StableDiffusionPipeline+fallback: {_exc2}")
         if _pipe is None:
             try:
+                _log("[model] Trying StableDiffusionXLPipeline.from_single_file...")
                 _pipe = StableDiffusionXLPipeline.from_single_file(_ckpt, torch_dtype=_dtype)
             except Exception as _exc:
                 _msg = str(_exc)
@@ -217,6 +301,7 @@ def get_pipe():
                 import diffusers as _diff
                 _flux = getattr(_diff, "FluxPipeline", None)
                 if _flux is not None and hasattr(_flux, "from_single_file"):
+                    _log("[model] Trying FluxPipeline.from_single_file...")
                     _pipe = _flux.from_single_file(_ckpt, torch_dtype=_dtype)
             except Exception as _exc:
                 _errs.append(f"FluxPipeline: {_exc}")
@@ -227,6 +312,7 @@ def get_pipe():
         _fn = _entry.get("file") or ""
         if not _fn or _role == "main":
             continue
+        _log(f"[model] Downloading component ({_role}): {_fn}...")
         _lp = hf_hub_download(repo_id=_entry.get("repo") or MODEL_REPO, filename=_fn, token=HF_TOKEN or None)
         if _role == "vae" and hasattr(_pipe, "vae"):
             from diffusers import AutoencoderKL
@@ -239,7 +325,7 @@ def get_pipe():
             getattr(_pipe, _role).load_state_dict(_sd, strict=False)
     if torch.cuda.is_available():
         _pipe = _pipe.to("cuda")
-    _log("[model] Image model ready")
+    _log(f"[model] Image model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _pipe
 
 @app.post("/v1/images/generations")
@@ -247,10 +333,13 @@ async def generate_image(req: Request):
     touch()
     body = await req.json()
     prompt = body.get("prompt", "A scenic landscape")
+    _t0 = time.time()
+    _log("[infer] Generating image...")
     img = get_pipe()(prompt=prompt).images[0]
     filename = f"{uuid.uuid4().hex}.png"
     out_path = os.path.join(OUTPUT_DIR, filename)
     img.save(out_path)
+    _log(f"[infer] Image generated in {time.time() - _t0:.1f}s -> {filename}")
     base = str(req.base_url).rstrip("/")
     return {"data": [{"url": f"{base}/outputs/{filename}"}]}
 `
@@ -342,10 +431,12 @@ def get_llm():
         if not files:
             raise RuntimeError(f"No .gguf file found in {MODEL_REPO}")
         target_file = sorted(files)[0]
-    print(f"[setup] Downloading GGUF model {target_repo}/{target_file}...", flush=True)
+    _log(f"[model] Downloading GGUF model {target_repo}/{target_file}...", push_callback=True)
     local_path = hf_hub_download(repo_id=target_repo, filename=target_file, token=HF_TOKEN or None)
     n_gpu = -1 if os.path.exists("/dev/nvidia0") else 0
+    _log(f"[model] Loading GGUF ({os.path.getsize(local_path)/(1024*1024):.1f} MB, gpu_layers={n_gpu})...", push_callback=True)
     _llm = Llama(model_path=local_path, n_ctx=4096, n_gpu_layers=n_gpu, verbose=False)
+    _log("[model] GGUF model ready", push_callback=True)
     return _llm
 
 @app.post("/v1/chat/completions")
@@ -354,7 +445,10 @@ async def chat_completions(req: Request):
     body = await req.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
-    return get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+    _t0 = time.time()
+    out = get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
+    _log(f"[infer] GGUF chat completion done in {time.time() - _t0:.2f}s")
+    return out
 `
 		} else {
 			needsTorch = true
@@ -367,7 +461,8 @@ def get_backend():
     global _backend
     if _backend is not None:
         return _backend
-    print(f"[setup] Loading transformers model {MODEL_REPO}...", flush=True)
+    _t0 = time.time()
+    _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={torch.cuda.is_available()})...", push_callback=True)
     tok = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN or None)
     mdl = AutoModelForCausalLM.from_pretrained(
         MODEL_REPO,
@@ -376,6 +471,7 @@ def get_backend():
         token=HF_TOKEN or None,
     )
     _backend = (tok, mdl)
+    _log(f"[model] Transformers model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _backend
 
 @app.post("/v1/chat/completions")
@@ -416,6 +512,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -443,7 +540,7 @@ def _post_callback_log(msg: str):
         req = urllib.request.Request(
             CALLBACK_URL,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "User-Agent": "BetterNewAPI-Deployer/1.0"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5):
@@ -456,8 +553,8 @@ def _log(msg: str, push_callback: bool = False):
     print(line, flush=True)
     with _log_lock:
         _log_lines.append(line)
-        if len(_log_lines) > 300:
-            del _log_lines[:len(_log_lines) - 300]
+        if len(_log_lines) > 500:
+            del _log_lines[:len(_log_lines) - 500]
         try:
             with open(LOG_FILE, "w", encoding="utf-8") as f:
                 f.write("\n".join(_log_lines) + "\n")
@@ -479,7 +576,7 @@ def _report_tunnel_url(url: str):
         time.sleep(2)
     with open("endpoint_url.txt", "w", encoding="utf-8") as f:
         f.write(url)
-    _log(f"[tunnel] Ready: {url}")
+    _log(f"[tunnel] Ready: {url}", push_callback=True)
     if not CALLBACK_URL:
         return
     payload = json.dumps({"endpoint_url": url, "status": "running"}).encode("utf-8")
@@ -488,7 +585,7 @@ def _report_tunnel_url(url: str):
             req = urllib.request.Request(
                 CALLBACK_URL,
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "User-Agent": "BetterNewAPI-Deployer/1.0"},
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -499,24 +596,60 @@ def _report_tunnel_url(url: str):
         time.sleep(2)
 
 def _start_cloudflared():
-    _log("[tunnel] Starting cloudflared tunnel...", push_callback=True)
-    if os.system("which cloudflared > /dev/null 2>&1") != 0:
-        _log("[tunnel] Downloading cloudflared binary...", push_callback=True)
-        os.system("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
-    proc = subprocess.Popen(
-        ["cloudflared", "tunnel", "--url", "http://127.0.0.1:8000"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    reported = False
-    if proc.stdout is not None:
-        for line in proc.stdout:
-            if not reported:
-                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
-                if m:
-                    reported = True
-                    _report_tunnel_url(m.group(0))
+    try:
+        _log("[tunnel] Starting cloudflared tunnel...", push_callback=True)
+        cf_bin = shutil.which("cloudflared") or ("/tmp/cloudflared" if os.path.exists("/tmp/cloudflared") else None)
+        if not cf_bin:
+            cf_bin = "/tmp/cloudflared"
+            _log("[tunnel] Downloading cloudflared binary to /tmp/cloudflared...", push_callback=True)
+            dl_req = urllib.request.Request(
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+                headers={"User-Agent": "BetterNewAPI-Deployer/1.0"},
+            )
+            with urllib.request.urlopen(dl_req, timeout=60) as resp, open(cf_bin, "wb") as out_f:
+                total = int(resp.headers.get("Content-Length") or 0)
+                done = 0
+                next_pct = 25
+                while True:
+                    chunk = resp.read(262144)
+                    if not chunk:
+                        break
+                    out_f.write(chunk)
+                    done += len(chunk)
+                    if total > 0:
+                        pct = int(done * 100 / total)
+                        if pct >= next_pct:
+                            _log(f"[tunnel] Downloading cloudflared: {pct}%% ({done/(1024*1024):.1f}/{total/(1024*1024):.1f} MB)", push_callback=True)
+                            next_pct += 25
+            os.chmod(cf_bin, 0o755)
+            _log("[tunnel] cloudflared binary downloaded", push_callback=True)
+        proc = subprocess.Popen(
+            [cf_bin, "tunnel", "--url", "http://127.0.0.1:8000"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        reported = False
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                s = line.strip()
+                if s and any(k in s for k in ("ERR", "Registered tunnel connection", "trycloudflare.com", "Starting tunnel")):
+                    _log(f"[tunnel] {s}")
+                if not reported:
+                    m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+                    if m:
+                        reported = True
+                        _report_tunnel_url(m.group(0))
+    except Exception as exc:
+        _log(f"[tunnel] ERROR: {exc}", push_callback=True)
+
+_gpu_desc = "none"
+if os.path.exists("/dev/nvidia0"):
+    try:
+        _gpu_desc = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], text=True, timeout=5).strip() or "nvidia"
+    except Exception:
+        _gpu_desc = "nvidia"
+_log(f"[boot] Python {sys.version.split()[0]} | CPUs={os.cpu_count()} | GPU={_gpu_desc} | Model={MODEL_REPO}", push_callback=True)
 
 threading.Thread(target=_start_cloudflared, daemon=True).start()
 
@@ -526,8 +659,16 @@ def _ensure_packages(specs, extra_args=None):
         _log("[setup] All required packages already installed", push_callback=True)
         return
     _log(f"[setup] Installing packages: {', '.join(missing)}", push_callback=True)
-    cmd = [sys.executable, "-m", "pip", "install", "-q"] + (extra_args or []) + missing
-    subprocess.check_call(cmd)
+    cmd = [sys.executable, "-m", "pip", "install", "--progress-bar", "off"] + (extra_args or []) + missing
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.stdout is not None:
+        for raw_line in proc.stdout:
+            s = raw_line.rstrip()
+            if s:
+                _log(f"[pip] {s}", push_callback=any(k in s for k in ("Collecting", "Downloading", "Building", "Successfully", "ERROR")))
+    rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
     _log("[setup] Package installation complete", push_callback=True)
 
 _ensure_packages(%s, %s)

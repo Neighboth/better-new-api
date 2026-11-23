@@ -58,7 +58,7 @@ var deploymentAccountsMu sync.Mutex
 func defaultTierForProvider(provider string) string {
 	switch provider {
 	case "modal":
-		return "starter_paid"
+		return "free_no_card"
 	case "colab":
 		return "free"
 	case "kaggle":

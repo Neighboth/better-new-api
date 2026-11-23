@@ -137,7 +137,7 @@ export function getHardwareForTier(
   const all = PROVIDER_HARDWARE_CATALOG[provider] ?? []
   const tiers = PROVIDER_TIERS[provider] ?? []
   const matched =
-    tiers.find((t) => t.id === tier) ?? tiers[tiers.length - 1] ?? null
+    tiers.find((t) => t.id === tier) ?? tiers[0] ?? null
   if (!matched || matched.allowedHardwareIds === null) {
     return all
   }

@@ -816,7 +816,7 @@ export function UnifiedDeploymentSettingsSection({
                       </SelectValue>
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent alignItemWithTrigger={false} align='start'>
                     <SelectItem value='deployments_first'>
                       {t(
                         'Deployments First (Prefer deployments, fallback to channels)'

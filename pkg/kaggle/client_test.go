@@ -1,9 +1,11 @@
 package kaggle
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,8 +48,11 @@ func TestKaggleClientLifecycle(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ref":"alice/serve-qwen","url":"https://www.kaggle.com/code/alice/serve-qwen","versionNumber":1}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/kernels/status":
 			_, _ = w.Write([]byte(`{"slug":"serve-qwen","status":"running"}`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/kernels/alice/serve-qwen":
-			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/kernels.KernelsApiService/DeleteKernel":
+			body, _ := io.ReadAll(r.Body)
+			assert.Contains(t, string(body), `"userName":"alice"`)
+			assert.Contains(t, string(body), `"kernelSlug":"serve-qwen"`)
+			_, _ = w.Write([]byte(`{}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -89,4 +94,42 @@ func TestKaggleBearerTokenAuth(t *testing.T) {
 	client.BaseURL = srv.URL
 	_, err := client.TestConnection()
 	require.NoError(t, err)
+}
+
+func TestStreamKernelLogsSSEAndBlob(t *testing.T) {
+	t.Run("SSE", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/kernels/logs/stream/alice/serve-qwen", r.URL.Path)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"stream_name\":\"stdout\",\"data\":\"line 1\\nline 2\"}\n\n"))
+			_, _ = w.Write([]byte("data: END_OF_LOG\n\n"))
+		}))
+		defer srv.Close()
+
+		client := NewClient("alice", "KGAT_abc123")
+		client.BaseURL = srv.URL
+		var got []string
+		err := client.StreamKernelLogs(context.Background(), "alice", "serve-qwen", func(line string) {
+			got = append(got, line)
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"line 1", "line 2"}, got)
+	})
+
+	t.Run("JSONBlob", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"data":"booting\n"},{"data":"ready"}]`))
+		}))
+		defer srv.Close()
+
+		client := NewClient("alice", "KGAT_abc123")
+		client.BaseURL = srv.URL
+		var got []string
+		err := client.StreamKernelLogs(context.Background(), "alice", "serve-qwen", func(line string) {
+			got = append(got, line)
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "booting\nready", strings.Join(got, "\n"))
+	})
 }

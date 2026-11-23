@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -473,8 +474,8 @@ func GetNotebookDeploymentLogs(c *gin.Context) {
 		}
 	}
 
-	// Live log fetch from running serve.py /_logs endpoint (Kaggle / Colab)
-	if strings.TrimSpace(item.EndpointURL) != "" && strings.TrimSpace(item.CallbackToken) != "" && (item.Provider == "kaggle" || item.Provider == "colab") {
+	// Live log fetch from running /_logs endpoint (Kaggle / Colab / Modal)
+	if strings.TrimSpace(item.EndpointURL) != "" && strings.TrimSpace(item.CallbackToken) != "" && (item.Provider == "kaggle" || item.Provider == "colab" || item.Provider == "modal") {
 		logsURL := strings.TrimRight(strings.TrimSpace(item.EndpointURL), "/") + "/_logs?token=" + url.QueryEscape(item.CallbackToken)
 		httpClient := &http.Client{Timeout: 4 * time.Second}
 		if resp, reqErr := httpClient.Get(logsURL); reqErr == nil {
@@ -491,6 +492,29 @@ func GetNotebookDeploymentLogs(c *gin.Context) {
 							combinedLogs = strings.TrimSpace(out.Logs)
 						}
 					}
+				}
+			}
+		}
+	}
+
+	// Live log snapshot from Kaggle SSE/output API when endpoint is not ready yet
+	if item.Provider == "kaggle" && strings.TrimSpace(item.EndpointURL) == "" && strings.TrimSpace(item.RemoteID) != "" {
+		if acc, accErr := ResolveProviderAccount("kaggle", item.AccountID); accErr == nil && acc != nil && strings.TrimSpace(acc.APIKey) != "" {
+			ownerSlug := strings.TrimSpace(acc.Username)
+			kernelSlug := sanitizeSlug(item.Name)
+			cleanedRef := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(item.RemoteID), "/"), "code/")
+			if parts := strings.SplitN(cleanedRef, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+				ownerSlug = parts[0]
+				kernelSlug = parts[1]
+			}
+			snapCtx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+			snapLogs, snapErr := newKaggleClient(acc.Username, acc.APIKey).GetKernelLogsSnapshot(snapCtx, ownerSlug, kernelSlug)
+			cancel()
+			if snapErr == nil && strings.TrimSpace(snapLogs) != "" {
+				if combinedLogs != "" {
+					combinedLogs = combinedLogs + "\n--- Kaggle Live Logs ---\n" + strings.TrimSpace(snapLogs)
+				} else {
+					combinedLogs = strings.TrimSpace(snapLogs)
 				}
 			}
 		}
@@ -575,8 +599,8 @@ func appendDeploymentLog(id int, line string) {
 		next += "\n"
 	}
 	next += ts + " " + line + "\n"
-	if len(next) > 16384 {
-		next = next[len(next)-16384:]
+	if len(next) > 65536 {
+		next = next[len(next)-65536:]
 	}
 	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
 		"logs": next,
@@ -584,6 +608,11 @@ func appendDeploymentLog(id int, line string) {
 }
 
 func setDeploymentStatus(id int, status, message string) {
+	if cur, err := model.GetNotebookDeploymentByID(id); err == nil && cur != nil {
+		if cur.Status == status && cur.StatusMessage == message {
+			return
+		}
+	}
 	_ = model.UpdateNotebookDeploymentFields(id, map[string]any{
 		"status":         status,
 		"status_message": message,
@@ -617,6 +646,9 @@ func buildDeploymentCallbackURL(c *gin.Context, id int, token string) string {
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
 		return ""
 	}
 	return strings.TrimRight(base, "/") + fmt.Sprintf("/api/deployments/notebooks/%d/callback?token=%s", id, url.QueryEscape(token))
@@ -864,6 +896,7 @@ func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest)
 		IdleTimeoutSeconds: idleTimeout,
 		HFToken:            strings.TrimSpace(req.HFToken),
 		CallbackURL:        callbackURL,
+		CallbackToken:      callbackToken,
 		Script:             script,
 		ModalTokenID:       modalTokenID,
 		ModalTokenSecret:   modalTokenSecret,
@@ -934,6 +967,7 @@ type provisionParams struct {
 	IdleTimeoutSeconds int
 	HFToken            string
 	CallbackURL        string
+	CallbackToken      string
 	Script             string
 	ModalTokenID       string
 	ModalTokenSecret   string
@@ -952,7 +986,7 @@ func provisionDeploymentAsync(p provisionParams) {
 	case "modal":
 		setDeploymentStatus(p.ID, "downloading", "Deploying container & downloading model on Modal...")
 		appName := sanitizeSlug(p.Name)
-		endpointURL, modalScript, err := modaldeploy.Deploy(ctx, modaldeploy.DeployConfig{
+		endpointURL, modalScript, err := modaldeploy.DeployWithLogger(ctx, modaldeploy.DeployConfig{
 			AppName:              appName,
 			ModelRepo:            p.ModelRepo,
 			ModelFile:            p.ModelFile,
@@ -965,6 +999,17 @@ func provisionDeploymentAsync(p provisionParams) {
 			TokenSecret:          p.ModalTokenSecret,
 			HFToken:              p.HFToken,
 			SharedVolumePath:     p.ModalVolPath,
+			ShutdownToken:        p.CallbackToken,
+		}, func(line string) {
+			appendDeploymentLog(p.ID, "[modal] "+line)
+			msg := line
+			if len(msg) > 140 {
+				msg = msg[:140]
+			}
+			_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+				"status_message": "Modal: " + msg,
+				"updated_time":   time.Now().Unix(),
+			})
 		})
 		if err != nil {
 			setDeploymentFailed(p.ID, err.Error())
@@ -1040,6 +1085,53 @@ func provisionDeploymentAsync(p provisionParams) {
 				}
 			}
 		}
+		var tunnelURLRe = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
+		logCtx, cancelLogs := context.WithCancel(ctx)
+		defer cancelLogs()
+		go func() {
+			seenLines := 0
+			var discoveredURL string
+			for logCtx.Err() == nil {
+				lineIdx := 0
+				err := client.StreamKernelLogs(logCtx, ownerSlug, kernelSlug, func(line string) {
+					lineIdx++
+					if lineIdx <= seenLines {
+						return
+					}
+					seenLines = lineIdx
+					appendDeploymentLog(p.ID, line)
+					if m := tunnelURLRe.FindString(line); m != "" && discoveredURL == "" {
+						discoveredURL = m
+						_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+							"endpoint_url":   discoveredURL,
+							"status":         "starting",
+							"status_message": "Tunnel URL detected, verifying model server health...",
+							"updated_time":   time.Now().Unix(),
+						})
+					} else {
+						msg := strings.TrimSpace(line)
+						if len(msg) > 140 {
+							msg = msg[len(msg)-140:]
+						}
+						if msg != "" {
+							_ = model.UpdateNotebookDeploymentFields(p.ID, map[string]any{
+								"status_message": "Kaggle: " + msg,
+								"updated_time":   time.Now().Unix(),
+							})
+						}
+					}
+				})
+				if err == nil || logCtx.Err() != nil {
+					return
+				}
+				select {
+				case <-logCtx.Done():
+					return
+				case <-time.After(4 * time.Second):
+				}
+			}
+		}()
+
 		deadline := time.Now().Add(10 * time.Minute)
 		queuedSince := time.Now()
 		consecutiveStatusErrs := 0
@@ -1055,10 +1147,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			ks, statusErr := client.GetKernelStatus(ownerSlug, kernelSlug)
 			if statusErr != nil {
 				if strings.Contains(statusErr.Error(), "HTTP 403") {
-					msg := "Running on Kaggle, waiting for tunnel URL callback..."
-					if p.CallbackURL == "" {
-						msg = "Running on Kaggle: set a public Server Address in System Settings to receive tunnel URL automatically"
-					}
+					msg := "Running on Kaggle, streaming logs & waiting for tunnel URL..."
 					setDeploymentStatus(p.ID, "downloading", msg)
 				} else {
 					consecutiveStatusErrs++
@@ -1079,15 +1168,22 @@ func provisionDeploymentAsync(p provisionParams) {
 						setDeploymentStatus(p.ID, "starting", "Queued on Kaggle...")
 					}
 				case "running":
-					msg := "Running on Kaggle, installing dependencies & waiting for tunnel URL..."
-					if p.CallbackURL == "" {
-						msg = "Running on Kaggle: set a public Server Address in System Settings to receive tunnel URL automatically"
+					// Only set generic message if no live Kaggle log line has populated status_message yet
+					if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && !strings.HasPrefix(cur.StatusMessage, "Kaggle: ") {
+						setDeploymentStatus(p.ID, "downloading", "Running on Kaggle, installing dependencies & waiting for tunnel URL...")
 					}
-					setDeploymentStatus(p.ID, "downloading", msg)
 				case "cancel_requested", "cancel_acknowledged":
 					setDeploymentFailed(p.ID, "Kaggle kernel was cancelled")
 					return
 				case "error":
+					time.Sleep(1 * time.Second)
+					if snap, sErr := client.GetKernelLogsSnapshot(ctx, ownerSlug, kernelSlug); sErr == nil && strings.TrimSpace(snap) != "" {
+						for _, ln := range strings.Split(snap, "\n") {
+							if strings.TrimSpace(ln) != "" {
+								appendDeploymentLog(p.ID, ln)
+							}
+						}
+					}
 					errMsg := strings.TrimSpace(ks.FailureMessage)
 					if errMsg == "" {
 						errMsg = "Kaggle kernel failed during execution"
@@ -1095,6 +1191,7 @@ func provisionDeploymentAsync(p provisionParams) {
 					setDeploymentFailed(p.ID, errMsg)
 					return
 				case "complete":
+					time.Sleep(1 * time.Second)
 					if cur, dbErr := model.GetNotebookDeploymentByID(p.ID); dbErr == nil && strings.TrimSpace(cur.EndpointURL) != "" {
 						if !probeHealth(cur.EndpointURL) {
 							setDeploymentFailed(p.ID, "Endpoint health check failed (server did not respond with HTTP 200 on /health)")
@@ -1102,6 +1199,13 @@ func provisionDeploymentAsync(p provisionParams) {
 						}
 						setDeploymentStatus(p.ID, "running", "Running")
 						return
+					}
+					if snap, sErr := client.GetKernelLogsSnapshot(ctx, ownerSlug, kernelSlug); sErr == nil && strings.TrimSpace(snap) != "" {
+						for _, ln := range strings.Split(snap, "\n") {
+							if strings.TrimSpace(ln) != "" {
+								appendDeploymentLog(p.ID, ln)
+							}
+						}
 					}
 					setDeploymentFailed(p.ID, "Kaggle kernel completed without reporting an endpoint URL")
 					return
