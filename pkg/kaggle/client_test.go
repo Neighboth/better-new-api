@@ -18,7 +18,7 @@ func TestLookupAccelerator(t *testing.T) {
 	assert.False(t, cpu.EnableTPU)
 	assert.Empty(t, cpu.MachineShape)
 
-	t4 := LookupAccelerator("NvidiaTeslaT4")
+	t4 := LookupAccelerator("NvidiaP100")
 	assert.True(t, t4.EnableGPU)
 	assert.False(t, t4.EnableTPU)
 	assert.Equal(t, "NvidiaTeslaT4", t4.MachineShape)
@@ -27,6 +27,10 @@ func TestLookupAccelerator(t *testing.T) {
 	assert.False(t, tpu.EnableGPU)
 	assert.True(t, tpu.EnableTPU)
 	assert.Equal(t, "TpuV5E8", tpu.MachineShape)
+
+	tpuLegacy := LookupAccelerator("TpuV38")
+	assert.True(t, tpuLegacy.EnableTPU)
+	assert.Equal(t, "TpuV5E8", tpuLegacy.MachineShape)
 }
 
 func TestKaggleClientLifecycle(t *testing.T) {
@@ -41,13 +45,14 @@ func TestKaggleClientLifecycle(t *testing.T) {
 			assert.Equal(t, "profile", r.URL.Query().Get("group"))
 			assert.Empty(t, r.URL.Query().Get("mine"))
 			_, _ = w.Write([]byte(`[{"ref":"alice/test"}]`))
-		case r.Method == http.MethodPost && r.URL.Path == "/kernels/push":
+		case r.Method == http.MethodPost && r.URL.Path == "/kernels.KernelsApiService/SaveKernel":
 			body, _ := io.ReadAll(r.Body)
 			assert.Contains(t, string(body), `"enableTpu":true`)
 			assert.Contains(t, string(body), `"machineShape":"TpuV5E8"`)
+			assert.Contains(t, string(body), `"kernelExecutionType":"SAVE_AND_RUN_ALL"`)
 			_, _ = w.Write([]byte(`{"ref":"alice/serve-qwen","url":"https://www.kaggle.com/code/alice/serve-qwen","versionNumber":1}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/kernels/status":
-			_, _ = w.Write([]byte(`{"slug":"serve-qwen","status":"running"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/kernels.KernelsApiService/GetKernelSessionStatus":
+			_, _ = w.Write([]byte(`{"slug":"serve-qwen","status":"RUNNING"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/kernels.KernelsApiService/DeleteKernel":
 			body, _ := io.ReadAll(r.Body)
 			assert.Contains(t, string(body), `"userName":"alice"`)

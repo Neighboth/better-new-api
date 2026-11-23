@@ -142,22 +142,42 @@ def get_pipe():
     _log(f"[model] Video model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _pipe
 
-@app.post("/v1/videos/generations")
-async def generate_video(req: Request):
-    touch()
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     prompt = body.get("prompt", "A serene mountain landscape")
     num_frames = int(body.get("num_frames", 16))
+    steps = int(body.get("num_inference_steps") or body.get("steps") or 20)
+    if set_progress:
+        set_progress(5, "Loading video model...")
     _t0 = time.time()
     _log(f"[infer] Generating video (frames={num_frames})...")
-    result = get_pipe()(prompt=prompt, num_frames=num_frames)
+    pipe = get_pipe()
+    if set_progress:
+        set_progress(20, "Model loaded, generating video frames...")
+    def _cb(_p, step, _ts, kw):
+        if set_progress:
+            pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+            set_progress(min(90, pct), f"Generating video step {step + 1}/{steps}")
+        return kw
+    try:
+        result = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback_on_step_end=_cb)
+    except TypeError:
+        result = pipe(prompt=prompt, num_frames=num_frames)
     frames = result.frames[0]
+    if set_progress:
+        set_progress(92, "Encoding MP4 video...")
     filename = f"{uuid.uuid4().hex}.mp4"
     out_path = os.path.join(OUTPUT_DIR, filename)
     export_to_video(frames, out_path, fps=8)
     _log(f"[infer] Video generated in {time.time() - _t0:.1f}s -> {filename}")
-    base = str(req.base_url).rstrip("/")
-    return {"data": [{"url": f"{base}/outputs/{filename}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"data": [{"url": f"{base_url}/outputs/{filename}"}]}
+
+@app.post("/v1/videos/generations")
+async def generate_video(req: Request):
+    touch()
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	case "image":
 		needsTorch = true
@@ -250,8 +270,8 @@ def get_pipe():
             class _GGUFImageWrapper:
                 def __init__(self, engine):
                     self._engine = engine
-                def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20):
-                    _imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps)
+                def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20, progress_callback=None):
+                    _imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps, progress_callback=progress_callback)
                     return type("_Out", (), {"images": _imgs})()
 
             _pipe = _GGUFImageWrapper(_sd)
@@ -328,20 +348,47 @@ def get_pipe():
     _log(f"[model] Image model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _pipe
 
-@app.post("/v1/images/generations")
-async def generate_image(req: Request):
-    touch()
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     prompt = body.get("prompt", "A scenic landscape")
+    width = int(body.get("width") or 512)
+    height = int(body.get("height") or 512)
+    steps = int(body.get("num_inference_steps") or body.get("steps") or 20)
+    if set_progress:
+        set_progress(5, "Loading image model...")
     _t0 = time.time()
     _log("[infer] Generating image...")
-    img = get_pipe()(prompt=prompt).images[0]
+    pipe = get_pipe()
+    if set_progress:
+        set_progress(20, "Model loaded, generating image...")
+    if hasattr(pipe, "_engine"):
+        def _on_step(step, total, _t):
+            if set_progress:
+                pct = 20 + int((step / max(1, total)) * 75)
+                set_progress(min(95, pct), f"Generating image step {step}/{total}")
+        img = pipe(prompt=prompt, width=width, height=height, num_inference_steps=steps, progress_callback=_on_step).images[0]
+    else:
+        def _cb(_p, step, _ts, kw):
+            if set_progress:
+                pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+                set_progress(min(95, pct), f"Generating image step {step + 1}/{steps}")
+            return kw
+        try:
+            img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
+        except TypeError:
+            img = pipe(prompt=prompt).images[0]
     filename = f"{uuid.uuid4().hex}.png"
     out_path = os.path.join(OUTPUT_DIR, filename)
     img.save(out_path)
     _log(f"[infer] Image generated in {time.time() - _t0:.1f}s -> {filename}")
-    base = str(req.base_url).rstrip("/")
-    return {"data": [{"url": f"{base}/outputs/{filename}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"data": [{"url": f"{base_url}/outputs/{filename}"}]}
+
+@app.post("/v1/images/generations")
+async def generate_image(req: Request):
+    touch()
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	case "audio":
 		needsTorch = true
@@ -359,18 +406,29 @@ def get_audio_pipe():
         _log("[model] Audio model ready")
     return _audio_pipe
 
+def _execute_task(body, base_url, set_progress=None):
+    text = body.get("input") or body.get("prompt") or "Hello world"
+    if set_progress:
+        set_progress(5, "Loading audio model...")
+    _t0 = time.time()
+    pipe = get_audio_pipe()
+    if set_progress:
+        set_progress(40, "Synthesizing audio...")
+    out = pipe(text)
+    filename = f"{uuid.uuid4().hex}.wav"
+    out_path = os.path.join(OUTPUT_DIR, filename)
+    wavfile.write(out_path, rate=int(out.get("sampling_rate", 16000)), data=out["audio"])
+    _log(f"[infer] Audio generated in {time.time() - _t0:.1f}s -> {filename}")
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"url": f"{base_url}/outputs/{filename}", "data": [{"url": f"{base_url}/outputs/{filename}"}]}
+
 @app.post("/v1/audio/speech")
 @app.post("/v1/audio/generations")
 async def generate_audio(req: Request):
     touch()
     body = await req.json()
-    text = body.get("input") or body.get("prompt") or "Hello world"
-    out = get_audio_pipe()(text)
-    filename = f"{uuid.uuid4().hex}.wav"
-    out_path = os.path.join(OUTPUT_DIR, filename)
-    wavfile.write(out_path, rate=int(out.get("sampling_rate", 16000)), data=out["audio"])
-    base = str(req.base_url).rstrip("/")
-    return {"url": f"{base}/outputs/{filename}", "data": [{"url": f"{base}/outputs/{filename}"}]}
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	case "embeddings":
 		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("sentence-transformers", "sentence_transformers"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
@@ -386,18 +444,28 @@ def get_embed_model():
         _log("[model] Embeddings model ready")
     return _embed_model
 
-@app.post("/v1/embeddings")
-async def create_embeddings(req: Request):
-    touch()
-    body = await req.json()
+def _execute_task(body, _base_url, set_progress=None):
     inp = body.get("input", "")
     texts = inp if isinstance(inp, list) else [str(inp)]
-    vecs = get_embed_model().encode(texts).tolist()
+    if set_progress:
+        set_progress(5, "Loading embeddings model...")
+    mdl = get_embed_model()
+    if set_progress:
+        set_progress(40, "Encoding embeddings...")
+    vecs = mdl.encode(texts).tolist()
+    if set_progress:
+        set_progress(100, "Completed")
     return {
         "object": "list",
         "model": MODEL_REPO,
         "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)],
     }
+
+@app.post("/v1/embeddings")
+async def create_embeddings(req: Request):
+    touch()
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
 		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
@@ -439,16 +507,26 @@ def get_llm():
     _log("[model] GGUF model ready", push_callback=True)
     return _llm
 
+def _execute_task(body, _base_url, set_progress=None):
+    messages = body.get("messages", [])
+    max_tokens = int(body.get("max_tokens", 256))
+    if set_progress:
+        set_progress(5, "Loading GGUF model...")
+    _t0 = time.time()
+    llm = get_llm()
+    if set_progress:
+        set_progress(40, "Generating text response...")
+    out = llm.create_chat_completion(messages=messages, max_tokens=max_tokens)
+    _log(f"[infer] GGUF chat completion done in {time.time() - _t0:.2f}s")
+    if set_progress:
+        set_progress(100, "Completed")
+    return out
+
 @app.post("/v1/chat/completions")
 async def chat_completions(req: Request):
     touch()
     body = await req.json()
-    messages = body.get("messages", [])
-    max_tokens = int(body.get("max_tokens", 256))
-    _t0 = time.time()
-    out = get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
-    _log(f"[infer] GGUF chat completion done in {time.time() - _t0:.2f}s")
-    return out
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		} else {
 			needsTorch = true
@@ -474,13 +552,14 @@ def get_backend():
     _log(f"[model] Transformers model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _backend
 
-@app.post("/v1/chat/completions")
-async def chat_completions(req: Request):
-    touch()
-    body = await req.json()
+def _execute_task(body, _base_url, set_progress=None):
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
+    if set_progress:
+        set_progress(5, "Loading transformers model...")
     tok, mdl = get_backend()
+    if set_progress:
+        set_progress(40, "Generating text response...")
     prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
@@ -488,12 +567,20 @@ async def chat_completions(req: Request):
     with torch.no_grad():
         output_ids = mdl.generate(**inputs, max_new_tokens=max_tokens)
     generated = tok.decode(output_ids[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
+    if set_progress:
+        set_progress(100, "Completed")
     return {
         "id": "chatcmpl-notebook",
         "object": "chat.completion",
         "model": MODEL_REPO,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}],
     }
+
+@app.post("/v1/chat/completions")
+async def chat_completions(req: Request):
+    touch()
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}
 	}
@@ -730,6 +817,64 @@ def list_models():
     touch()
     return {"object": "list", "data": [{"id": MODEL_REPO, "object": "model"}]}
 %s
+_jobs = {}
+_jobs_lock = threading.Lock()
+
+@app.post("/_jobs")
+async def start_job(req: Request):
+    touch()
+    body = await req.json()
+    base_url = str(req.base_url).rstrip("/")
+    job_id = str(int(time.time() * 1000000)) + "-" + str(threading.get_ident())
+    now = time.time()
+    with _jobs_lock:
+        stale = [k for k, v in _jobs.items() if now - v.get("updated_at", now) > 3600]
+        for k in stale:
+            del _jobs[k]
+        _jobs[job_id] = {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued...", "result": None, "error": None, "updated_at": now}
+
+    def _set_progress(pct: int, stage: str):
+        touch()
+        with _jobs_lock:
+            if job_id in _jobs:
+                _jobs[job_id]["status"] = "running"
+                _jobs[job_id]["progress"] = max(0, min(100, int(pct)))
+                _jobs[job_id]["stage"] = stage
+                _jobs[job_id]["updated_at"] = time.time()
+
+    def _worker():
+        try:
+            _set_progress(1, "Starting...")
+            res = _execute_task(body, base_url, _set_progress)
+            with _jobs_lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "completed"
+                    _jobs[job_id]["progress"] = 100
+                    _jobs[job_id]["stage"] = "Completed"
+                    _jobs[job_id]["result"] = res
+                    _jobs[job_id]["updated_at"] = time.time()
+        except Exception as exc:
+            _log(f"[job] Failed: {type(exc).__name__}: {exc}")
+            with _jobs_lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "failed"
+                    _jobs[job_id]["stage"] = "Failed"
+                    _jobs[job_id]["error"] = f"{type(exc).__name__}: {exc}"
+                    _jobs[job_id]["updated_at"] = time.time()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued..."}
+
+@app.get("/_jobs/{job_id}")
+def get_job(job_id: str):
+    touch()
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="job not found")
+        return {k: v for k, v in job.items() if k != "updated_at"}
+
 if __name__ == "__main__":
     print("[server] Starting uvicorn on port 8000...", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=8000)

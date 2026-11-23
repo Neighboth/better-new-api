@@ -107,3 +107,31 @@ func TestColabClientCPUAssignParams(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "m-s-cpu", rt.Name)
 }
+
+func TestColabClientHighRAMOption(t *testing.T) {
+	var seenShapes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/assign" {
+			seenShapes = append(seenShapes, r.URL.Query().Get("shape"))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(")]}'\n" + `{"token":"xsrf-1"}`))
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/assign" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(")]}'\n" + `{"endpoint":"m-s-hm","runtimeProxyInfo":{"url":"http://` + r.Host + `/proxy","token":"tok"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := NewClient("test-oauth-token")
+	client.TunnelBaseURL = srv.URL
+
+	_, err := client.CreateRuntimeWithOptions("CPU", true)
+	require.NoError(t, err)
+	_, err = client.CreateRuntimeWithOptions("NVIDIA_TESLA_T4", false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"hm", ""}, seenShapes)
+}

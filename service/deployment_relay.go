@@ -5,6 +5,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -123,7 +124,81 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 		}
 	}
 
-	targetURL := strings.TrimRight(strings.TrimSpace(picked.EndpointURL), "/") + c.Request.URL.RequestURI()
+	baseEndpoint := strings.TrimRight(strings.TrimSpace(picked.EndpointURL), "/")
+	reqPath := c.Request.URL.Path
+	isJobEligible := (picked.Provider == "colab" || picked.Provider == "kaggle" || picked.Provider == "modal") &&
+		c.Request.Method == http.MethodPost &&
+		(reqPath == "/v1/images/generations" || reqPath == "/v1/videos/generations" || reqPath == "/v1/audio/speech" || reqPath == "/v1/audio/generations" || reqPath == "/v1/chat/completions") &&
+		!bytes.Contains(bodyBytes, []byte(`"stream":true`)) && !bytes.Contains(bodyBytes, []byte(`"stream": true`))
+
+	if isJobEligible {
+		shortClient := &http.Client{Timeout: 15 * time.Second}
+		if jReq, jErr := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, baseEndpoint+"/_jobs", bytes.NewReader(bodyBytes)); jErr == nil {
+			jReq.Header.Set("Content-Type", "application/json")
+			if jResp, doErr := shortClient.Do(jReq); doErr == nil {
+				jBytes, _ := io.ReadAll(io.LimitReader(jResp.Body, 1<<20))
+				_ = jResp.Body.Close()
+				if jResp.StatusCode >= 200 && jResp.StatusCode < 300 {
+					var started struct {
+						JobID string `json:"job_id"`
+					}
+					if common.Unmarshal(jBytes, &started) == nil && started.JobID != "" {
+						pollURL := baseEndpoint + "/_jobs/" + url.PathEscape(started.JobID)
+						deadline := time.Now().Add(15 * time.Minute)
+						consecutiveErrs := 0
+						for time.Now().Before(deadline) {
+							select {
+							case <-c.Request.Context().Done():
+								return true
+							case <-time.After(1500 * time.Millisecond):
+							}
+							pReq, pErr := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, pollURL, nil)
+							if pErr != nil {
+								return false
+							}
+							pResp, pDoErr := shortClient.Do(pReq)
+							if pDoErr != nil {
+								consecutiveErrs++
+								if consecutiveErrs >= 8 {
+									return false
+								}
+								continue
+							}
+							pBytes, _ := io.ReadAll(io.LimitReader(pResp.Body, 8<<20))
+							_ = pResp.Body.Close()
+							if pResp.StatusCode == http.StatusBadGateway || pResp.StatusCode == http.StatusServiceUnavailable || pResp.StatusCode == http.StatusGatewayTimeout || pResp.StatusCode == 524 {
+								consecutiveErrs++
+								if consecutiveErrs >= 8 {
+									return false
+								}
+								continue
+							}
+							consecutiveErrs = 0
+							var st struct {
+								Status string         `json:"status"`
+								Result map[string]any `json:"result"`
+								Error  string         `json:"error"`
+							}
+							if common.Unmarshal(pBytes, &st) != nil {
+								continue
+							}
+							if st.Status == "completed" {
+								c.JSON(http.StatusOK, st.Result)
+								return true
+							}
+							if st.Status == "failed" {
+								c.JSON(http.StatusInternalServerError, gin.H{"error": st.Error})
+								return true
+							}
+						}
+						return false
+					}
+				}
+			}
+		}
+	}
+
+	targetURL := baseEndpoint + c.Request.URL.RequestURI()
 	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return false
@@ -137,7 +212,7 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 		req.Header.Set("Accept", acc)
 	}
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

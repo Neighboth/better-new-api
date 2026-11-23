@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,20 +33,24 @@ type AcceleratorSpec struct {
 	MachineShape string `json:"machine_shape,omitempty"`
 }
 
-// SupportedAccelerators lists every CPU, GPU, and TPU option available on Kaggle.
+// SupportedAccelerators lists active CPU, GPU, and TPU options available on Kaggle.
 var SupportedAccelerators = []AcceleratorSpec{
 	{ID: "CPU", Label: "CPU (4 cores, 30 GB RAM)", Kind: "cpu", EnableGPU: false, EnableTPU: false, MachineShape: ""},
 	{ID: "NvidiaTeslaT4", Label: "GPU: NVIDIA Tesla T4 x2", Kind: "gpu", EnableGPU: true, EnableTPU: false, MachineShape: "NvidiaTeslaT4"},
-	{ID: "NvidiaP100", Label: "GPU: NVIDIA Tesla P100", Kind: "gpu", EnableGPU: true, EnableTPU: false, MachineShape: "NvidiaP100"},
 	{ID: "NvidiaL4", Label: "GPU: NVIDIA L4", Kind: "gpu", EnableGPU: true, EnableTPU: false, MachineShape: "NvidiaL4"},
-	{ID: "TpuV38", Label: "TPU: v3-8", Kind: "tpu", EnableGPU: false, EnableTPU: true, MachineShape: ""},
 	{ID: "TpuV5E8", Label: "TPU: v5e-8", Kind: "tpu", EnableGPU: false, EnableTPU: true, MachineShape: "TpuV5E8"},
 	{ID: "TpuV6E8", Label: "TPU: v6e-8", Kind: "tpu", EnableGPU: false, EnableTPU: true, MachineShape: "TpuV6E8"},
 }
 
-// LookupAccelerator resolves an accelerator ID to its Kaggle kernel flags.
+// LookupAccelerator resolves an accelerator ID to its Kaggle kernel flags, mapping retired IDs to replacements.
 func LookupAccelerator(id string) AcceleratorSpec {
 	trimmed := strings.TrimSpace(id)
+	switch strings.ToLower(trimmed) {
+	case "nvidiap100", "nvidiateslap100":
+		trimmed = "NvidiaTeslaT4"
+	case "tpuv38", "tpu1vmv38":
+		trimmed = "TpuV5E8"
+	}
 	for _, spec := range SupportedAccelerators {
 		if strings.EqualFold(spec.ID, trimmed) {
 			return spec
@@ -170,15 +176,23 @@ type PushKernelResponse struct {
 	Error         string `json:"error"`
 }
 
-// PushKernel pushes a Python script kernel to Kaggle and triggers execution.
+// PushKernel pushes a Python script kernel to Kaggle via SaveKernel RPC (with /kernels/push fallback) and triggers execution.
 func (c *Client) PushKernel(req PushKernelRequest) (*PushKernelResponse, error) {
 	spec := LookupAccelerator(req.Accelerator)
+	title := strings.TrimSpace(req.Title)
+	if len(title) < 5 {
+		title = "model " + title
+		if len(title) < 5 {
+			title = "model server"
+		}
+	}
 	payload := map[string]any{
 		"slug":                   req.Slug,
-		"newTitle":               req.Title,
+		"newTitle":               title,
 		"text":                   req.ScriptText,
 		"language":               "python",
 		"kernelType":             "script",
+		"kernelExecutionType":    "SAVE_AND_RUN_ALL",
 		"isPrivate":              req.IsPrivate,
 		"enableGpu":              spec.EnableGPU,
 		"enableTpu":              spec.EnableTPU,
@@ -192,8 +206,16 @@ func (c *Client) PushKernel(req PushKernelRequest) (*PushKernelResponse, error) 
 		payload["machineShape"] = spec.MachineShape
 	}
 	var out PushKernelResponse
-	if err := c.do(http.MethodPost, "/kernels/push", payload, &out); err != nil {
-		return nil, err
+	saveURL := c.apiBaseURL() + "/kernels.KernelsApiService/SaveKernel"
+	if err := c.doAbsolute(context.Background(), http.MethodPost, saveURL, payload, &out); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusNotFound || apiErr.Code == http.StatusMethodNotAllowed) {
+			if err2 := c.do(http.MethodPost, "/kernels/push", payload, &out); err2 != nil {
+				return nil, err2
+			}
+		} else {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(out.Error) != "" {
 		return nil, fmt.Errorf("kaggle push error: %s", out.Error)
@@ -209,17 +231,74 @@ type KernelStatus struct {
 	LastRunTime    string `json:"lastRunTime"`
 }
 
-// GetKernelStatus checks the latest run status of a Kaggle kernel.
+func normalizeKaggleStatus(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return "queued"
+	}
+	if n, err := strconv.Atoi(trimmed); err == nil {
+		switch n {
+		case 0:
+			return "queued"
+		case 1:
+			return "running"
+		case 2:
+			return "complete"
+		case 3:
+			return "error"
+		case 4:
+			return "cancel_requested"
+		case 5:
+			return "cancel_acknowledged"
+		case 6:
+			return "new_script"
+		}
+	}
+	var s string
+	if common.Unmarshal(raw, &s) == nil {
+		s = strings.ToLower(strings.TrimSpace(s))
+		s = strings.TrimPrefix(s, "kernelworkerstatus.")
+		if s != "" {
+			return s
+		}
+	}
+	return "queued"
+}
+
+// GetKernelStatus checks the latest run status of a Kaggle kernel via GetKernelSessionStatus RPC (with /kernels/status fallback).
 func (c *Client) GetKernelStatus(username, kernelSlug string) (*KernelStatus, error) {
-	q := url.Values{
-		"userName":   []string{username},
-		"kernelSlug": []string{kernelSlug},
+	u := strings.TrimSpace(username)
+	ks := strings.TrimSpace(kernelSlug)
+	var rawResp struct {
+		Slug           string          `json:"slug"`
+		Title          string          `json:"title"`
+		Status         json.RawMessage `json:"status"`
+		FailureMessage string          `json:"failureMessage"`
+		LastRunTime    string          `json:"lastRunTime"`
 	}
-	var out KernelStatus
-	if err := c.do(http.MethodGet, "/kernels/status?"+q.Encode(), nil, &out); err != nil {
-		return nil, err
+	rpcURL := c.apiBaseURL() + "/kernels.KernelsApiService/GetKernelSessionStatus"
+	reqBody := map[string]string{"userName": u, "kernelSlug": ks}
+	if err := c.doAbsolute(context.Background(), http.MethodPost, rpcURL, reqBody, &rawResp); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusNotFound || apiErr.Code == http.StatusMethodNotAllowed) {
+			q := url.Values{
+				"userName":   []string{u},
+				"kernelSlug": []string{ks},
+			}
+			if err2 := c.do(http.MethodGet, "/kernels/status?"+q.Encode(), nil, &rawResp); err2 != nil {
+				return nil, err2
+			}
+		} else {
+			return nil, err
+		}
 	}
-	return &out, nil
+	return &KernelStatus{
+		Slug:           rawResp.Slug,
+		Title:          rawResp.Title,
+		Status:         normalizeKaggleStatus(rawResp.Status),
+		FailureMessage: rawResp.FailureMessage,
+		LastRunTime:    rawResp.LastRunTime,
+	}, nil
 }
 
 // DeleteKernel deletes a Kaggle kernel via the kagglesdk RPC endpoint.

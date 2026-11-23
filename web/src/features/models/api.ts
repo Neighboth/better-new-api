@@ -741,6 +741,9 @@ export interface NotebookDeploymentItem {
   task_type: 'text' | 'image' | 'video' | 'audio' | 'embeddings'
   accelerator: string
   fallback_accelerators?: string
+  high_ram?: boolean
+  cpu_cores?: number
+  memory_gb?: number
   group?: string
   priority?: number
   weight?: number
@@ -789,6 +792,9 @@ export interface CreateNotebookDeploymentPayload {
   task_type: string
   accelerator: string
   fallback_accelerators?: string[]
+  high_ram?: boolean
+  cpu_cores?: number
+  memory_gb?: number
   group?: string
   priority?: number
   weight?: number
@@ -880,6 +886,42 @@ export async function updateProviderAccounts(
   const res = await api.put(`/api/deployments/accounts/${provider}`, {
     accounts,
   })
+  return res.data
+}
+
+export interface ModelTestJobStatus {
+  job_id: string
+  status: 'running' | 'completed' | 'failed'
+  progress: number
+  stage: string
+  result?: ModelTestResult
+  error?: string
+  latency_ms: number
+}
+
+export async function startNotebookDeploymentTest(
+  id: number,
+  payload: { prompt?: string }
+): Promise<{
+  success: boolean
+  message?: string
+  data?: ModelTestJobStatus
+}> {
+  const res = await api.post(`/api/deployments/notebooks/${id}/test/start`, payload)
+  return res.data
+}
+
+export async function getNotebookDeploymentTestStatus(
+  id: number,
+  jobId: string
+): Promise<{
+  success: boolean
+  message?: string
+  data?: ModelTestJobStatus
+}> {
+  const res = await api.get(
+    `/api/deployments/notebooks/${id}/test/status/${encodeURIComponent(jobId)}`
+  )
   return res.data
 }
 

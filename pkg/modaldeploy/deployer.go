@@ -44,6 +44,8 @@ type DeployConfig struct {
 	TaskType             string // text, image, video, audio, embeddings
 	Accelerator          string
 	FallbackAccelerators []string
+	CPUCores             float64
+	MemoryGB             int
 	IdleTimeoutSeconds   int
 	TokenID              string
 	TokenSecret          string
@@ -113,6 +115,13 @@ func BuildAppScript(cfg DeployConfig) string {
 	scaledownLine := ""
 	if cfg.IdleTimeoutSeconds > 0 {
 		scaledownLine = fmt.Sprintf("\n    scaledown_window=%d,", cfg.IdleTimeoutSeconds)
+	}
+	resourceLines := ""
+	if cfg.CPUCores > 0 {
+		resourceLines += fmt.Sprintf("\n    cpu=%g,", cfg.CPUCores)
+	}
+	if cfg.MemoryGB > 0 {
+		resourceLines += fmt.Sprintf("\n    memory=%d,", cfg.MemoryGB*1024)
 	}
 
 	volPath := strings.TrimSpace(cfg.SharedVolumePath)
@@ -202,21 +211,40 @@ def get_pipe():
         _log(f"[model] Video model ready in {time.time() - t0:.1f}s")
     return _pipe
 
-@web_app.post("/v1/videos/generations")
-async def gen_video(req: Request):
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     prompt = body.get("prompt", "A serene mountain landscape")
     num_frames = int(body.get("num_frames", 16))
+    steps = int(body.get("num_inference_steps") or body.get("steps") or 20)
+    if set_progress:
+        set_progress(5, "Loading video model...")
     t0 = time.time()
     _log(f"[infer] Generating video (frames={num_frames})...")
     pipe = get_pipe()
-    frames = pipe(prompt=prompt, num_frames=num_frames).frames[0]
+    if set_progress:
+        set_progress(20, "Model loaded, generating video frames...")
+    def _cb(_p, step, _ts, kw):
+        if set_progress:
+            pct = 20 + int(((step + 1) / max(1, steps)) * 70)
+            set_progress(min(90, pct), f"Generating video step {step + 1}/{steps}")
+        return kw
+    try:
+        frames = pipe(prompt=prompt, num_frames=num_frames, num_inference_steps=steps, callback_on_step_end=_cb).frames[0]
+    except TypeError:
+        frames = pipe(prompt=prompt, num_frames=num_frames).frames[0]
+    if set_progress:
+        set_progress(92, "Encoding MP4 video...")
     fn = f"{uuid.uuid4().hex}.mp4"
     out = os.path.join(OUT_DIR, fn)
     export_to_video(frames, out, fps=8)
     _log(f"[infer] Video generated in {time.time() - t0:.1f}s -> {fn}")
-    base = str(req.base_url).rstrip("/")
-    return {"data": [{"url": f"{base}/outputs/{fn}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"data": [{"url": f"{base_url}/outputs/{fn}"}]}
+
+@web_app.post("/v1/videos/generations")
+async def gen_video(req: Request):
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	case "image":
 		isGGUFImage := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
@@ -282,27 +310,43 @@ def get_pipe():
         class _GGUFImageWrapper:
             def __init__(self, engine):
                 self._engine = engine
-            def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20):
-                imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps)
+            def __call__(self, prompt: str, width: int = 512, height: int = 512, num_inference_steps: int = 20, progress_callback=None):
+                imgs = self._engine.generate_image(prompt=prompt, width=width, height=height, sample_steps=num_inference_steps, progress_callback=progress_callback)
                 return type("_Out", (), {"images": imgs})()
 
         _pipe = _GGUFImageWrapper(sd)
         _log(f"[model] GGUF image model ready in {time.time() - t0:.1f}s")
     return _pipe
 
-@web_app.post("/v1/images/generations")
-async def gen_image(req: Request):
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     prompt = body.get("prompt", "A scenic landscape")
+    width = int(body.get("width") or 512)
+    height = int(body.get("height") or 512)
+    steps = int(body.get("num_inference_steps") or body.get("steps") or 20)
+    if set_progress:
+        set_progress(5, "Loading GGUF image model...")
     t0 = time.time()
     _log("[infer] Generating image (GGUF)...")
-    img = get_pipe()(prompt=prompt).images[0]
+    pipe = get_pipe()
+    if set_progress:
+        set_progress(20, "Model loaded, generating image...")
+    def _on_step(step, total, _t):
+        if set_progress:
+            pct = 20 + int((step / max(1, total)) * 75)
+            set_progress(min(95, pct), f"Generating image step {step}/{total}")
+    img = pipe(prompt=prompt, width=width, height=height, num_inference_steps=steps, progress_callback=_on_step).images[0]
     fn = f"{uuid.uuid4().hex}.png"
     out = os.path.join(OUT_DIR, fn)
     img.save(out)
     _log(f"[infer] Image generated in {time.time() - t0:.1f}s -> {fn}")
-    base = str(req.base_url).rstrip("/")
-    return {"data": [{"url": f"{base}/outputs/{fn}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"data": [{"url": f"{base_url}/outputs/{fn}"}]}
+
+@web_app.post("/v1/images/generations")
+async def gen_image(req: Request):
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		} else {
 			pipPkgs = `"fastapi[standard]", "diffusers", "transformers", "accelerate", "pillow", "torch", "huggingface_hub", "safetensors", "omegaconf", "gguf"`
@@ -410,19 +454,37 @@ def get_pipe():
         _log(f"[model] Image model ready in {time.time() - t0:.1f}s")
     return _pipe
 
-@web_app.post("/v1/images/generations")
-async def gen_image(req: Request):
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     prompt = body.get("prompt", "A scenic landscape")
+    steps = int(body.get("num_inference_steps") or body.get("steps") or 20)
+    if set_progress:
+        set_progress(5, "Loading image model...")
     t0 = time.time()
     _log("[infer] Generating image...")
-    img = get_pipe()(prompt=prompt).images[0]
+    pipe = get_pipe()
+    if set_progress:
+        set_progress(20, "Model loaded, generating image...")
+    def _cb(_p, step, _ts, kw):
+        if set_progress:
+            pct = 20 + int(((step + 1) / max(1, steps)) * 75)
+            set_progress(min(95, pct), f"Generating image step {step + 1}/{steps}")
+        return kw
+    try:
+        img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
+    except TypeError:
+        img = pipe(prompt=prompt).images[0]
     fn = f"{uuid.uuid4().hex}.png"
     out = os.path.join(OUT_DIR, fn)
     img.save(out)
     _log(f"[infer] Image generated in {time.time() - t0:.1f}s -> {fn}")
-    base = str(req.base_url).rstrip("/")
-    return {"data": [{"url": f"{base}/outputs/{fn}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"data": [{"url": f"{base_url}/outputs/{fn}"}]}
+
+@web_app.post("/v1/images/generations")
+async def gen_image(req: Request):
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}
 	case "audio":
@@ -442,20 +504,29 @@ def get_pipe():
         _log(f"[model] Audio model ready in {time.time() - t0:.1f}s")
     return _pipe
 
-@web_app.post("/v1/audio/speech")
-@web_app.post("/v1/audio/generations")
-async def gen_audio(req: Request):
-    body = await req.json()
+def _execute_task(body, base_url, set_progress=None):
     text = body.get("input") or body.get("prompt") or "Hello world"
+    if set_progress:
+        set_progress(5, "Loading audio model...")
     t0 = time.time()
     _log("[infer] Generating audio...")
-    out = get_pipe()(text)
+    pipe = get_pipe()
+    if set_progress:
+        set_progress(40, "Synthesizing audio...")
+    out = pipe(text)
     fn = f"{uuid.uuid4().hex}.wav"
     out_path = os.path.join(OUT_DIR, fn)
     wavfile.write(out_path, rate=int(out.get("sampling_rate", 16000)), data=out["audio"])
     _log(f"[infer] Audio generated in {time.time() - t0:.1f}s -> {fn}")
-    base = str(req.base_url).rstrip("/")
-    return {"url": f"{base}/outputs/{fn}", "data": [{"url": f"{base}/outputs/{fn}"}]}
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"url": f"{base_url}/outputs/{fn}", "data": [{"url": f"{base_url}/outputs/{fn}"}]}
+
+@web_app.post("/v1/audio/speech")
+@web_app.post("/v1/audio/generations")
+async def gen_audio(req: Request):
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	case "embeddings":
 		pipPkgs = `"fastapi[standard]", "sentence-transformers", "torch", "huggingface_hub"`
@@ -472,15 +543,25 @@ def get_model():
         _log(f"[model] Embeddings model ready in {time.time() - t0:.1f}s")
     return _model
 
+def _execute_task(body, _base_url, set_progress=None):
+    inp = body.get("input", "")
+    texts = inp if isinstance(inp, list) else [str(inp)]
+    if set_progress:
+        set_progress(5, "Loading embeddings model...")
+    t0 = time.time()
+    mdl = get_model()
+    if set_progress:
+        set_progress(40, "Encoding embeddings...")
+    vecs = mdl.encode(texts).tolist()
+    _log(f"[infer] Encoded {len(texts)} input(s) in {time.time() - t0:.2f}s")
+    if set_progress:
+        set_progress(100, "Completed")
+    return {"object": "list", "model": MODEL_REPO, "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)]}
+
 @web_app.post("/v1/embeddings")
 async def embeddings(req: Request):
     body = await req.json()
-    inp = body.get("input", "")
-    texts = inp if isinstance(inp, list) else [str(inp)]
-    t0 = time.time()
-    vecs = get_model().encode(texts).tolist()
-    _log(f"[infer] Encoded {len(texts)} input(s) in {time.time() - t0:.2f}s")
-    return {"object": "list", "model": MODEL_REPO, "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vecs)]}
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 	default: // text (supports both GGUF via llama-cpp-python and standard transformers)
 		isGGUF := strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.ModelFile)), ".gguf") ||
@@ -526,15 +607,25 @@ def get_llm():
     _log(f"[model] GGUF model ready in {time.time() - t0:.1f}s")
     return _llm
 
+def _execute_task(body, _base_url, set_progress=None):
+    messages = body.get("messages", [])
+    max_tokens = int(body.get("max_tokens", 256))
+    if set_progress:
+        set_progress(5, "Loading GGUF model...")
+    t0 = time.time()
+    llm = get_llm()
+    if set_progress:
+        set_progress(40, "Generating text response...")
+    out = llm.create_chat_completion(messages=messages, max_tokens=max_tokens)
+    _log(f"[infer] GGUF chat completion done in {time.time() - t0:.2f}s")
+    if set_progress:
+        set_progress(100, "Completed")
+    return out
+
 @web_app.post("/v1/chat/completions")
 async def chat_completions(req: Request):
     body = await req.json()
-    messages = body.get("messages", [])
-    max_tokens = int(body.get("max_tokens", 256))
-    t0 = time.time()
-    out = get_llm().create_chat_completion(messages=messages, max_tokens=max_tokens)
-    _log(f"[infer] GGUF chat completion done in {time.time() - t0:.2f}s")
-    return out
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		} else {
 			pipPkgs = `"fastapi[standard]", "transformers", "accelerate", "torch", "huggingface_hub"`
@@ -561,13 +652,15 @@ def get_backend():
     _log(f"[model] Transformers model ready in {time.time() - t0:.1f}s")
     return _backend
 
-@web_app.post("/v1/chat/completions")
-async def chat_completions(req: Request):
-    body = await req.json()
+def _execute_task(body, _base_url, set_progress=None):
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 256))
+    if set_progress:
+        set_progress(5, "Loading transformers model...")
     t0 = time.time()
     tok, mdl = get_backend()
+    if set_progress:
+        set_progress(40, "Generating text response...")
     prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
@@ -575,17 +668,26 @@ async def chat_completions(req: Request):
     with torch.no_grad():
         out_ids = mdl.generate(**inputs, max_new_tokens=max_tokens)
     text = tok.decode(out_ids[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
+    _log(f"[infer] Transformers chat completion done in {time.time() - t0:.2f}s")
+    if set_progress:
+        set_progress(100, "Completed")
     return {
         "id": "chatcmpl-modal",
         "object": "chat.completion",
         "model": MODEL_REPO,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
     }
+
+@web_app.post("/v1/chat/completions")
+async def chat_completions(req: Request):
+    body = await req.json()
+    return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}
 	}
 
 	return fmt.Sprintf(`import os
+import threading
 import time
 import uuid
 import modal
@@ -606,7 +708,7 @@ OUT_DIR = "/tmp/model_outputs"
     image=image,
     gpu=%s,
     volumes={CACHE_DIR: volume},
-    timeout=3600,%s
+    timeout=3600,%s%s
 )
 @modal.asgi_app()
 def fastapi_app():
@@ -618,6 +720,8 @@ def fastapi_app():
     web_app = FastAPI(title="Better-New-API Modal Server")
     web_app.mount("/outputs", StaticFiles(directory=OUT_DIR), name="outputs")
     _log_lines = []
+    _jobs = {}
+    _jobs_lock = threading.Lock()
 
     def _log(msg: str):
         line = f"{time.strftime('%%H:%%M:%%S')} {msg}"
@@ -642,6 +746,57 @@ def fastapi_app():
             raise HTTPException(status_code=403, detail="forbidden")
         return {"logs": "\n".join(_log_lines)}
 %s
+    @web_app.post("/_jobs")
+    async def start_job(req: Request):
+        body = await req.json()
+        base_url = str(req.base_url).rstrip("/")
+        job_id = uuid.uuid4().hex
+        now = time.time()
+        with _jobs_lock:
+            stale = [k for k, v in _jobs.items() if now - v.get("updated_at", now) > 3600]
+            for k in stale:
+                del _jobs[k]
+            _jobs[job_id] = {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued...", "result": None, "error": None, "updated_at": now}
+
+        def _set_progress(pct: int, stage: str):
+            with _jobs_lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "running"
+                    _jobs[job_id]["progress"] = max(0, min(100, int(pct)))
+                    _jobs[job_id]["stage"] = stage
+                    _jobs[job_id]["updated_at"] = time.time()
+
+        def _worker():
+            try:
+                _set_progress(1, "Starting...")
+                res = _execute_task(body, base_url, _set_progress)
+                with _jobs_lock:
+                    if job_id in _jobs:
+                        _jobs[job_id]["status"] = "completed"
+                        _jobs[job_id]["progress"] = 100
+                        _jobs[job_id]["stage"] = "Completed"
+                        _jobs[job_id]["result"] = res
+                        _jobs[job_id]["updated_at"] = time.time()
+            except Exception as exc:
+                _log(f"[job] Failed: {type(exc).__name__}: {exc}")
+                with _jobs_lock:
+                    if job_id in _jobs:
+                        _jobs[job_id]["status"] = "failed"
+                        _jobs[job_id]["stage"] = "Failed"
+                        _jobs[job_id]["error"] = f"{type(exc).__name__}: {exc}"
+                        _jobs[job_id]["updated_at"] = time.time()
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return {"job_id": job_id, "status": "queued", "progress": 0, "stage": "Queued..."}
+
+    @web_app.get("/_jobs/{job_id}")
+    def get_job(job_id: str):
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if not job:
+                raise HTTPException(status_code=404, detail="job not found")
+            return {k: v for k, v in job.items() if k != "updated_at"}
+
     return web_app
 `,
 		pyQuote(cfg.AppName),
@@ -657,6 +812,7 @@ def fastapi_app():
 		pyQuote(cfg.ShutdownToken),
 		gpuArg,
 		scaledownLine,
+		resourceLines,
 		pyQuote(task),
 		indentPythonBlock(taskCode, 4),
 	)

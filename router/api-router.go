@@ -597,6 +597,8 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.PUT("/notebooks/:id", controller.UpdateNotebookDeployment)
 			deploymentsRoute.DELETE("/notebooks/:id", controller.DeleteNotebookDeployment)
 			deploymentsRoute.POST("/notebooks/:id/test", controller.TestNotebookDeployment)
+			deploymentsRoute.POST("/notebooks/:id/test/start", controller.StartNotebookDeploymentTest)
+			deploymentsRoute.GET("/notebooks/:id/test/status/:job_id", controller.GetNotebookDeploymentTestStatus)
 			deploymentsRoute.GET("/huggingface/endpoints", controller.ListHfEndpoints)
 			deploymentsRoute.POST("/huggingface/endpoints", controller.CreateHfEndpoint)
 			deploymentsRoute.GET("/huggingface/endpoints/:name", controller.GetHfEndpoint)

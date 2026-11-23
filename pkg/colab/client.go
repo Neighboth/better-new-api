@@ -322,6 +322,12 @@ type tunnelAssignResponse struct {
 // CreateRuntime provisions a Colab runtime via the consumer Colab Tunnel API (/tun/m/assign).
 func (c *Client) CreateRuntime(accelerator string) (*Runtime, error) {
 	spec := LookupAccelerator(accelerator)
+	return c.CreateRuntimeWithOptions(accelerator, spec.HighMem)
+}
+
+// CreateRuntimeWithOptions provisions a Colab runtime with explicit High-RAM (shape=hm) control.
+func (c *Client) CreateRuntimeWithOptions(accelerator string, highRAM bool) (*Runtime, error) {
+	spec := LookupAccelerator(accelerator)
 	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
 	if tunnelBase == "" {
 		tunnelBase = DefaultTunnelBaseURL
@@ -336,7 +342,7 @@ func (c *Client) CreateRuntime(accelerator string) (*Runtime, error) {
 	if spec.TunnelAccelerator != "" {
 		q.Set("accelerator", spec.TunnelAccelerator)
 	}
-	if spec.HighMem {
+	if highRAM || spec.HighMem {
 		q.Set("shape", "hm")
 	}
 

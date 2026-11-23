@@ -15,8 +15,11 @@ type NotebookDeployment struct {
 	ModelFile            string `json:"model_file" gorm:"type:varchar(256)"`
 	ModelFiles           string `json:"model_files" gorm:"type:text"` // JSON array of {repo, file, role}
 	TaskType             string `json:"task_type" gorm:"type:varchar(32);not null"` // text | image | video | audio | embeddings
-	Accelerator          string `json:"accelerator" gorm:"type:varchar(64);not null"`
-	FallbackAccelerators string `json:"fallback_accelerators" gorm:"type:text"` // JSON array of fallback accelerators
+	Accelerator          string  `json:"accelerator" gorm:"type:varchar(64);not null"`
+	FallbackAccelerators string  `json:"fallback_accelerators" gorm:"type:text"` // JSON array of fallback accelerators
+	HighRAM              bool    `json:"high_ram"`
+	CPUCores             float64 `json:"cpu_cores"`
+	MemoryGB             int     `json:"memory_gb"`
 	Group                string `json:"group" gorm:"type:varchar(256);column:group_name"`
 	Priority             int64  `json:"priority" gorm:"default:0"`
 	Weight               uint   `json:"weight" gorm:"default:1"`

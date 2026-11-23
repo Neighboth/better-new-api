@@ -31,6 +31,16 @@ func TestBuildAppScriptModal(t *testing.T) {
 	})
 	assert.Contains(t, cpuOnly, `gpu=None`)
 	assert.NotContains(t, cpuOnly, `scaledown_window`)
+
+	customRes := BuildAppScript(DeployConfig{
+		AppName:   "custom-res",
+		ModelRepo: "Qwen/Qwen2.5-0.5B-Instruct",
+		TaskType:  "text",
+		CPUCores:  4,
+		MemoryGB:  16,
+	})
+	assert.Contains(t, customRes, `cpu=4,`)
+	assert.Contains(t, customRes, `memory=16384,`)
 }
 
 func TestModalCmdConstruction(t *testing.T) {

@@ -79,12 +79,10 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
       {
         id: 'verified_free',
         label: 'Verified Free (30h GPU / 20h TPU)',
-        description: 'CPU, T4 x2, P100, TPU v3-8 & v5e-8',
+        description: 'CPU, T4 x2 & TPU v5e-8',
         allowedHardwareIds: [
           'CPU',
           'NvidiaTeslaT4',
-          'NvidiaP100',
-          'TpuV38',
           'TpuV5E8',
         ],
       },
@@ -200,9 +198,7 @@ export const PROVIDER_HARDWARE_CATALOG: Record<
   ],
   kaggle: [
     { id: 'NvidiaTeslaT4', label: 'GPU: NVIDIA Tesla T4 x2', kind: 'gpu' },
-    { id: 'NvidiaP100', label: 'GPU: NVIDIA Tesla P100', kind: 'gpu' },
     { id: 'NvidiaL4', label: 'GPU: NVIDIA L4', kind: 'gpu' },
-    { id: 'TpuV38', label: 'TPU: v3-8', kind: 'tpu' },
     { id: 'TpuV5E8', label: 'TPU: v5e-8', kind: 'tpu' },
     { id: 'TpuV6E8', label: 'TPU: v6e-8', kind: 'tpu' },
     { id: 'CPU', label: 'CPU (4 cores, 30 GB RAM)', kind: 'cpu' },

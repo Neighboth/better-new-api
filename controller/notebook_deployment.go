@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -727,6 +728,9 @@ type createDeploymentRequest struct {
 	TaskType             string                         `json:"task_type"`
 	Accelerator          string                         `json:"accelerator"`
 	FallbackAccelerators []string                       `json:"fallback_accelerators"`
+	HighRAM              bool                           `json:"high_ram"`
+	CPUCores             float64                        `json:"cpu_cores"`
+	MemoryGB             int                            `json:"memory_gb"`
 	Group                string                         `json:"group"`
 	Priority             int64                          `json:"priority"`
 	Weight               uint                           `json:"weight"`
@@ -822,6 +826,18 @@ func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest)
 	if enabled != 2 {
 		enabled = 1
 	}
+	cpuCores := req.CPUCores
+	if cpuCores < 0 {
+		cpuCores = 0
+	} else if cpuCores > 64 {
+		cpuCores = 64
+	}
+	memoryGB := req.MemoryGB
+	if memoryGB < 0 {
+		memoryGB = 0
+	} else if memoryGB > 512 {
+		memoryGB = 512
+	}
 	callbackToken := common.GetUUID()
 
 	now := time.Now().Unix()
@@ -836,6 +852,9 @@ func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest)
 		TaskType:             taskType,
 		Accelerator:          accelerator,
 		FallbackAccelerators: string(fallbacksJSON),
+		HighRAM:              req.HighRAM,
+		CPUCores:             cpuCores,
+		MemoryGB:             memoryGB,
 		Group:                groupStr,
 		Priority:             req.Priority,
 		Weight:               weight,
@@ -893,6 +912,9 @@ func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest)
 		PrimaryAccelerator: accelerator,
 		Fallbacks:          req.FallbackAccelerators,
 		Candidates:         candidates,
+		HighRAM:            req.HighRAM,
+		CPUCores:           cpuCores,
+		MemoryGB:           memoryGB,
 		IdleTimeoutSeconds: idleTimeout,
 		HFToken:            strings.TrimSpace(req.HFToken),
 		CallbackURL:        callbackURL,
@@ -964,6 +986,9 @@ type provisionParams struct {
 	PrimaryAccelerator string
 	Fallbacks          []string
 	Candidates         []string
+	HighRAM            bool
+	CPUCores           float64
+	MemoryGB           int
 	IdleTimeoutSeconds int
 	HFToken            string
 	CallbackURL        string
@@ -994,6 +1019,8 @@ func provisionDeploymentAsync(p provisionParams) {
 			TaskType:             p.TaskType,
 			Accelerator:          p.PrimaryAccelerator,
 			FallbackAccelerators: p.Fallbacks,
+			CPUCores:             p.CPUCores,
+			MemoryGB:             p.MemoryGB,
 			IdleTimeoutSeconds:   p.IdleTimeoutSeconds,
 			TokenID:              p.ModalTokenID,
 			TokenSecret:          p.ModalTokenSecret,
@@ -1032,7 +1059,17 @@ func provisionDeploymentAsync(p provisionParams) {
 
 	case "kaggle":
 		setDeploymentStatus(p.ID, "downloading", "Pushing kernel to Kaggle...")
-		slug := p.KaggleUser + "/" + sanitizeSlug(p.Name)
+		shortID := sanitizeSlug(p.CallbackToken)
+		if len(shortID) > 6 {
+			shortID = shortID[:6]
+		}
+		if shortID == "" {
+			shortID = strconv.FormatInt(time.Now().Unix()%100000, 10)
+		}
+		baseSlug := sanitizeSlug(p.Name)
+		kernelSlug := baseSlug + "-" + shortID
+		kaggleTitle := strings.ReplaceAll(kernelSlug, "-", " ")
+		slug := p.KaggleUser + "/" + kernelSlug
 		client := newKaggleClient(p.KaggleUser, p.KaggleKey)
 		var pushed *kaggle.PushKernelResponse
 		var chosenAcc string
@@ -1040,7 +1077,7 @@ func provisionDeploymentAsync(p provisionParams) {
 		for _, cand := range p.Candidates {
 			res, err := client.PushKernel(kaggle.PushKernelRequest{
 				Slug:        slug,
-				Title:       p.Name,
+				Title:       kaggleTitle,
 				ScriptText:  p.Script,
 				Accelerator: cand,
 				IsPrivate:   true,
@@ -1056,6 +1093,7 @@ func provisionDeploymentAsync(p provisionParams) {
 			setDeploymentFailed(p.ID, fmt.Sprintf("Kaggle push failed (tried %v): %v", p.Candidates, lastErr))
 			return
 		}
+		appendDeploymentLog(p.ID, fmt.Sprintf("[kaggle] Kernel pushed: %s (v%d, accelerator=%s)", pushed.URL, pushed.VersionNumber, chosenAcc))
 		remoteID := pushed.Ref
 		if remoteID == "" {
 			remoteID = slug
@@ -1070,7 +1108,6 @@ func provisionDeploymentAsync(p provisionParams) {
 		})
 
 		ownerSlug := p.KaggleUser
-		kernelSlug := sanitizeSlug(p.Name)
 		cleanedRef := strings.TrimPrefix(strings.TrimSpace(remoteID), "/")
 		cleanedRef = strings.TrimPrefix(cleanedRef, "code/")
 		if parts := strings.SplitN(cleanedRef, "/", 2); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
@@ -1091,6 +1128,7 @@ func provisionDeploymentAsync(p provisionParams) {
 		go func() {
 			seenLines := 0
 			var discoveredURL string
+			loggedErr := false
 			for logCtx.Err() == nil {
 				lineIdx := 0
 				err := client.StreamKernelLogs(logCtx, ownerSlug, kernelSlug, func(line string) {
@@ -1123,6 +1161,10 @@ func provisionDeploymentAsync(p provisionParams) {
 				})
 				if err == nil || logCtx.Err() != nil {
 					return
+				}
+				if !loggedErr {
+					loggedErr = true
+					appendDeploymentLog(p.ID, fmt.Sprintf("[kaggle] Log stream: %v", err))
 				}
 				select {
 				case <-logCtx.Done():
@@ -1217,6 +1259,8 @@ func provisionDeploymentAsync(p provisionParams) {
 			case <-time.After(8 * time.Second):
 			}
 		}
+		setDeploymentFailed(p.ID, "Timed out waiting for Kaggle kernel to start and report tunnel URL")
+		return
 
 	case "colab":
 		setDeploymentStatus(p.ID, "starting", "Provisioning Google Colab runtime...")
@@ -1230,7 +1274,7 @@ func provisionDeploymentAsync(p provisionParams) {
 		var chosenAcc string
 		var lastErr error
 		for _, cand := range p.Candidates {
-			r, err := client.CreateRuntime(cand)
+			r, err := client.CreateRuntimeWithOptions(cand, p.HighRAM)
 			if err == nil {
 				rt = r
 				chosenAcc = cand
@@ -1704,11 +1748,142 @@ type modelTestResult struct {
 	Raw       string `json:"raw,omitempty"`
 }
 
+type modelTestJobState struct {
+	JobID     string           `json:"job_id"`
+	Status    string           `json:"status"` // running | completed | failed
+	Progress  int              `json:"progress"`
+	Stage     string           `json:"stage"`
+	Result    *modelTestResult `json:"result,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	LatencyMs int64            `json:"latency_ms"`
+	UpdatedAt time.Time        `json:"-"`
+}
+
+var (
+	notebookTestJobsMu sync.Mutex
+	notebookTestJobs   = make(map[string]*modelTestJobState)
+)
+
+func StartNotebookDeploymentTest(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid deployment id")
+		return
+	}
+	item, err := model.GetNotebookDeploymentByID(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	rawBody, _ := c.GetRawData()
+	if len(bytes.TrimSpace(rawBody)) > 0 {
+		_ = common.Unmarshal(rawBody, &req)
+	}
+	targetURL := strings.TrimSpace(item.EndpointURL)
+	if targetURL == "" {
+		if item.ErrorMessage != "" {
+			common.ApiErrorMsg(c, fmt.Sprintf("deployment failed: %s", item.ErrorMessage))
+		} else {
+			common.ApiErrorMsg(c, fmt.Sprintf("deployment is currently %s (%s); endpoint is not ready yet", item.Status, item.StatusMessage))
+		}
+		return
+	}
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		prompt = "Hello! Reply briefly."
+	}
+
+	jobID := common.GetUUID()
+	now := time.Now()
+	job := &modelTestJobState{
+		JobID:     jobID,
+		Status:    "running",
+		Progress:  0,
+		Stage:     "Starting test...",
+		UpdatedAt: now,
+	}
+	notebookTestJobsMu.Lock()
+	for k, v := range notebookTestJobs {
+		if now.Sub(v.UpdatedAt) > 30*time.Minute {
+			delete(notebookTestJobs, k)
+		}
+	}
+	notebookTestJobs[jobID] = job
+	notebookTestJobsMu.Unlock()
+
+	prevStatus := item.Status
+	prevMsg := item.StatusMessage
+	if prevStatus == "" || prevStatus == "testing" {
+		prevStatus = "running"
+	}
+	if prevMsg == "" || prevMsg == "Testing model..." {
+		prevMsg = "Running"
+	}
+	setDeploymentStatus(item.Id, "testing", "Testing model...")
+
+	go func() {
+		defer setDeploymentStatus(item.Id, prevStatus, prevMsg)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		start := time.Now()
+		res, testErr := executeModelTestWithProgress(ctx, targetURL, item.ModelRepo, item.TaskType, prompt, "", func(pct int, stage string) {
+			notebookTestJobsMu.Lock()
+			if j, ok := notebookTestJobs[jobID]; ok {
+				j.Progress = pct
+				j.Stage = stage
+				j.LatencyMs = time.Since(start).Milliseconds()
+				j.UpdatedAt = time.Now()
+			}
+			notebookTestJobsMu.Unlock()
+		})
+		notebookTestJobsMu.Lock()
+		if j, ok := notebookTestJobs[jobID]; ok {
+			j.LatencyMs = time.Since(start).Milliseconds()
+			j.UpdatedAt = time.Now()
+			if testErr != nil {
+				j.Status = "failed"
+				j.Stage = "Failed"
+				j.Error = testErr.Error()
+			} else {
+				j.Status = "completed"
+				j.Progress = 100
+				j.Stage = "Completed"
+				j.Result = res
+			}
+		}
+		notebookTestJobsMu.Unlock()
+	}()
+
+	common.ApiSuccess(c, job)
+}
+
+func GetNotebookDeploymentTestStatus(c *gin.Context) {
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	notebookTestJobsMu.Lock()
+	j, ok := notebookTestJobs[jobID]
+	var snap modelTestJobState
+	if ok && j != nil {
+		snap = *j
+	}
+	notebookTestJobsMu.Unlock()
+	if !ok {
+		common.ApiErrorMsg(c, "test job not found")
+		return
+	}
+	common.ApiSuccess(c, snap)
+}
+
 func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (*modelTestResult, error) {
+	return executeModelTestWithProgress(context.Background(), baseURL, modelRepo, rawTask, prompt, bearerToken, nil)
+}
+
+func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTask, prompt, bearerToken string, onProgress func(int, string)) (*modelTestResult, error) {
 	task := notebookscript.NormalizeTaskType(rawTask)
 	base := strings.TrimRight(baseURL, "/")
 	start := time.Now()
-	client := &http.Client{Timeout: 120 * time.Second}
 
 	var endpointPath string
 	var payload any
@@ -1741,6 +1916,97 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 	if err != nil {
 		return nil, err
 	}
+
+	// Step A: Try async /_jobs endpoint first (prevents Cloudflare/proxy 524 timeouts and reports % progress).
+	if !strings.HasSuffix(base, endpointPath) {
+		shortClient := &http.Client{Timeout: 15 * time.Second}
+		if jobReq, jErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/_jobs", bytes.NewReader(rawBody)); jErr == nil {
+			jobReq.Header.Set("Content-Type", "application/json")
+			if bearerToken != "" {
+				jobReq.Header.Set("Authorization", "Bearer "+bearerToken)
+			}
+			if jobResp, doErr := shortClient.Do(jobReq); doErr == nil {
+				jobRespBytes, _ := io.ReadAll(io.LimitReader(jobResp.Body, 1<<20))
+				_ = jobResp.Body.Close()
+				if jobResp.StatusCode >= 200 && jobResp.StatusCode < 300 {
+					var started struct {
+						JobID    string `json:"job_id"`
+						Progress int    `json:"progress"`
+						Stage    string `json:"stage"`
+					}
+					if common.Unmarshal(jobRespBytes, &started) == nil && started.JobID != "" {
+						if onProgress != nil {
+							onProgress(started.Progress, started.Stage)
+						}
+						pollURL := base + "/_jobs/" + url.PathEscape(started.JobID)
+						deadline := time.Now().Add(20 * time.Minute)
+						consecutiveErrs := 0
+						for time.Now().Before(deadline) {
+							select {
+							case <-ctx.Done():
+								return nil, ctx.Err()
+							case <-time.After(1500 * time.Millisecond):
+							}
+							pollReq, pErr := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+							if pErr != nil {
+								return nil, pErr
+							}
+							if bearerToken != "" {
+								pollReq.Header.Set("Authorization", "Bearer "+bearerToken)
+							}
+							pResp, pDoErr := shortClient.Do(pollReq)
+							if pDoErr != nil {
+								consecutiveErrs++
+								if consecutiveErrs >= 8 {
+									return nil, fmt.Errorf("model test job polling failed: %w", pDoErr)
+								}
+								continue
+							}
+							pBytes, _ := io.ReadAll(io.LimitReader(pResp.Body, 8<<20))
+							_ = pResp.Body.Close()
+							if pResp.StatusCode == http.StatusBadGateway || pResp.StatusCode == http.StatusServiceUnavailable || pResp.StatusCode == http.StatusGatewayTimeout || pResp.StatusCode == 524 {
+								consecutiveErrs++
+								if consecutiveErrs >= 8 {
+									return nil, fmt.Errorf("model endpoint returned HTTP %d during job poll", pResp.StatusCode)
+								}
+								continue
+							}
+							if pResp.StatusCode < 200 || pResp.StatusCode >= 300 {
+								return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", pResp.StatusCode, strings.TrimSpace(string(pBytes)))
+							}
+							consecutiveErrs = 0
+							var st struct {
+								Status   string          `json:"status"`
+								Progress int             `json:"progress"`
+								Stage    string          `json:"stage"`
+								Result   json.RawMessage `json:"result"`
+								Error    string          `json:"error"`
+							}
+							if uErr := common.Unmarshal(pBytes, &st); uErr != nil {
+								continue
+							}
+							if onProgress != nil {
+								onProgress(st.Progress, st.Stage)
+							}
+							if st.Status == "completed" {
+								return parseModelTestJSON(st.Result, task, time.Since(start).Milliseconds())
+							}
+							if st.Status == "failed" {
+								if st.Error != "" {
+									return nil, fmt.Errorf("model endpoint error: %s", st.Error)
+								}
+								return nil, fmt.Errorf("model job failed")
+							}
+						}
+						return nil, fmt.Errorf("model test timed out after 20 minutes")
+					}
+				}
+			}
+		}
+	}
+
+	// Step B: Direct HTTP fallback (external providers or legacy servers without /_jobs).
+	client := &http.Client{Timeout: 600 * time.Second}
 	target := base
 	if !strings.HasSuffix(base, endpointPath) {
 		target = base + endpointPath
@@ -1749,7 +2015,7 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 	var respBytes []byte
 	var reqErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		httpReq, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(rawBody))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(rawBody))
 		if err != nil {
 			return nil, err
 		}
@@ -1762,10 +2028,10 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 		if reqErr == nil {
 			respBytes, reqErr = io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 			_ = resp.Body.Close()
-			if reqErr == nil && resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusGatewayTimeout {
+			if reqErr == nil && resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable && resp.StatusCode != http.StatusGatewayTimeout && resp.StatusCode != 524 {
 				break
 			}
-			if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout {
+			if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout || resp.StatusCode == 524 {
 				reqErr = fmt.Errorf("model endpoint returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
 			}
 		}
@@ -1800,6 +2066,11 @@ func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (
 			LatencyMs: latency,
 		}, nil
 	}
+
+	return parseModelTestJSON(respBytes, task, latency)
+}
+
+func parseModelTestJSON(respBytes []byte, task string, latency int64) (*modelTestResult, error) {
 
 	var parsed map[string]any
 	if err := common.Unmarshal(respBytes, &parsed); err != nil {

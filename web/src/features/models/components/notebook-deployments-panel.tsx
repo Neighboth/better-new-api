@@ -96,8 +96,9 @@ import {
   createNotebookDeploymentsBatch,
   deleteNotebookDeployment,
   getNotebookDeploymentLogs,
+  getNotebookDeploymentTestStatus,
   listNotebookDeployments,
-  testNotebookDeployment,
+  startNotebookDeploymentTest,
   updateNotebookDeployment,
   type CreateNotebookDeploymentPayload,
   type DeploymentAccountSummary,
@@ -263,7 +264,10 @@ export function UnifiedDeploymentsPanel({
   const [taskType, setTaskType] = useState<string>('text')
   const [hfToken, setHfToken] = useState('')
 
-  // Routing fields (shared for single & bulk)
+  // Routing & compute fields (shared for single & bulk)
+  const [highRam, setHighRam] = useState(false)
+  const [cpuCores, setCpuCores] = useState<number>(0)
+  const [memoryGb, setMemoryGb] = useState<number>(0)
   const [selectedGroups, setSelectedGroups] = useState<string[]>(['default'])
   const [priority, setPriority] = useState<number>(0)
   const [weight, setWeight] = useState<number>(1)
@@ -402,6 +406,19 @@ export function UnifiedDeploymentsPanel({
   const [testResult, setTestResult] = useState<ModelTestResult | null>(null)
   const [testError, setTestError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  const [testProgress, setTestProgress] = useState(0)
+  const [testStage, setTestStage] = useState('')
+  const [testElapsedSec, setTestElapsedSec] = useState(0)
+  const testPollCancelledRef = useRef(false)
+
+  useEffect(() => {
+    if (!testTarget) {
+      testPollCancelledRef.current = true
+    }
+    return () => {
+      testPollCancelledRef.current = true
+    }
+  }, [testTarget])
 
   const [deleteTarget, setDeleteTarget] =
     useState<NotebookDeploymentItem | null>(null)
@@ -448,6 +465,9 @@ export function UnifiedDeploymentsPanel({
         task_type: taskType,
         accelerator,
         fallback_accelerators: fallbackAccelerators,
+        high_ram: provider === 'colab' ? highRam : false,
+        cpu_cores: provider === 'modal' ? cpuCores : 0,
+        memory_gb: provider === 'modal' ? memoryGb : 0,
         group: selectedGroups.join(',') || 'default',
         priority,
         weight,
@@ -488,6 +508,9 @@ export function UnifiedDeploymentsPanel({
           task_type: entry.taskType || 'text',
           accelerator,
           fallback_accelerators: fallbackAccelerators,
+          high_ram: provider === 'colab' ? highRam : false,
+          cpu_cores: provider === 'modal' ? cpuCores : 0,
+          memory_gb: provider === 'modal' ? memoryGb : 0,
           group: selectedGroups.join(',') || 'default',
           priority,
           weight,
@@ -648,21 +671,58 @@ export function UnifiedDeploymentsPanel({
 
   const handleRunTest = async () => {
     if (!testTarget) return
+    testPollCancelledRef.current = false
     setTesting(true)
     setTestError(null)
     setTestResult(null)
+    setTestProgress(0)
+    setTestStage(t('Starting test...'))
+    setTestElapsedSec(0)
+    const startedAt = Date.now()
+    const elapsedTimer = window.setInterval(() => {
+      setTestElapsedSec(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+
     try {
-      const res = await testNotebookDeployment(testTarget.id, {
+      const startRes = await startNotebookDeploymentTest(testTarget.id, {
         prompt: testPrompt.trim(),
       })
-      if (res?.success && res.data) {
-        setTestResult(res.data)
-      } else {
-        setTestError(res?.message || t('Model test failed'))
+      if (!startRes?.success || !startRes.data?.job_id) {
+        setTestError(startRes?.message || t('Model test failed'))
+        return
+      }
+      const jobId = startRes.data.job_id
+      setTestProgress(startRes.data.progress ?? 0)
+      setTestStage(startRes.data.stage || t('Starting test...'))
+
+      while (!testPollCancelledRef.current) {
+        await new Promise((r) => setTimeout(r, 1200))
+        if (testPollCancelledRef.current) break
+        const pollRes = await getNotebookDeploymentTestStatus(
+          testTarget.id,
+          jobId
+        )
+        if (!pollRes?.success || !pollRes.data) {
+          setTestError(pollRes?.message || t('Model test failed'))
+          break
+        }
+        const st = pollRes.data
+        setTestProgress(st.progress ?? 0)
+        if (st.stage) setTestStage(st.stage)
+        if (st.status === 'completed') {
+          if (st.result) setTestResult(st.result)
+          setTestProgress(100)
+          break
+        }
+        if (st.status === 'failed') {
+          setTestError(st.error || t('Model test failed'))
+          break
+        }
       }
     } catch (err) {
       setTestError(err instanceof Error ? err.message : t('Model test failed'))
     } finally {
+      window.clearInterval(elapsedTimer)
       setTesting(false)
       queryClient.invalidateQueries({
         queryKey: ['notebook-deployments', 'all'],
@@ -1405,6 +1465,83 @@ export function UnifiedDeploymentsPanel({
                   </div>
                 )}
 
+                {provider === 'colab' && (
+                  <div className='space-y-1.5'>
+                    <label className='text-xs font-medium'>
+                      {t('RAM Profile')}
+                    </label>
+                    <Select
+                      value={highRam ? 'high' : 'standard'}
+                      onValueChange={(v) => setHighRam(v === 'high')}
+                    >
+                      <SelectTrigger className='w-full'>
+                        <SelectValue>
+                          {highRam ? t('High-RAM') : t('Standard RAM')}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false} align='start'>
+                        <SelectItem value='standard'>
+                          {t('Standard RAM')}
+                        </SelectItem>
+                        <SelectItem value='high'>{t('High-RAM')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {provider === 'modal' && (
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <div className='space-y-1.5'>
+                      <label className='text-xs font-medium'>
+                        {t('CPU Cores')}
+                      </label>
+                      <Select
+                        value={String(cpuCores)}
+                        onValueChange={(v) => setCpuCores(Number(v) || 0)}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue>
+                            {cpuCores > 0
+                              ? `${cpuCores} ${t('Cores')}`
+                              : t('Default')}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false} align='start'>
+                          <SelectItem value='0'>{t('Default')}</SelectItem>
+                          {[1, 2, 4, 8, 16, 32].map((c) => (
+                            <SelectItem key={c} value={String(c)}>
+                              {c} {t('Cores')}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-1.5'>
+                      <label className='text-xs font-medium'>
+                        {t('Memory (RAM)')}
+                      </label>
+                      <Select
+                        value={String(memoryGb)}
+                        onValueChange={(v) => setMemoryGb(Number(v) || 0)}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue>
+                            {memoryGb > 0 ? `${memoryGb} GB` : t('Default')}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false} align='start'>
+                          <SelectItem value='0'>{t('Default')}</SelectItem>
+                          {[2, 4, 8, 16, 32, 64, 128].map((g) => (
+                            <SelectItem key={g} value={String(g)}>
+                              {g} GB
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
                 <div className='space-y-1.5'>
                   <label className='text-xs font-medium'>{t('Groups')}</label>
                   <MultiSelect
@@ -1615,6 +1752,36 @@ export function UnifiedDeploymentsPanel({
                             {detailsItem.error_message}
                           </div>
                         ) : null}
+                        {(detailsItem.high_ram ||
+                          (detailsItem.cpu_cores ?? 0) > 0 ||
+                          (detailsItem.memory_gb ?? 0) > 0) && (
+                          <div className='sm:col-span-2 flex flex-wrap gap-2'>
+                            {detailsItem.high_ram && (
+                              <StatusBadge
+                                label={t('High-RAM')}
+                                variant='neutral'
+                                size='sm'
+                                copyable={false}
+                              />
+                            )}
+                            {(detailsItem.cpu_cores ?? 0) > 0 && (
+                              <StatusBadge
+                                label={`${detailsItem.cpu_cores} ${t('Cores')}`}
+                                variant='neutral'
+                                size='sm'
+                                copyable={false}
+                              />
+                            )}
+                            {(detailsItem.memory_gb ?? 0) > 0 && (
+                              <StatusBadge
+                                label={`${detailsItem.memory_gb} GB RAM`}
+                                variant='neutral'
+                                size='sm'
+                                copyable={false}
+                              />
+                            )}
+                          </div>
+                        )}
                       </div>
                     </SideDrawerSection>
 
@@ -1783,6 +1950,28 @@ export function UnifiedDeploymentsPanel({
                   {t('Test')}
                 </Button>
               </div>
+
+              {testing && (
+                <div className='space-y-2 rounded-lg border p-3 bg-muted/20'>
+                  <div className='flex items-center justify-between text-xs'>
+                    <span className='font-medium truncate pr-2'>
+                      {testStage || t('Starting test...')}
+                    </span>
+                    <span className='font-mono shrink-0'>
+                      <span className='font-semibold'>{testProgress}%</span>
+                      <span className='text-muted-foreground ml-2'>
+                        {testElapsedSec}s
+                      </span>
+                    </span>
+                  </div>
+                  <div className='h-2 w-full overflow-hidden rounded-full bg-muted'>
+                    <div
+                      className='h-full bg-primary transition-all duration-300'
+                      style={{ width: `${Math.max(2, testProgress)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {testError ? (
                 <div className='rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive'>
