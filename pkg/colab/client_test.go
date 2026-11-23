@@ -135,3 +135,50 @@ func TestColabClientHighRAMOption(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"hm", ""}, seenShapes)
 }
+
+func TestColabClientTPUSingleShapeAndFallback(t *testing.T) {
+	var seenQueries []string
+	rejectAll := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/assign" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodGet {
+			assert.Empty(t, r.URL.Query().Get("shape"), "TPU must never send shape=hm")
+			assert.Equal(t, "TPU", r.URL.Query().Get("variant"))
+			acc := r.URL.Query().Get("accelerator")
+			seenQueries = append(seenQueries, acc)
+			if rejectAll || acc == "V5E1" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("<!DOCTYPE html><html><title>Error 400 (Bad Request)!!1</title></html>"))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(")]}'\n" + `{"token":"xsrf-tpu"}`))
+			return
+		}
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(")]}'\n" + `{"endpoint":"m-s-tpu","runtimeProxyInfo":{"url":"http://` + r.Host + `/proxy","token":"tok-tpu"}}`))
+			return
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient("test-oauth-token")
+	client.TunnelBaseURL = srv.URL
+
+	rt, err := client.CreateRuntimeWithOptions("TPU_V5E_1", true)
+	require.NoError(t, err)
+	assert.Equal(t, "m-s-tpu", rt.Name)
+	assert.Equal(t, []string{"V5E1", "V6E1"}, seenQueries)
+
+	rejectAll = true
+	seenQueries = nil
+	_, err = client.CreateRuntimeWithOptions("TPU_V5E_1", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bad request")
+	assert.NotContains(t, err.Error(), "<!DOCTYPE html>")
+	assert.Equal(t, []string{"V5E1", "V6E1", "V28", ""}, seenQueries)
+}

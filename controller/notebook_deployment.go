@@ -499,7 +499,7 @@ func GetNotebookDeploymentLogs(c *gin.Context) {
 	}
 
 	// Live log snapshot from Kaggle SSE/output API when endpoint is not ready yet
-	if item.Provider == "kaggle" && strings.TrimSpace(item.EndpointURL) == "" && strings.TrimSpace(item.RemoteID) != "" {
+	if item.Provider == "kaggle" && strings.TrimSpace(item.EndpointURL) == "" && strings.TrimSpace(item.RemoteID) != "" && ((item.Status != "failed" && item.Status != "stopped") || combinedLogs == "") {
 		if acc, accErr := ResolveProviderAccount("kaggle", item.AccountID); accErr == nil && acc != nil && strings.TrimSpace(acc.APIKey) != "" {
 			ownerSlug := strings.TrimSpace(acc.Username)
 			kernelSlug := sanitizeSlug(item.Name)
@@ -513,7 +513,28 @@ func GetNotebookDeploymentLogs(c *gin.Context) {
 			cancel()
 			if snapErr == nil && strings.TrimSpace(snapLogs) != "" {
 				if combinedLogs != "" {
-					combinedLogs = combinedLogs + "\n--- Kaggle Live Logs ---\n" + strings.TrimSpace(snapLogs)
+					seen := make(map[string]bool)
+					for _, prev := range strings.Split(combinedLogs, "\n") {
+						norm := strings.TrimSpace(leadingLogTimestampRe.ReplaceAllString(strings.TrimSpace(prev), ""))
+						if norm != "" {
+							seen[norm] = true
+						}
+					}
+					var extra []string
+					for _, ln := range strings.Split(strings.TrimSpace(snapLogs), "\n") {
+						trimmed := strings.TrimSpace(ln)
+						if trimmed == "" {
+							continue
+						}
+						norm := strings.TrimSpace(leadingLogTimestampRe.ReplaceAllString(trimmed, ""))
+						if norm != "" && !seen[norm] {
+							seen[norm] = true
+							extra = append(extra, trimmed)
+						}
+					}
+					if len(extra) > 0 {
+						combinedLogs = combinedLogs + "\n--- Kaggle Live Logs ---\n" + strings.Join(extra, "\n")
+					}
 				} else {
 					combinedLogs = strings.TrimSpace(snapLogs)
 				}
@@ -600,12 +621,7 @@ func appendDeploymentLog(id int, line string) {
 	}
 	existing := strings.TrimSpace(item.Logs)
 	if existing != "" && normBody != "" {
-		lines := strings.Split(existing, "\n")
-		start := 0
-		if len(lines) > 20 {
-			start = len(lines) - 20
-		}
-		for _, prev := range lines[start:] {
+		for _, prev := range strings.Split(existing, "\n") {
 			prevBody := strings.TrimSpace(leadingLogTimestampRe.ReplaceAllString(strings.TrimSpace(prev), ""))
 			if prevBody == normBody {
 				return

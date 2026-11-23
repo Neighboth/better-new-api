@@ -46,8 +46,8 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
       {
         id: 'google_ai_pro',
         label: 'Google AI Pro',
-        description: 'CPU, Tesla T4 GPU, and TPU v5e-1',
-        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V5E_1'],
+        description: 'CPU, Tesla T4 GPU, and TPUs (v2-8, v5e-1)',
+        allowedHardwareIds: ['CPU', 'NVIDIA_TESLA_T4', 'TPU_V2_8', 'TPU_V5E_1'],
       },
       {
         id: 'colab_pro',

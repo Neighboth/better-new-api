@@ -32,20 +32,21 @@ type AcceleratorSpec struct {
 	TunnelVariant     string `json:"-"`
 	TunnelAccelerator string `json:"-"`
 	HighMem           bool   `json:"-"`
+	SingleShape       bool   `json:"-"`
 }
 
 // SupportedAccelerators lists the CPU, GPU, and TPU options for Google Colab.
 var SupportedAccelerators = []AcceleratorSpec{
 	{ID: "CPU", Label: "CPU (Standard)", Kind: "cpu", Variant: "VARIANT_UNSPECIFIED", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "", TunnelAccelerator: ""},
 	{ID: "NVIDIA_TESLA_T4", Label: "GPU: NVIDIA Tesla T4 (16GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_STANDARD", TunnelVariant: "GPU", TunnelAccelerator: "T4"},
-	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "L4"},
+	{ID: "NVIDIA_L4", Label: "GPU: NVIDIA L4 (24GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "L4", SingleShape: true},
 	{ID: "NVIDIA_TESLA_A100", Label: "GPU: NVIDIA A100 (40GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "A100", HighMem: true},
 	{ID: "NVIDIA_TESLA_A100_80GB", Label: "GPU: NVIDIA A100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "A100", HighMem: true},
 	{ID: "NVIDIA_RTX_PRO_6000", Label: "GPU: NVIDIA RTX PRO 6000", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "G4", HighMem: true},
 	{ID: "NVIDIA_H100_80GB", Label: "GPU: NVIDIA H100 (80GB)", Kind: "gpu", Variant: "VARIANT_GPU", Shape: "SHAPE_HIGHMEM", TunnelVariant: "GPU", TunnelAccelerator: "H100", HighMem: true},
-	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: ""},
-	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V5E1"},
-	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V6E1"},
+	{ID: "TPU_V2_8", Label: "TPU: v2-8", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V28", SingleShape: true},
+	{ID: "TPU_V5E_1", Label: "TPU: v5e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V5E1", SingleShape: true},
+	{ID: "TPU_V6E_1", Label: "TPU: v6e-1", Kind: "tpu", Variant: "VARIANT_TPU", Shape: "SHAPE_UNSPECIFIED", TunnelVariant: "TPU", TunnelAccelerator: "V6E1", SingleShape: true},
 }
 
 // LookupAccelerator resolves an accelerator ID to its spec, defaulting to T4.
@@ -87,6 +88,21 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("colab: request failed with HTTP %d", e.Code)
 }
 
+func cleanColabErrorBody(code int, raw []byte) string {
+	msg := strings.TrimSpace(string(raw))
+	lower := strings.ToLower(msg)
+	if strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") {
+		if code == http.StatusBadRequest {
+			return "bad request — requested accelerator or machine shape is not available for this Colab account"
+		}
+		return fmt.Sprintf("HTTP %d error from Google Colab", code)
+	}
+	if len(msg) > 400 {
+		msg = msg[:400] + "..."
+	}
+	return msg
+}
+
 func (c *Client) do(method, path string, body any, out any) error {
 	var bodyReader io.Reader
 	if body != nil {
@@ -118,11 +134,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(data))
-		if len(msg) > 400 {
-			msg = msg[:400] + "..."
-		}
-		return &APIError{Code: resp.StatusCode, Message: msg}
+		return &APIError{Code: resp.StatusCode, Message: cleanColabErrorBody(resp.StatusCode, data)}
 	}
 	if out != nil && len(bytes.TrimSpace(data)) > 0 {
 		if err := common.Unmarshal(data, out); err != nil {
@@ -238,11 +250,7 @@ func (c *Client) doTunnel(method, fullURL, xsrfToken string, out any) error {
 			return err
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			msg := strings.TrimSpace(string(data))
-			if len(msg) > 400 {
-				msg = msg[:400] + "..."
-			}
-			return &APIError{Code: resp.StatusCode, Message: msg}
+			return &APIError{Code: resp.StatusCode, Message: cleanColabErrorBody(resp.StatusCode, data)}
 		}
 		if out != nil {
 			cleaned := stripXSSIPrefix(data)
@@ -325,24 +333,17 @@ func (c *Client) CreateRuntime(accelerator string) (*Runtime, error) {
 	return c.CreateRuntimeWithOptions(accelerator, spec.HighMem)
 }
 
-// CreateRuntimeWithOptions provisions a Colab runtime with explicit High-RAM (shape=hm) control.
-func (c *Client) CreateRuntimeWithOptions(accelerator string, highRAM bool) (*Runtime, error) {
-	spec := LookupAccelerator(accelerator)
-	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
-	if tunnelBase == "" {
-		tunnelBase = DefaultTunnelBaseURL
-	}
-
+func (c *Client) tryAssign(tunnelBase, variant, accelerator string, highMem bool) (*Runtime, error) {
 	q := url.Values{}
 	q.Set("authuser", "0")
 	q.Set("nbh", uuidToWebSafeBase64(uuid.New().String()))
-	if spec.TunnelVariant != "" {
-		q.Set("variant", spec.TunnelVariant)
+	if variant != "" {
+		q.Set("variant", variant)
 	}
-	if spec.TunnelAccelerator != "" {
-		q.Set("accelerator", spec.TunnelAccelerator)
+	if accelerator != "" {
+		q.Set("accelerator", accelerator)
 	}
-	if highRAM || spec.HighMem {
+	if highMem {
 		q.Set("shape", "hm")
 	}
 
@@ -376,6 +377,55 @@ func (c *Client) CreateRuntimeWithOptions(accelerator string, highRAM bool) (*Ru
 		},
 		ProxyURL: assignRes.RuntimeProxyInfo.URL,
 	}, nil
+}
+
+// CreateRuntimeWithOptions provisions a Colab runtime with explicit High-RAM (shape=hm) control.
+func (c *Client) CreateRuntimeWithOptions(accelerator string, highRAM bool) (*Runtime, error) {
+	spec := LookupAccelerator(accelerator)
+	tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
+	if tunnelBase == "" {
+		tunnelBase = DefaultTunnelBaseURL
+	}
+
+	wantHighMem := (highRAM || spec.HighMem) && !spec.SingleShape
+	type assignAttempt struct {
+		variant string
+		acc     string
+		hm      bool
+	}
+	var attempts []assignAttempt
+	seen := make(map[assignAttempt]bool)
+	addAttempt := func(variant, acc string, hm bool) {
+		a := assignAttempt{variant: variant, acc: acc, hm: hm}
+		if !seen[a] {
+			seen[a] = true
+			attempts = append(attempts, a)
+		}
+	}
+
+	addAttempt(spec.TunnelVariant, spec.TunnelAccelerator, wantHighMem)
+	if wantHighMem && !spec.HighMem {
+		addAttempt(spec.TunnelVariant, spec.TunnelAccelerator, false)
+	}
+	if spec.Kind == "tpu" {
+		for _, fallbackAcc := range []string{"V6E1", "V5E1", "V28", ""} {
+			addAttempt("TPU", fallbackAcc, false)
+		}
+	}
+
+	var lastErr error
+	for i, att := range attempts {
+		rt, err := c.tryAssign(tunnelBase, att.variant, att.acc, att.hm)
+		if err == nil {
+			return rt, nil
+		}
+		lastErr = err
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != http.StatusBadRequest || i == len(attempts)-1 {
+			return nil, err
+		}
+	}
+	return nil, lastErr
 }
 
 // GetRuntime retrieves runtime state and connectionInfo (proxy URL & token).

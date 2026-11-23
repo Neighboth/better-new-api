@@ -502,11 +502,7 @@ async def create_embeddings(req: Request):
 			strings.Contains(strings.ToLower(cfg.ModelRepo), "gguf")
 		if isGGUF {
 			pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("huggingface_hub", "huggingface_hub"), ("llama-cpp-python", "llama_cpp")]`
-			if strings.TrimSpace(cfg.Accelerator) == "" || strings.EqualFold(strings.TrimSpace(cfg.Accelerator), "CPU") {
-				extraPipArgs = `["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu"]`
-			} else {
-				extraPipArgs = `["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu124"]`
-			}
+			extraPipArgs = `(["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cu124"] if os.path.exists("/dev/nvidia0") else ["--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu"])`
 			taskHandler = `
 from huggingface_hub import hf_hub_download, list_repo_files
 from llama_cpp import Llama

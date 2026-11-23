@@ -56,4 +56,13 @@ func TestGenerateScriptsForTasks(t *testing.T) {
 	})
 	assert.NotContains(t, stdTextScript, `llama-cpp-python`)
 	assert.Contains(t, stdTextScript, `import torch`)
+
+	tpuGGUFScript := Generate(Config{
+		Provider:    "kaggle",
+		ModelRepo:   "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+		TaskType:    "text",
+		Accelerator: "TpuV5E8",
+	})
+	assert.Contains(t, tpuGGUFScript, `https://abetlen.github.io/llama-cpp-python/whl/cpu`)
+	assert.Contains(t, tpuGGUFScript, `os.path.exists("/dev/nvidia0")`)
 }
