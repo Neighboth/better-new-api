@@ -182,3 +182,17 @@ func TestColabClientTPUSingleShapeAndFallback(t *testing.T) {
 	assert.NotContains(t, err.Error(), "<!DOCTYPE html>")
 	assert.Equal(t, []string{"V5E1", "V6E1", "V28", ""}, seenQueries)
 }
+
+func TestColabClientDeleteRuntime404IsIdempotent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><title>Error 404</title></html>"))
+	}))
+	defer srv.Close()
+
+	client := NewClient("test-oauth-token")
+	client.TunnelBaseURL = srv.URL
+
+	err := client.DeleteRuntime("m-s-gone")
+	require.NoError(t, err)
+}

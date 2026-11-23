@@ -444,6 +444,10 @@ func (c *Client) DeleteRuntime(name string) error {
 	if trimmed == "" {
 		return nil
 	}
+	isNotFound := func(err error) bool {
+		var apiErr *APIError
+		return errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
+	}
 	if !strings.Contains(trimmed, "/") {
 		tunnelBase := strings.TrimRight(c.TunnelBaseURL, "/")
 		if tunnelBase == "" {
@@ -454,15 +458,30 @@ func (c *Client) DeleteRuntime(name string) error {
 			Token string `json:"token"`
 		}
 		if err := c.doTunnel(http.MethodGet, unassignURL, "", &getRes); err != nil {
+			if isNotFound(err) {
+				return nil
+			}
 			return err
 		}
 		if getRes.Token == "" {
 			return nil
 		}
-		return c.doTunnel(http.MethodPost, unassignURL, getRes.Token, nil)
+		if err := c.doTunnel(http.MethodPost, unassignURL, getRes.Token, nil); err != nil {
+			if isNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
 	}
 	path := "/" + strings.TrimLeft(trimmed, "/")
-	return c.do(http.MethodDelete, path, nil, nil)
+	if err := c.do(http.MethodDelete, path, nil, nil); err != nil {
+		if isNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // UploadFile uploads a text file (such as serve.py) to the runtime's Jupyter server.

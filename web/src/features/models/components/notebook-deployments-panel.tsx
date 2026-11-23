@@ -372,6 +372,7 @@ export function UnifiedDeploymentsPanel({
   const [editEnabled, setEditEnabled] = useState(true)
   const [savingDetails, setSavingDetails] = useState(false)
   const logsEndRef = useRef<HTMLPreElement | null>(null)
+  const stickToBottomRef = useRef(true)
 
   useEffect(() => {
     if (detailsItem) {
@@ -381,6 +382,12 @@ export function UnifiedDeploymentsPanel({
       setEditEnabled(detailsItem.enabled !== 2)
     }
   }, [detailsItem])
+
+  useEffect(() => {
+    if (detailsTab === 'logs') {
+      stickToBottomRef.current = true
+    }
+  }, [detailsItem?.id, detailsTab])
 
   const logsQuery = useQuery({
     queryKey: ['notebook-deployment-logs', detailsItem?.id],
@@ -392,7 +399,11 @@ export function UnifiedDeploymentsPanel({
   })
 
   useEffect(() => {
-    if (detailsTab === 'logs' && logsEndRef.current) {
+    if (
+      detailsTab === 'logs' &&
+      stickToBottomRef.current &&
+      logsEndRef.current
+    ) {
       logsEndRef.current.scrollTop = logsEndRef.current.scrollHeight
     }
   }, [logsQuery.data?.data?.logs, detailsTab])
@@ -1895,6 +1906,11 @@ export function UnifiedDeploymentsPanel({
 
                     <pre
                       ref={logsEndRef}
+                      onScroll={(e) => {
+                        const el = e.currentTarget
+                        stickToBottomRef.current =
+                          el.scrollHeight - el.scrollTop - el.clientHeight <= 40
+                      }}
                       className='h-[380px] overflow-auto rounded-lg border bg-zinc-950 p-3 font-mono text-xs text-zinc-100 whitespace-pre-wrap break-words'
                     >
                       {logsQuery.data?.data?.logs ||

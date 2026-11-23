@@ -197,6 +197,7 @@ async def generate_video(req: Request):
 		needsTorch = true
 		pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("diffusers", "diffusers"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("pillow", "PIL"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub"), ("safetensors", "safetensors"), ("omegaconf", "omegaconf"), ("gguf", "gguf")]`
 		taskHandler = `
+import gc
 import uuid
 from diffusers import AutoPipelineForText2Image
 from huggingface_hub import hf_hub_download, list_repo_files
@@ -247,7 +248,7 @@ def get_pipe():
     _log(f"[model] Repo contains {len(_repo_files)} files")
     if "model_index.json" in _repo_files and not _explicit_file.lower().endswith((".safetensors", ".ckpt", ".gguf")):
         _log(f"[model] Loading AutoPipelineForText2Image from {MODEL_REPO}...")
-        _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, torch_dtype=_dtype, token=HF_TOKEN or None)
+        _pipe = AutoPipelineForText2Image.from_pretrained(MODEL_REPO, torch_dtype=_dtype, low_cpu_mem_usage=True, token=HF_TOKEN or None)
     else:
         _target = _explicit_file or next((f for f in sorted(_repo_files) if f.lower().endswith((".safetensors", ".ckpt", ".gguf"))), "")
         if not _target:
@@ -359,6 +360,17 @@ def get_pipe():
             getattr(_pipe, _role).load_state_dict(_sd, strict=False)
     if torch.cuda.is_available():
         _pipe = _pipe.to("cuda")
+    if hasattr(_pipe, "enable_attention_slicing"):
+        try:
+            _pipe.enable_attention_slicing()
+        except Exception:
+            pass
+    if hasattr(_pipe, "enable_vae_slicing"):
+        try:
+            _pipe.enable_vae_slicing()
+        except Exception:
+            pass
+    gc.collect()
     _log(f"[model] Image model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _pipe
 
@@ -399,16 +411,18 @@ def _execute_task(body, base_url, set_progress=None):
             if set_progress:
                 set_progress(min(95, pct), stage)
             time.sleep(0.001)
-        try:
-            img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
-        except TypeError:
+        with torch.inference_mode():
             try:
-                img = pipe(prompt=prompt, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1).images[0]
+                img = pipe(prompt=prompt, num_inference_steps=steps, callback_on_step_end=_cb).images[0]
             except TypeError:
-                img = pipe(prompt=prompt).images[0]
+                try:
+                    img = pipe(prompt=prompt, num_inference_steps=steps, callback=_legacy_cb, callback_steps=1).images[0]
+                except TypeError:
+                    img = pipe(prompt=prompt).images[0]
     filename = f"{uuid.uuid4().hex}.png"
     out_path = os.path.join(OUTPUT_DIR, filename)
     img.save(out_path)
+    gc.collect()
     _log(f"[infer] Image generated in {time.time() - _t0:.1f}s -> {filename}")
     if set_progress:
         set_progress(100, "Completed")
@@ -853,6 +867,11 @@ def _idle_watchdog():
         return
     while True:
         time.sleep(10)
+        with _jobs_lock:
+            has_active = any(v.get("status") in ("queued", "running") for v in _jobs.values())
+        if has_active:
+            touch()
+            continue
         if time.time() - _last_activity > IDLE_TIMEOUT_SECONDS:
             _log(f"[watchdog] Idle for {IDLE_TIMEOUT_SECONDS}s, shutting down...")
             os._exit(0)

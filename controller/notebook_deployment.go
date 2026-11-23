@@ -1915,6 +1915,21 @@ func GetNotebookDeploymentTestStatus(c *gin.Context) {
 	common.ApiSuccess(c, snap)
 }
 
+func formatEndpointHTTPError(statusCode int, body []byte) error {
+	msg := strings.TrimSpace(string(body))
+	lower := strings.ToLower(msg)
+	if statusCode == 530 || strings.Contains(lower, "cloudflare tunnel error") || strings.Contains(lower, "error 1033") {
+		return fmt.Errorf("model endpoint tunnel disconnected (HTTP %d): the remote runtime stopped, timed out, or ran out of memory", statusCode)
+	}
+	if strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") {
+		return fmt.Errorf("model endpoint returned HTTP %d", statusCode)
+	}
+	if len(msg) > 400 {
+		msg = msg[:400] + "..."
+	}
+	return fmt.Errorf("model endpoint returned HTTP %d: %s", statusCode, msg)
+}
+
 func executeModelTest(baseURL, modelRepo, rawTask, prompt, bearerToken string) (*modelTestResult, error) {
 	return executeModelTestWithProgress(context.Background(), baseURL, modelRepo, rawTask, prompt, bearerToken, nil)
 }
@@ -2039,7 +2054,7 @@ func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTa
 						continue
 					}
 					if pResp.StatusCode < 200 || pResp.StatusCode >= 300 {
-						return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", pResp.StatusCode, strings.TrimSpace(string(pBytes)))
+						return nil, formatEndpointHTTPError(pResp.StatusCode, pBytes)
 					}
 					consecutiveErrs = 0
 					var st struct {
@@ -2069,11 +2084,7 @@ func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTa
 			}
 			return nil, fmt.Errorf("model endpoint returned invalid /_jobs response")
 		} else if jobResp != nil {
-			msg := strings.TrimSpace(string(jobRespBytes))
-			if len(msg) > 400 {
-				msg = msg[:400] + "..."
-			}
-			return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", jobResp.StatusCode, msg)
+			return nil, formatEndpointHTTPError(jobResp.StatusCode, jobRespBytes)
 		}
 	} else {
 		jobsUnsupported = true
@@ -2128,11 +2139,7 @@ func executeModelTestWithProgress(ctx context.Context, baseURL, modelRepo, rawTa
 		return nil, fmt.Errorf("model endpoint timed out (HTTP 524); recreate the deployment to enable async /_jobs progress")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(respBytes))
-		if len(msg) > 400 {
-			msg = msg[:400] + "..."
-		}
-		return nil, fmt.Errorf("model endpoint returned HTTP %d: %s", resp.StatusCode, msg)
+		return nil, formatEndpointHTTPError(resp.StatusCode, respBytes)
 	}
 
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
