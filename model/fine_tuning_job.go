@@ -16,10 +16,17 @@ type FineTuningJob struct {
 	Hyperparameters string `json:"hyperparameters" gorm:"type:text"`
 	Status          string `json:"status" gorm:"type:varchar(32);index;not null"` // queued | running | succeeded | failed | cancelled
 	TrainedTokens   int64  `json:"trained_tokens"`
-	Error           string `json:"error" gorm:"type:text"`
-	Provider        string `json:"provider" gorm:"type:varchar(32)"`
-	DeploymentID    int    `json:"deployment_id"`
-	CallbackToken   string `json:"-" gorm:"type:varchar(64)"`
+	Error            string  `json:"error" gorm:"type:text"`
+	Provider         string  `json:"provider" gorm:"type:varchar(32)"`
+	GPU              string  `json:"gpu" gorm:"type:varchar(64)"`
+	DeploymentID     int     `json:"deployment_id"`
+	DurationSeconds  int64   `json:"duration_seconds"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	BilledQuota      int64   `json:"billed_quota"`
+	TrainingFilePath string  `json:"-" gorm:"type:text"`
+	ModelFilePath    string  `json:"-" gorm:"type:text"`
+	HasModelFile     bool    `json:"has_model_file" gorm:"-"`
+	CallbackToken    string  `json:"-" gorm:"type:varchar(64)"`
 	CreatedAt       int64  `json:"created_at" gorm:"bigint;index"`
 	FinishedAt      int64  `json:"finished_at" gorm:"bigint"`
 	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
@@ -48,4 +55,8 @@ func ListUserFineTuningJobs(userId int, limit int) ([]FineTuningJob, error) {
 
 func UpdateFineTuningJobStatus(jobID string, fields map[string]any) error {
 	return DB.Model(&FineTuningJob{}).Where("job_id = ?", strings.TrimSpace(jobID)).Updates(fields).Error
+}
+
+func DeleteFineTuningJob(jobID string, userId int) error {
+	return DB.Where("job_id = ? AND user_id = ?", strings.TrimSpace(jobID), userId).Delete(&FineTuningJob{}).Error
 }

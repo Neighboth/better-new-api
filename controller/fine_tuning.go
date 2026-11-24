@@ -2,7 +2,10 @@ package controller
 
 import (
 	"crypto/subtle"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -188,5 +191,229 @@ func FineTuningWorkerCallback(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func UserListFineTuningJobs(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobs, err := model.ListUserFineTuningJobs(userId, 100)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	for i := range jobs {
+		if jobs[i].ModelFilePath != "" {
+			if _, statErr := os.Stat(jobs[i].ModelFilePath); statErr == nil {
+				jobs[i].HasModelFile = true
+			}
+		}
+		if !jobs[i].HasModelFile && jobs[i].Status == "succeeded" {
+			jobs[i].HasModelFile = true
+		}
+	}
+	pricePerSec, gpuMultipliers := service.GetFineTuningPricing()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"enabled":          service.IsFineTuningEnabled(),
+			"price_per_second": pricePerSec,
+			"gpu_multipliers":  gpuMultipliers,
+			"jobs":             jobs,
+		},
+	})
+}
+
+func UserCreateFineTuningJob(c *gin.Context) {
+	if !service.IsFineTuningEnabled() {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Fine-tuning is disabled in System Settings"})
+		return
+	}
+	userId := c.GetInt("id")
+	var baseModel, trainingFile, trainingData, gpu, provider, suffix string
+	epochs := 3
+	estimatedSec := int64(300)
+
+	ct := c.GetHeader("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		baseModel = strings.TrimSpace(c.PostForm("model"))
+		trainingFile = strings.TrimSpace(c.PostForm("training_file"))
+		trainingData = strings.TrimSpace(c.PostForm("training_data"))
+		gpu = strings.TrimSpace(c.PostForm("gpu"))
+		provider = strings.TrimSpace(c.PostForm("provider"))
+		suffix = strings.TrimSpace(c.PostForm("suffix"))
+		if ep, err := strconv.Atoi(c.PostForm("epochs")); err == nil && ep > 0 && ep <= 50 {
+			epochs = ep
+		}
+		if ds, err := strconv.ParseInt(c.PostForm("estimated_seconds"), 10, 64); err == nil && ds > 0 {
+			estimatedSec = ds
+		}
+	} else {
+		var req struct {
+			Model            string `json:"model"`
+			TrainingFile     string `json:"training_file"`
+			TrainingData     string `json:"training_data"`
+			GPU              string `json:"gpu"`
+			Provider         string `json:"provider"`
+			Suffix           string `json:"suffix"`
+			Epochs           int    `json:"epochs"`
+			EstimatedSeconds int64  `json:"estimated_seconds"`
+		}
+		if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
+			return
+		}
+		baseModel = strings.TrimSpace(req.Model)
+		trainingFile = strings.TrimSpace(req.TrainingFile)
+		trainingData = strings.TrimSpace(req.TrainingData)
+		gpu = strings.TrimSpace(req.GPU)
+		provider = strings.TrimSpace(req.Provider)
+		suffix = strings.TrimSpace(req.Suffix)
+		if req.Epochs > 0 && req.Epochs <= 50 {
+			epochs = req.Epochs
+		}
+		if req.EstimatedSeconds > 0 {
+			estimatedSec = req.EstimatedSeconds
+		}
+	}
+
+	if baseModel == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Base model is required"})
+		return
+	}
+	if gpu == "" {
+		gpu = "NVIDIA_TESLA_T4"
+	}
+
+	jobID := service.GenerateFineTuningJobID()
+	storageDir := service.FineTuningStorageDir(jobID)
+	var trainingFilePath string
+
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if fh, fErr := c.FormFile("file"); fErr == nil && fh != nil {
+			if err := os.MkdirAll(storageDir, 0o755); err == nil {
+				dst := filepath.Join(storageDir, "train.jsonl")
+				if src, oErr := fh.Open(); oErr == nil {
+					if out, cErr := os.Create(dst); cErr == nil {
+						_, _ = io.Copy(out, io.LimitReader(src, 50<<20))
+						_ = out.Close()
+						trainingFilePath = dst
+						if trainingFile == "" {
+							trainingFile = fh.Filename
+						}
+					}
+					_ = src.Close()
+				}
+			}
+		}
+	}
+	if trainingFilePath == "" && trainingData != "" {
+		if err := os.MkdirAll(storageDir, 0o755); err == nil {
+			dst := filepath.Join(storageDir, "train.jsonl")
+			if os.WriteFile(dst, []byte(trainingData), 0o644) == nil {
+				trainingFilePath = dst
+				if trainingFile == "" {
+					trainingFile = "inline-dataset.jsonl"
+				}
+			}
+		}
+	}
+	if trainingFile == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Training dataset file or content is required"})
+		return
+	}
+
+	hyperBytes, _ := common.Marshal(map[string]any{
+		"n_epochs": epochs,
+		"suffix":   suffix,
+	})
+	now := time.Now().Unix()
+	estCost := service.EstimateFineTuningCostUSD(gpu, estimatedSec)
+	ftName := "ft:" + baseModel
+	if suffix != "" {
+		ftName = ftName + ":" + suffix
+	} else {
+		ftName = ftName + ":" + jobID[len(jobID)-6:]
+	}
+
+	job := &model.FineTuningJob{
+		JobID:            jobID,
+		UserId:           userId,
+		Model:            baseModel,
+		FineTunedModel:   ftName,
+		TrainingFile:     trainingFile,
+		TrainingFilePath: trainingFilePath,
+		Hyperparameters:  string(hyperBytes),
+		Status:           "queued",
+		Provider:         provider,
+		GPU:              gpu,
+		DurationSeconds:  estimatedSec,
+		EstimatedCostUSD: estCost,
+		CallbackToken:    common.GetUUID(),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := model.CreateFineTuningJob(job); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": job})
+}
+
+func UserCancelFineTuningJob(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		return
+	}
+	if job.Status != "succeeded" && job.Status != "failed" && job.Status != "cancelled" {
+		_ = service.ApplyFineTuningWorkerCallback(job, "cancelled", "", "", job.TrainedTokens)
+	}
+	updated, _ := model.GetFineTuningJobByJobID(jobID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
+}
+
+func UserDownloadFineTuningModel(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		return
+	}
+	if job.ModelFilePath != "" {
+		if _, statErr := os.Stat(job.ModelFilePath); statErr == nil {
+			c.FileAttachment(job.ModelFilePath, filepath.Base(job.ModelFilePath))
+			return
+		}
+	}
+	manifest, _ := common.Marshal(map[string]any{
+		"job_id":           job.JobID,
+		"base_model":       job.Model,
+		"fine_tuned_model": job.FineTunedModel,
+		"status":           job.Status,
+		"gpu":              job.GPU,
+		"trained_tokens":   job.TrainedTokens,
+		"created_at":       job.CreatedAt,
+		"finished_at":      job.FinishedAt,
+	})
+	c.Header("Content-Disposition", `attachment; filename="`+job.JobID+`-manifest.json"`)
+	c.Data(http.StatusOK, "application/json; charset=utf-8", manifest)
+}
+
+func UserDeleteFineTuningJob(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		return
+	}
+	if err := model.DeleteFineTuningJob(jobID, job.UserId); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	service.CleanupFineTuningStorage(jobID)
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }

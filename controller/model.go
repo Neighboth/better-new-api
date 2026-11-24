@@ -372,6 +372,25 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 
+	// Inject private per-user Auto Model aliases (visible ONLY to this user)
+	if aliases, aErr := model.ListUserModelAliases(c.GetInt("id")); aErr == nil && len(aliases) > 0 {
+		seenAlias := make(map[string]bool, len(userOpenAiModels))
+		for _, m := range userOpenAiModels {
+			seenAlias[m.Id] = true
+		}
+		for _, a := range aliases {
+			if a.Alias != "" && !seenAlias[a.Alias] {
+				userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+					Id:      a.Alias,
+					Object:  "model",
+					Created: int(a.CreatedAt),
+					OwnedBy: "custom-alias",
+				})
+				seenAlias[a.Alias] = true
+			}
+		}
+	}
+
 	switch modelType {
 	case constant.ChannelTypeAnthropic:
 		useranthropicModels := make([]dto.AnthropicModel, len(userOpenAiModels))

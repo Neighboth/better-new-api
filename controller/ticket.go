@@ -581,6 +581,11 @@ func CreateGuestTicket(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	service.GlobalTicketHub.BroadcastToAdmins("new_ticket", ticket)
+	service.NotifyAdminNewTicketEmail(ticket, req.Content)
+	if !ticket.HumanConnected {
+		go service.InvokeAiAssistant(ticket.Id)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    ticket,
@@ -635,6 +640,9 @@ func AddGuestTicketMessage(c *gin.Context) {
 		return
 	}
 	service.GlobalTicketHub.BroadcastToTicket(msg.TicketId, "new_message", msg)
+	if ticket, tErr := model.GetTicketById(msg.TicketId); tErr == nil && ticket != nil && !ticket.HumanConnected {
+		go service.InvokeAiAssistant(ticket.Id)
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
 }
 

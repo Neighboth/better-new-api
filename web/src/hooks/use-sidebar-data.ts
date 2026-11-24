@@ -112,6 +112,11 @@ export function useSidebarData(): SidebarData {
           icon: Key,
         },
         {
+          title: t('Custom Models'),
+          url: '/custom-models',
+          icon: Sparkles,
+        },
+        {
           title: t('Usage Logs'),
           url: '/usage-logs/common',
           icon: FileText,

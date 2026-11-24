@@ -71,12 +71,6 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
     ],
     kaggle: [
       {
-        id: 'unverified',
-        label: 'Unverified (CPU Only)',
-        description: 'Phone verification required on Kaggle for GPUs & TPUs',
-        allowedHardwareIds: ['CPU'],
-      },
-      {
         id: 'verified_free',
         label: 'Verified Free (30h GPU / 20h TPU)',
         description: 'CPU, T4 x2 & TPU v5e-8',
@@ -85,6 +79,12 @@ export const PROVIDER_TIERS: Record<DeploymentProviderId, ProviderTierOption[]> 
           'NvidiaTeslaT4',
           'TpuV5E8',
         ],
+      },
+      {
+        id: 'unverified',
+        label: 'Unverified (CPU Only)',
+        description: 'Phone verification required on Kaggle for GPUs & TPUs',
+        allowedHardwareIds: ['CPU'],
       },
       {
         id: 'cloud_linked',

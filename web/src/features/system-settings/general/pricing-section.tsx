@@ -136,16 +136,11 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         PricingFormValues
       >,
       defaultValues,
-      onSubmit: async (_data, changedFields) => {
+      onSubmit: async (data, changedFields) => {
+        const sentKeys = new Set<string>()
         for (const [key, value] of Object.entries(changedFields)) {
           if (value === undefined || value === null) continue
-          if (key === 'general_setting.display_currencies') {
-            await updateOption.mutateAsync({
-              key,
-              value: JSON.stringify(value),
-            })
-            continue
-          }
+          if (key.startsWith('general_setting.display_currencies')) continue
           if (typeof value === 'object') continue
 
           let serialized: string | boolean = value as string | boolean
@@ -156,9 +151,49 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
             serialized = Number.isFinite(value) ? String(value) : '0'
           }
 
+          sentKeys.add(key)
           await updateOption.mutateAsync({
             key,
             value: serialized,
+          })
+        }
+
+        const rawCurrencies = (data.general_setting.display_currencies ?? []) as DisplayCurrencyOption[]
+        const seen = new Set<string>()
+        const cleanedCurrencies = rawCurrencies
+          .map((c) => ({
+            code: (c.code ?? '').trim().toUpperCase(),
+            symbol: (c.symbol ?? '').trim(),
+            name: (c.name ?? '').trim(),
+            exchange_rate: Number(c.exchange_rate) || 0,
+            auto_rate: c.auto_rate !== false,
+          }))
+          .filter((c) => {
+            if (!c.code || seen.has(c.code)) return false
+            seen.add(c.code)
+            return true
+          })
+
+        const prevCurrencies = JSON.stringify(
+          defaultValues.general_setting.display_currencies ?? []
+        )
+        const nextCurrencies = JSON.stringify(cleanedCurrencies)
+        if (nextCurrencies !== prevCurrencies) {
+          form.setValue('general_setting.display_currencies', cleanedCurrencies)
+          await updateOption.mutateAsync({
+            key: 'general_setting.display_currencies',
+            value: nextCurrencies,
+          })
+        }
+
+        if (
+          !sentKeys.has('general_setting.auto_exchange_rates') &&
+          data.general_setting.auto_exchange_rates !==
+            defaultValues.general_setting.auto_exchange_rates
+        ) {
+          await updateOption.mutateAsync({
+            key: 'general_setting.auto_exchange_rates',
+            value: String(Boolean(data.general_setting.auto_exchange_rates)),
           })
         }
       },
@@ -430,7 +465,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               )}
             />
 
-            <div className='space-y-4 rounded-xl border p-4'>
+            <div className='space-y-4 pt-2'>
               <div className='flex flex-wrap items-center justify-between gap-2'>
                 <div>
                   <h4 className='text-sm font-medium'>

@@ -318,18 +318,18 @@ export function LiveSupportWidget() {
   return (
     <div className='fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 max-w-[calc(100vw-2rem)]'>
       {open ? (
-        <Card className='w-[calc(100vw-2rem)] sm:w-[400px] max-w-[400px] shadow-2xl border-border animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col'>
+        <Card className='w-[calc(100vw-2rem)] sm:w-[390px] max-w-[390px] rounded-2xl shadow-xl border border-border/80 bg-card animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col py-0 gap-0'>
           {/* Widget Header */}
-          <CardHeader className='bg-primary text-primary-foreground p-4 flex flex-row items-center justify-between space-y-0'>
+          <CardHeader className='bg-card border-b px-4 py-3.5 flex flex-row items-center justify-between space-y-0'>
             <div className='flex items-center gap-2.5'>
-              <div className='relative flex h-8 w-8 items-center justify-center rounded-full bg-primary-foreground/20'>
-                <Headphones className='h-4 w-4 text-primary-foreground' />
-                <span className='absolute top-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-primary' />
+              <div className='relative flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary'>
+                <Headphones className='h-4 w-4' />
+                <span className='absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card' />
               </div>
               <div>
-                <h3 className='font-semibold text-sm leading-none'>{t('Live Support')}</h3>
-                <span className='text-[11px] text-primary-foreground/80 mt-0.5 inline-block'>
-                  {t('Online • How can we help?')}
+                <h3 className='font-semibold text-sm text-foreground leading-tight'>{t('Live Support')}</h3>
+                <span className='text-xs text-muted-foreground mt-0.5 inline-block'>
+                  {t('Online · How can we help?')}
                 </span>
               </div>
             </div>
@@ -338,7 +338,7 @@ export function LiveSupportWidget() {
               <Button
                 variant='ghost'
                 size='icon'
-                className='h-7 w-7 text-primary-foreground hover:bg-primary-foreground/20 rounded-full'
+                className='h-8 w-8 text-muted-foreground hover:text-foreground rounded-full'
                 onClick={() => setOpen(false)}
               >
                 <X className='h-4 w-4' />
@@ -347,7 +347,7 @@ export function LiveSupportWidget() {
           </CardHeader>
 
           {/* Widget Body */}
-          <CardContent className='p-4 space-y-4 max-h-[380px] overflow-y-auto text-sm'>
+          <CardContent className='p-4 space-y-3 max-h-[380px] overflow-y-auto text-sm bg-muted/20'>
             {!auth.user ? (
               // Guest Mode View
               guestSession && guestTicketResp?.data ? (
@@ -401,7 +401,7 @@ export function LiveSupportWidget() {
                       </div>
                     ))}
                     {guestIsTyping && (
-                      <div className='p-2.5 rounded-xl rounded-bl-xs text-xs max-w-[75%] bg-muted/80 border mr-auto flex items-center gap-2 text-muted-foreground'>
+                      <div className='px-3 py-2 rounded-2xl rounded-bl-sm text-xs max-w-[75%] bg-muted text-muted-foreground mr-auto flex items-center gap-2'>
                         <Loader2 className='h-3.5 w-3.5 animate-spin shrink-0' />
                         <span>{t('Support is typing...')}</span>
                       </div>
@@ -492,7 +492,7 @@ export function LiveSupportWidget() {
                         </div>
                       ))}
                       {userIsTyping && (
-                        <div className='p-2.5 rounded-xl rounded-bl-xs text-xs max-w-[75%] bg-muted/80 border mr-auto flex items-center gap-2 text-muted-foreground'>
+                        <div className='px-3 py-2 rounded-2xl rounded-bl-sm text-xs max-w-[75%] bg-muted text-muted-foreground mr-auto flex items-center gap-2'>
                           <Loader2 className='h-3.5 w-3.5 animate-spin shrink-0' />
                           <span>{t('Support is typing...')}</span>
                         </div>

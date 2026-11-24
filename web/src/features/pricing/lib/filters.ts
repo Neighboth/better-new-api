@@ -79,11 +79,29 @@ export function filterByQuotaType(
   quotaType: string
 ): PricingModel[] {
   if (quotaType === QUOTA_TYPES.ALL) return models
+  if (quotaType === QUOTA_TYPES.DURATION) {
+    return models.filter(
+      (m) =>
+        m.billing_mode === 'duration_second' ||
+        m.billing_mode === 'duration_minute' ||
+        m.billing_mode === 'duration_hour'
+    )
+  }
+  if (quotaType === QUOTA_TYPES.CHARACTERS) {
+    return models.filter((m) => m.billing_mode === 'characters')
+  }
   const targetType =
     quotaType === QUOTA_TYPES.TOKEN
       ? QUOTA_TYPE_VALUES.TOKEN
       : QUOTA_TYPE_VALUES.REQUEST
-  return models.filter((m) => m.quota_type === targetType)
+  return models.filter(
+    (m) =>
+      m.quota_type === targetType &&
+      m.billing_mode !== 'duration_second' &&
+      m.billing_mode !== 'duration_minute' &&
+      m.billing_mode !== 'duration_hour' &&
+      m.billing_mode !== 'characters'
+  )
 }
 
 /**

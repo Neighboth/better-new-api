@@ -201,12 +201,44 @@ export function PricingSidebar(props: PricingSidebarProps) {
     {
       value: QUOTA_TYPES.TOKEN,
       label: quotaTypeLabels[QUOTA_TYPES.TOKEN],
-      count: countBy(props.models, (model) => model.quota_type === 0),
+      count: countBy(
+        props.models,
+        (model) =>
+          model.quota_type === 0 &&
+          model.billing_mode !== 'duration_second' &&
+          model.billing_mode !== 'duration_minute' &&
+          model.billing_mode !== 'duration_hour' &&
+          model.billing_mode !== 'characters'
+      ),
     },
     {
       value: QUOTA_TYPES.REQUEST,
       label: quotaTypeLabels[QUOTA_TYPES.REQUEST],
-      count: countBy(props.models, (model) => model.quota_type === 1),
+      count: countBy(
+        props.models,
+        (model) =>
+          model.quota_type === 1 &&
+          model.billing_mode !== 'duration_second' &&
+          model.billing_mode !== 'duration_minute' &&
+          model.billing_mode !== 'duration_hour' &&
+          model.billing_mode !== 'characters'
+      ),
+    },
+    {
+      value: QUOTA_TYPES.DURATION,
+      label: quotaTypeLabels[QUOTA_TYPES.DURATION],
+      count: countBy(
+        props.models,
+        (model) =>
+          model.billing_mode === 'duration_second' ||
+          model.billing_mode === 'duration_minute' ||
+          model.billing_mode === 'duration_hour'
+      ),
+    },
+    {
+      value: QUOTA_TYPES.CHARACTERS,
+      label: quotaTypeLabels[QUOTA_TYPES.CHARACTERS],
+      count: countBy(props.models, (model) => model.billing_mode === 'characters'),
     },
   ]
 

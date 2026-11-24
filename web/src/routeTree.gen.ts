@@ -30,6 +30,7 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedByogAdminRouteRouteImport } from './routes/_authenticated/byog-admin/route'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
+import { Route as AuthenticatedCustomModelsRouteImport } from './routes/_authenticated/custom-models'
 import { Route as AuthenticatedStudioRouteImport } from './routes/_authenticated/studio'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
@@ -189,6 +190,12 @@ const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   path: '/chat2link',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedCustomModelsRoute =
+  AuthenticatedCustomModelsRouteImport.update({
+    id: '/custom-models',
+    path: '/custom-models',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedStudioRoute = AuthenticatedStudioRouteImport.update({
   id: '/studio',
   path: '/studio',
@@ -520,6 +527,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/custom-models': typeof AuthenticatedCustomModelsRoute
   '/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
@@ -593,6 +601,7 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/custom-models': typeof AuthenticatedCustomModelsRoute
   '/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
@@ -671,6 +680,7 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/_authenticated/custom-models': typeof AuthenticatedCustomModelsRoute
   '/_authenticated/studio': typeof AuthenticatedStudioRoute
   '/blog/$postId': typeof BlogPostIdRoute
   '/custom/$navId': typeof CustomNavIdRoute
@@ -748,6 +758,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/custom-models'
     | '/studio'
     | '/blog/$postId'
     | '/custom/$navId'
@@ -821,6 +832,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/custom-models'
     | '/studio'
     | '/blog/$postId'
     | '/custom/$navId'
@@ -898,6 +910,7 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/_authenticated/custom-models'
     | '/_authenticated/studio'
     | '/blog/$postId'
     | '/custom/$navId'
@@ -1123,6 +1136,13 @@ declare module '@tanstack/react-router' {
       path: '/chat2link'
       fullPath: '/chat2link'
       preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/custom-models': {
+      id: '/_authenticated/custom-models'
+      path: '/custom-models'
+      fullPath: '/custom-models'
+      preLoaderRoute: typeof AuthenticatedCustomModelsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/studio': {
@@ -1611,6 +1631,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedByogAdminRouteRoute: typeof AuthenticatedByogAdminRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedCustomModelsRoute: typeof AuthenticatedCustomModelsRoute
   AuthenticatedStudioRoute: typeof AuthenticatedStudioRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
@@ -1645,6 +1666,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedCustomModelsRoute: AuthenticatedCustomModelsRoute,
   AuthenticatedStudioRoute: AuthenticatedStudioRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,

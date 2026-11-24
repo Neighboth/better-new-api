@@ -200,6 +200,15 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/aff_transfer", middleware.UserCriticalRateLimit("aff-transfer"), controller.TransferAffQuota)
 				selfRoute.PUT("/setting", controller.UpdateUserSetting)
 				selfRoute.GET("/rate_limit", controller.GetUserRateLimit)
+				selfRoute.GET("/model_aliases", controller.ListUserModelAliases)
+				selfRoute.POST("/model_aliases", controller.CreateUserModelAlias)
+				selfRoute.PUT("/model_aliases/:id", controller.UpdateUserModelAlias)
+				selfRoute.DELETE("/model_aliases/:id", controller.DeleteUserModelAlias)
+				selfRoute.GET("/fine_tuning/jobs", controller.UserListFineTuningJobs)
+				selfRoute.POST("/fine_tuning/jobs", controller.UserCreateFineTuningJob)
+				selfRoute.POST("/fine_tuning/jobs/:job_id/cancel", controller.UserCancelFineTuningJob)
+				selfRoute.GET("/fine_tuning/jobs/:job_id/download", controller.UserDownloadFineTuningModel)
+				selfRoute.DELETE("/fine_tuning/jobs/:job_id", controller.UserDeleteFineTuningJob)
 
 				// 2FA routes
 				selfRoute.GET("/2fa/status", controller.Get2FAStatus)

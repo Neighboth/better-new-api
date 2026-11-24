@@ -123,6 +123,16 @@ func GetPlaygroundConfig(c *gin.Context) {
 		defaultDuration = minDuration
 	}
 
+	modelDisplayNames := map[string]string{}
+	if metas, err := model.GetAllModels(0, 10000); err == nil {
+		for _, m := range metas {
+			dn := strings.TrimSpace(m.DisplayName)
+			if dn != "" && m.ModelName != "" {
+				modelDisplayNames[m.ModelName] = dn
+			}
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"web_search": gin.H{
 			"playground":       setting.WebSearchPlaygroundEnabled,
@@ -167,8 +177,9 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"prompt_optimizer_system_prompt": setting.PromptOptimizerSystemPrompt,
 		},
 		"playground": gin.H{
-			"default_model": setting.PlaygroundDefaultModel,
-			"hidden_models": setting.PlaygroundHiddenModels,
+			"default_model":       setting.PlaygroundDefaultModel,
+			"hidden_models":       setting.PlaygroundHiddenModels,
+			"model_display_names": modelDisplayNames,
 		},
 	})
 }

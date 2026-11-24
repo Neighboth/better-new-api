@@ -206,28 +206,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         <TooltipContent>{t('Test Connection')}</TooltipContent>
       </Tooltip>
 
-      {isMultiKey && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='ghost'
-                size='icon-sm'
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleTestAllKeys()
-                }}
-                aria-label={t('Test All Keys')}
-                className='text-foreground hover:text-foreground'
-              />
-            }
-          >
-            <CheckCheck className='size-4' />
-          </TooltipTrigger>
-          <TooltipContent>{t('Test All Keys')}</TooltipContent>
-        </Tooltip>
-      )}
-
       {layout === 'card' && (
         <Tooltip>
           <TooltipTrigger

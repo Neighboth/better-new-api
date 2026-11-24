@@ -185,6 +185,13 @@ const MODELS_SECTIONS = [
           fineTuningEnabled:
             settings['model_deployment.fine_tuning.enabled'] === true ||
             settings['model_deployment.fine_tuning.enabled'] === 'true',
+          fineTuningPricePerSecond: Number(
+            settings['model_deployment.fine_tuning.price_per_second'] ?? 0.002
+          ),
+          fineTuningGpuMultipliers: String(
+            settings['model_deployment.fine_tuning.gpu_multipliers'] ??
+              '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}'
+          ),
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],

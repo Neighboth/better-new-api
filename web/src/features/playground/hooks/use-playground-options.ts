@@ -35,7 +35,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -110,11 +110,13 @@ export function usePlaygroundOptions({
     )
   }, [isGroupsError, groupsError, t])
 
-  const { data: runtimeConfig } = useQuery({
+  const { data: runtimeConfig, isLoading: isLoadingRuntimeConfig } = useQuery({
     queryKey: ['playground-runtime-config'],
     queryFn: ({ signal }) => getPlaygroundRuntimeConfig(signal),
     staleTime: 60 * 1000,
   })
+
+  const appliedConfiguredDefaultRef = useRef(false)
 
   const filteredModels = useMemo(() => {
     if (!modelsData) return undefined
@@ -123,19 +125,44 @@ export function usePlaygroundOptions({
         .map((m) => m.trim())
         .filter(Boolean)
     )
-    if (hiddenSet.size === 0) return modelsData
-    return modelsData.filter((m) => !hiddenSet.has(m.value))
-  }, [modelsData, runtimeConfig?.playground?.hidden_models])
+    const displayNames = runtimeConfig?.playground?.model_display_names ?? {}
+    return modelsData
+      .filter((m) => !hiddenSet.has(m.value))
+      .map((m) => {
+        const display = displayNames[m.value]?.trim()
+        return display ? { ...m, label: display } : m
+      })
+  }, [
+    modelsData,
+    runtimeConfig?.playground?.hidden_models,
+    runtimeConfig?.playground?.model_display_names,
+  ])
 
   useEffect(() => {
     if (!filteredModels) return
 
     setModels(filteredModels)
-    const configuredDefault = (runtimeConfig?.playground?.default_model ?? '').trim()
+    if (isLoadingRuntimeConfig) return
+
+    const configuredDefault = (
+      runtimeConfig?.playground?.default_model ?? ''
+    ).trim()
+    const hasConfigured =
+      Boolean(configuredDefault) &&
+      filteredModels.some((m) => m.value === configuredDefault)
+
+    if (!appliedConfiguredDefaultRef.current && hasConfigured) {
+      appliedConfiguredDefaultRef.current = true
+      if (currentModel !== configuredDefault) {
+        updateConfig('model', configuredDefault)
+      }
+      return
+    }
+
     const hasCurrent = Boolean(
       currentModel && filteredModels.some((m) => m.value === currentModel)
     )
-    if (!hasCurrent && configuredDefault && filteredModels.some((m) => m.value === configuredDefault)) {
+    if (!hasCurrent && hasConfigured) {
       updateConfig('model', configuredDefault)
       return
     }
@@ -149,7 +176,14 @@ export function usePlaygroundOptions({
     if (shouldClearModelForGroup(filteredModels, currentModel)) {
       updateConfig('model', '')
     }
-  }, [filteredModels, currentModel, runtimeConfig?.playground?.default_model, setModels, updateConfig])
+  }, [
+    filteredModels,
+    currentModel,
+    isLoadingRuntimeConfig,
+    runtimeConfig?.playground?.default_model,
+    setModels,
+    updateConfig,
+  ])
 
   useEffect(() => {
     if (!groupsData) return

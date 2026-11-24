@@ -3,6 +3,9 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,61 @@ func IsFineTuningEnabled() bool {
 	enabled := common.OptionMap["model_deployment.fine_tuning.enabled"] == "true"
 	common.OptionMapRWMutex.RUnlock()
 	return enabled
+}
+
+func GetFineTuningPricing() (float64, map[string]float64) {
+	common.OptionMapRWMutex.RLock()
+	rawPrice := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.price_per_second"])
+	rawMult := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.gpu_multipliers"])
+	common.OptionMapRWMutex.RUnlock()
+
+	pricePerSec := 0.002
+	if rawPrice != "" {
+		if parsed, err := strconv.ParseFloat(rawPrice, 64); err == nil && parsed >= 0 {
+			pricePerSec = parsed
+		}
+	}
+	multipliers := map[string]float64{
+		"CPU":               0.5,
+		"NVIDIA_TESLA_T4":   1.0,
+		"NVIDIA_L4":         1.5,
+		"NVIDIA_TESLA_A100": 3.0,
+		"NVIDIA_H100_80GB":  5.0,
+	}
+	if rawMult != "" {
+		var parsed map[string]float64
+		if common.UnmarshalJsonStr(rawMult, &parsed) == nil && len(parsed) > 0 {
+			multipliers = parsed
+		}
+	}
+	return pricePerSec, multipliers
+}
+
+func EstimateFineTuningCostUSD(gpu string, durationSeconds int64) float64 {
+	if durationSeconds <= 0 {
+		return 0
+	}
+	baseRate, mults := GetFineTuningPricing()
+	mult := 1.0
+	if m, ok := mults[strings.TrimSpace(gpu)]; ok && m > 0 {
+		mult = m
+	}
+	return baseRate * mult * float64(durationSeconds)
+}
+
+func FineTuningStorageDir(jobID string) string {
+	safe := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, jobID)
+	return filepath.Join("data", "fine_tuning", safe)
+}
+
+func CleanupFineTuningStorage(jobID string) {
+	dir := FineTuningStorageDir(jobID)
+	_ = os.RemoveAll(dir)
 }
 
 func GenerateFineTuningJobID() string {

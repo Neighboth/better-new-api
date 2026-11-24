@@ -120,6 +120,19 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				// Resolve per-user private Auto Model alias (e.g. "auto-myapp" -> "opus-5.5")
+				if aliasTarget, ok := model.ResolveUserModelAlias(c.GetInt("id"), modelRequest.Model); ok && aliasTarget != "" {
+					modelRequest.Model = aliasTarget
+					common.SetContextKey(c, constant.ContextKeyOriginalModel, aliasTarget)
+					if rawBody, rErr := readReusableBody(c); rErr == nil && len(rawBody) > 0 {
+						if rewritten, contentType, rwErr := rewriteRequestModel(c, rawBody, aliasTarget); rwErr == nil {
+							if replaceReusableBody(c, rewritten) == nil && contentType != "" {
+								c.Request.Header.Set("Content-Type", contentType)
+							}
+						}
+					}
+				}
+
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)

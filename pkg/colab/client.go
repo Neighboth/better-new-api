@@ -415,13 +415,24 @@ func (c *Client) CreateRuntimeWithOptions(accelerator string, highRAM bool) (*Ru
 
 	var lastErr error
 	for i, att := range attempts {
-		rt, err := c.tryAssign(tunnelBase, att.variant, att.acc, att.hm)
-		if err == nil {
-			return rt, nil
+		var rt *Runtime
+		var err error
+		for retry := 0; retry < 3; retry++ {
+			rt, err = c.tryAssign(tunnelBase, att.variant, att.acc, att.hm)
+			if err == nil {
+				return rt, nil
+			}
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && (apiErr.Code == http.StatusServiceUnavailable || apiErr.Code == http.StatusBadGateway || apiErr.Code == http.StatusTooManyRequests) && retry < 2 {
+				time.Sleep(time.Duration(3*(retry+1)) * time.Second)
+				continue
+			}
+			break
 		}
 		lastErr = err
 		var apiErr *APIError
-		if !errors.As(err, &apiErr) || apiErr.Code != http.StatusBadRequest || i == len(attempts)-1 {
+		retryableNext := errors.As(err, &apiErr) && (apiErr.Code == http.StatusBadRequest || apiErr.Code == http.StatusServiceUnavailable || apiErr.Code == http.StatusBadGateway || apiErr.Code == http.StatusTooManyRequests)
+		if !retryableNext || i == len(attempts)-1 {
 			return nil, err
 		}
 	}

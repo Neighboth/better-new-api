@@ -142,6 +142,11 @@ export async function getPlaygroundRuntimeConfig(
       playground: {
         default_model: data.playground?.default_model ?? '',
         hidden_models: Array.isArray(data.playground?.hidden_models) ? data.playground.hidden_models : [],
+        model_display_names:
+          data.playground?.model_display_names &&
+          typeof data.playground.model_display_names === 'object'
+            ? data.playground.model_display_names
+            : {},
       },
     }
   } catch {

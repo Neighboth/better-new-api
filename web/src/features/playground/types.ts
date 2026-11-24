@@ -396,6 +396,7 @@ export interface PlaygroundRuntimeConfig {
   playground?: {
     default_model?: string
     hidden_models?: string[]
+    model_display_names?: Record<string, string>
   }
 }
 
@@ -449,6 +450,7 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   playground: {
     default_model: '',
     hidden_models: [],
+    model_display_names: {},
   },
 }
 

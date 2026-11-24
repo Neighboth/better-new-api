@@ -310,6 +310,7 @@ func migrateDB() error {
 		&BlogReaction{},
 		&NotebookDeployment{},
 		&FineTuningJob{},
+		&UserModelAlias{},
 		&AdImpression{},
 		&ManagedFile{},
 		&Ticket{},

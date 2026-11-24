@@ -694,17 +694,25 @@ func GetUserModels(c *gin.Context) {
 		}
 	}
 	enabledModels := service.GetGroupsEnabledModels(groupsToQuery)
+	modelMap := make(map[string]bool, len(enabledModels))
+	for _, m := range enabledModels {
+		modelMap[m] = true
+	}
 	if model.IsByogGloballyEnabled() {
 		if byogModels, err := model.GetAllByogModels(true); err == nil {
-			modelMap := make(map[string]bool)
-			for _, m := range enabledModels {
-				modelMap[m] = true
-			}
 			for _, bm := range byogModels {
 				if !modelMap[bm.ModelId] {
 					enabledModels = append(enabledModels, bm.ModelId)
 					modelMap[bm.ModelId] = true
 				}
+			}
+		}
+	}
+	if aliases, err := model.ListUserModelAliases(id); err == nil {
+		for _, alias := range aliases {
+			if alias.Alias != "" && !modelMap[alias.Alias] {
+				enabledModels = append(enabledModels, alias.Alias)
+				modelMap[alias.Alias] = true
 			}
 		}
 	}

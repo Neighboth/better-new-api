@@ -17,11 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Gauge } from 'lucide-react'
+import { Clock, Gauge } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { IconBadge } from '@/components/ui/icon-badge'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 
@@ -35,8 +36,26 @@ interface RateLimitStatus {
   reset_at: number
 }
 
+function formatRemainingDuration(
+  seconds: number,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  const clamped = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(clamped / 3600)
+  const minutes = Math.floor((clamped % 3600) / 60)
+  const secs = clamped % 60
+  if (hours > 0) {
+    return `${hours}${t('h')} ${minutes}${t('m')}`
+  }
+  if (minutes > 0) {
+    return `${minutes}${t('m')} ${secs}${t('s')}`
+  }
+  return `${secs}${t('s')}`
+}
+
 export function GroupRateLimitCard() {
   const { t } = useTranslation()
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
 
   const { data } = useQuery({
     queryKey: ['user-rate-limit'],
@@ -50,40 +69,66 @@ export function GroupRateLimitCard() {
     refetchInterval: 30 * 1000,
   })
 
+  useEffect(() => {
+    if (!data?.reset_at) return
+    const id = window.setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [data?.reset_at])
+
   if (!data || !data.enabled || data.limit <= 0) {
     return null
   }
 
   const percent = Math.min(100, Math.round((data.used / data.limit) * 100))
+  const secondsUntilReset =
+    data.reset_at > 0 ? Math.max(0, data.reset_at - nowSec) : 0
 
   return (
-    <Card>
-      <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-        <CardTitle className='flex items-center gap-2 text-sm font-medium'>
-          <Gauge className='text-muted-foreground h-4 w-4' />
+    <section className='bg-card overflow-hidden rounded-2xl border shadow-xs'>
+      <div className='flex items-center gap-2 border-b px-4 py-3 sm:px-5'>
+        <IconBadge tone='info' size='sm'>
+          <Gauge />
+        </IconBadge>
+        <h3 className='text-sm font-semibold'>
           {t('Group Request Rate Limit')}
-        </CardTitle>
-        <Badge variant='outline' className='font-mono text-xs'>
+        </h3>
+        <Badge variant='secondary' className='ml-auto text-xs font-medium'>
           {data.group || 'default'}
         </Badge>
-      </CardHeader>
-      <CardContent className='space-y-2'>
-        <div className='flex items-baseline justify-between text-sm'>
-          <span className='font-mono font-semibold'>
-            {data.remaining} / {data.limit} {t('remaining')}
-          </span>
-          <span className='text-muted-foreground text-xs'>
-            {t('Window')}: {data.window_minutes} {t('min')}
-          </span>
+      </div>
+      <div className='space-y-3 p-4 sm:p-5'>
+        <div className='flex flex-wrap items-baseline justify-between gap-2'>
+          <div className='text-sm font-semibold tabular-nums'>
+            {data.remaining.toLocaleString()} / {data.limit.toLocaleString()}{' '}
+            <span className='text-muted-foreground font-normal'>
+              {t('remaining')}
+            </span>
+          </div>
+          <div className='text-muted-foreground flex items-center gap-1.5 text-xs tabular-nums'>
+            <Clock className='h-3.5 w-3.5 shrink-0' />
+            {secondsUntilReset > 0 ? (
+              <span>
+                {t('Resets in {{time}}', {
+                  time: formatRemainingDuration(secondsUntilReset, t),
+                })}
+              </span>
+            ) : (
+              <span>
+                {t('Window')}: {data.window_minutes} {t('min')}
+              </span>
+            )}
+          </div>
         </div>
         <Progress value={percent} className='h-2' />
         <p className='text-muted-foreground text-xs'>
           {t('Used {{used}} of {{limit}} requests in the current window.', {
-            used: data.used,
-            limit: data.limit,
+            used: data.used.toLocaleString(),
+            limit: data.limit.toLocaleString(),
           })}
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }

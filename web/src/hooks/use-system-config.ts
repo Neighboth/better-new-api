@@ -219,8 +219,23 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   )
 
   useEffect(() => {
-    if (autoLoad) loadConfig()
-  }, [autoLoad, loadConfig])
+    if (!autoLoad) return
+    loadConfig()
+    const timer = window.setInterval(() => {
+      void fetch('/api/status')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: StatusApiResponse | null) => {
+          if (data?.success && data.data) {
+            const mapped = mapStatusDataToConfig(data.data)
+            if (mapped.currency) {
+              setConfig({ currency: mapped.currency })
+            }
+          }
+        })
+        .catch(() => {})
+    }, 60 * 1000)
+    return () => window.clearInterval(timer)
+  }, [autoLoad, loadConfig, setConfig])
 
   useEffect(() => {
     if (!authUser?.setting) return

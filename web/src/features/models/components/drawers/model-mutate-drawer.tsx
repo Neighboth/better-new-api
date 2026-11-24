@@ -1366,55 +1366,63 @@ export function ModelMutateDrawer({
               </div>
 
               {pricingMode === 'duration_second' && (
-                <div className='space-y-2 rounded-md border p-4 bg-muted/20'>
-                  <Label>{t('Price per Second (USD/s)')}</Label>
-                  <Input
-                    type='text'
-                    placeholder='0.005'
-                    value={promptPrice}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setPromptPrice(val)
-                      if (val && !Number.isNaN(Number.parseFloat(val))) {
-                        const ratio = Number.parseFloat(val) / 2
-                        form.setValue('ratio', ratio.toString())
-                      } else {
-                        form.setValue('ratio', '')
-                      }
-                    }}
-                  />
-                  <p className='text-muted-foreground text-xs'>
+                <FormItem>
+                  <FormLabel>{t('Price per Second (USD/s)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='text'
+                      placeholder='0.005'
+                      value={promptPrice}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setPromptPrice(val)
+                        if (val && !Number.isNaN(Number.parseFloat(val))) {
+                          const ratio = Number.parseFloat(val) / 2
+                          form.setValue('ratio', ratio.toString())
+                        } else {
+                          form.setValue('ratio', '')
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>
                     {promptPrice && !Number.isNaN(Number.parseFloat(promptPrice))
-                      ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(6)}`
+                      ? t('Calculated ratio: {{ratio}}', {
+                          ratio: (Number.parseFloat(promptPrice) / 2).toFixed(6),
+                        })
                       : t('Cost in USD per second for audio/video duration. Tokens are not charged.')}
-                  </p>
-                </div>
+                  </FormDescription>
+                </FormItem>
               )}
 
               {pricingMode === 'characters' && (
-                <div className='space-y-2 rounded-md border p-4 bg-muted/20'>
-                  <Label>{t('Price per 1M Characters (USD/1M chars)')}</Label>
-                  <Input
-                    type='text'
-                    placeholder='15.0'
-                    value={promptPrice}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setPromptPrice(val)
-                      if (val && !Number.isNaN(Number.parseFloat(val))) {
-                        const ratio = Number.parseFloat(val) / 2
-                        form.setValue('ratio', ratio.toString())
-                      } else {
-                        form.setValue('ratio', '')
-                      }
-                    }}
-                  />
-                  <p className='text-muted-foreground text-xs'>
+                <FormItem>
+                  <FormLabel>{t('Price per 1M Characters (USD/1M chars)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='text'
+                      placeholder='15.0'
+                      value={promptPrice}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setPromptPrice(val)
+                        if (val && !Number.isNaN(Number.parseFloat(val))) {
+                          const ratio = Number.parseFloat(val) / 2
+                          form.setValue('ratio', ratio.toString())
+                        } else {
+                          form.setValue('ratio', '')
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>
                     {promptPrice && !Number.isNaN(Number.parseFloat(promptPrice))
-                      ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(6)}`
+                      ? t('Calculated ratio: {{ratio}}', {
+                          ratio: (Number.parseFloat(promptPrice) / 2).toFixed(6),
+                        })
                       : t('Cost in USD per 1M text characters for TTS synthesis.')}
-                  </p>
-                </div>
+                  </FormDescription>
+                </FormItem>
               )}
 
               {pricingMode === 'per-request' && (

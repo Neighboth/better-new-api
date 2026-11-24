@@ -11,7 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
-const exchangeRateCacheTTL = 30 * time.Minute
+const exchangeRateCacheTTL = 1 * time.Minute
 
 type exchangeRateCache struct {
 	mu        sync.RWMutex
