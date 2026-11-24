@@ -759,6 +759,7 @@ type createDeploymentRequest struct {
 	Provider             string                         `json:"provider"`
 	AccountID            string                         `json:"account_id"`
 	Name                 string                         `json:"name"`
+	ModelID              string                         `json:"model_id"`
 	ModelRepo            string                         `json:"model_repo"`
 	ModelFile            string                         `json:"model_file"`
 	ModelFiles           []notebookscript.ModelFileSpec `json:"model_files"`
@@ -883,6 +884,7 @@ func createSingleNotebookDeployment(c *gin.Context, req createDeploymentRequest)
 		AccountID:            accountID,
 		AccountLabel:         accountLabel,
 		Name:                 req.Name,
+		ModelID:              strings.TrimSpace(req.ModelID),
 		ModelRepo:            req.ModelRepo,
 		ModelFile:            strings.TrimSpace(req.ModelFile),
 		ModelFiles:           modelFilesJSON,

@@ -2816,8 +2816,14 @@ public class WorkerService extends Service {
                     }
 
                     if (sp != null) {
+                        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+                        String savedDay = sp.getString("daily_tokens_date", "");
+                        long prevDaily = today.equals(savedDay) ? sp.getLong("daily_tokens_earned", 0) : 0;
+                        long delta = Math.max(0, res.totalTokens);
                         sp.edit()
                             .putLong("total_tokens_processed", totalTokensProcessed)
+                            .putString("daily_tokens_date", today)
+                            .putLong("daily_tokens_earned", prevDaily + delta)
                             .putFloat("last_tps", currentLiveTps)
                             .apply();
                     }

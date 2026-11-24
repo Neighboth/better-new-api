@@ -166,6 +166,10 @@ func GetPlaygroundConfig(c *gin.Context) {
 			"prompt_optimizer_models":        parseOptimizerModels(setting.PromptOptimizerModel),
 			"prompt_optimizer_system_prompt": setting.PromptOptimizerSystemPrompt,
 		},
+		"playground": gin.H{
+			"default_model": setting.PlaygroundDefaultModel,
+			"hidden_models": setting.PlaygroundHiddenModels,
+		},
 	})
 }
 

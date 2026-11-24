@@ -139,6 +139,10 @@ export async function getPlaygroundRuntimeConfig(
         enabled: Boolean(data.upscale?.enabled ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.upscale?.enabled ?? true),
         models: data.upscale?.models ?? EMPTY_PLAYGROUND_RUNTIME_CONFIG.upscale?.models ?? [],
       },
+      playground: {
+        default_model: data.playground?.default_model ?? '',
+        hidden_models: Array.isArray(data.playground?.hidden_models) ? data.playground.hidden_models : [],
+      },
     }
   } catch {
     return EMPTY_PLAYGROUND_RUNTIME_CONFIG

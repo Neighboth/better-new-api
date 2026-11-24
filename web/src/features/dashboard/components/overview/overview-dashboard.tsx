@@ -45,6 +45,7 @@ import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { GroupRateLimitCard } from '@/components/group-rate-limit-card'
 import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { ConsoleAds } from '@/features/ads/components/console-ads'
@@ -751,6 +752,8 @@ export function OverviewDashboard() {
       )}
 
       <SummaryCards />
+
+      <GroupRateLimitCard />
 
       {/* The row of the ads of the console sits between the cards of the
           overview and the panels of the work of the day: the reader meets the

@@ -393,6 +393,10 @@ export interface PlaygroundRuntimeConfig {
     /** Models that may upscale media in the playground. */
     models: MediaModelRuntime[]
   }
+  playground?: {
+    default_model?: string
+    hidden_models?: string[]
+  }
 }
 
 export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
@@ -441,6 +445,10 @@ export const EMPTY_PLAYGROUND_RUNTIME_CONFIG: PlaygroundRuntimeConfig = {
   upscale: {
     enabled: true,
     models: [],
+  },
+  playground: {
+    default_model: '',
+    hidden_models: [],
   },
 }
 

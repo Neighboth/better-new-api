@@ -51,6 +51,7 @@ import { ProviderAccountsManager } from './provider-accounts-manager'
 const schema = z.object({
   // Global dispatch priority
   priority: z.string().optional(),
+  fineTuningEnabled: z.boolean().optional(),
 
   // io.net
   ionetEnabled: z.boolean(),
@@ -198,6 +199,7 @@ export function UnifiedDeploymentSettingsSection({
 }: {
   defaultValues: {
     priority?: string
+    fineTuningEnabled?: boolean
     ionet?: {
       enabled?: boolean
       apiKey?: string
@@ -250,6 +252,7 @@ export function UnifiedDeploymentSettingsSection({
     resolver: zodResolver(schema),
     defaultValues: {
       priority: defaultValues.priority || 'deployments_first',
+      fineTuningEnabled: defaultValues.fineTuningEnabled ?? false,
 
       ionetEnabled: defaultValues.ionet?.enabled ?? false,
       ionetApiKey: defaultValues.ionet?.apiKey ?? '',
@@ -658,6 +661,10 @@ export function UnifiedDeploymentSettingsSection({
         key: 'model_deployment.priority',
         value: String(values.priority || 'deployments_first'),
       })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.enabled',
+        value: String(Boolean(values.fineTuningEnabled)),
+      })
 
       // io.net
       await updateOption.mutateAsync({
@@ -835,6 +842,27 @@ export function UnifiedDeploymentSettingsSection({
                   )}
                 </FormDescription>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='fineTuningEnabled'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between rounded-lg border p-3'>
+                <div className='space-y-0.5'>
+                  <FormLabel>{t('Fine-tuning')}</FormLabel>
+                  <FormDescription>
+                    {t('Enable OpenAI-compatible /v1/fine_tuning/jobs endpoints for Model Deployments.')}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={Boolean(field.value)}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />

@@ -607,27 +607,7 @@ func UpdateUserByogNode(c *gin.Context) {
 	}
 
 	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
-	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
-		var disksObj interface{}
-		if node.Disks != "" {
-			_ = json.Unmarshal([]byte(node.Disks), &disksObj)
-		}
-		if disksObj == nil {
-			disksObj = []interface{}{}
-		}
-		updatePayload, _ := json.Marshal(map[string]interface{}{
-			"allocated_ram_gb":  node.AllocatedRamGB,
-			"allocated_vram_gb": node.AllocatedVramGB,
-			"allocated_cores":   node.AllocatedCores,
-			"allocated_disk_gb": node.AllocatedDiskGB,
-			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             disksObj,
-		})
-		_ = s.WriteFrame(byogservice.TunnelFrame{
-			Type:    "update_resources",
-			Payload: updatePayload,
-		})
-	}
+	byogservice.NotifyUpdateResources(node)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": node})
 }
@@ -1355,6 +1335,9 @@ func RegisterByogWorker(c *gin.Context) {
 		// Existing node: update hardware specs & live telemetry
 		node.DeviceName = req.DeviceName
 		node.CpuModel = req.CpuModel
+		if req.CpuCores > 0 {
+			node.CpuCores = req.CpuCores
+		}
 		node.GpuModel = req.GpuModel
 		node.NpuModel = req.NpuModel
 		node.PhysicalRamMB = req.PhysicalRam
@@ -2481,27 +2464,7 @@ func UpdateByogWorkerResources(c *gin.Context) {
 	}
 
 	// Live Bidirectional Sync: notify connected worker session immediately (Item 7)
-	if s, ok := byogservice.GlobalHub.GetSession(node.NodeId); ok && s != nil {
-		var disksObj interface{}
-		if node.Disks != "" {
-			_ = json.Unmarshal([]byte(node.Disks), &disksObj)
-		}
-		if disksObj == nil {
-			disksObj = []interface{}{}
-		}
-		updatePayload, _ := json.Marshal(map[string]interface{}{
-			"allocated_ram_gb":  node.AllocatedRamGB,
-			"allocated_vram_gb": node.AllocatedVramGB,
-			"allocated_cores":   node.AllocatedCores,
-			"allocated_disk_gb": node.AllocatedDiskGB,
-			"hot_start_enabled": node.HotStartEnabled,
-			"disks":             disksObj,
-		})
-		_ = s.WriteFrame(byogservice.TunnelFrame{
-			Type:    "update_resources",
-			Payload: updatePayload,
-		})
-	}
+	byogservice.NotifyUpdateResources(node)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

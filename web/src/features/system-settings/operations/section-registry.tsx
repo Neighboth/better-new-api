@@ -433,6 +433,13 @@ function playgroundDefaults(settings: OperationsSettings) {
     studioEnabled: settings['playground_setting.studio_enabled'] ?? true,
     studioDefaultModel:
       settings['playground_setting.studio_default_model'] ?? '',
+    playgroundDefaultModel:
+      settings['playground_setting.playground_default_model'] ?? '',
+    playgroundHiddenModels: (
+      parseModels(settings['playground_setting.playground_hidden_models']) ?? []
+    )
+      .map((m) => (typeof m === 'string' ? m.trim() : ''))
+      .filter(Boolean),
     promptOptimizerEnabled:
       settings['playground_setting.prompt_optimizer_enabled'] ?? false,
     promptOptimizerModel:

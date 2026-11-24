@@ -294,6 +294,13 @@ const ModelRatioVisualEditorComponent = forwardRef<
       let editBillingMode: PricingMode = 'per-token'
       if (editableModel.billingMode === 'tiered_expr') {
         editBillingMode = 'tiered_expr'
+      } else if (
+        editableModel.billingMode === 'duration_second' ||
+        editableModel.billingMode === 'duration_minute' ||
+        editableModel.billingMode === 'duration_hour' ||
+        editableModel.billingMode === 'characters'
+      ) {
+        editBillingMode = editableModel.billingMode
       } else if (editableModel.price && editableModel.price !== '') {
         editBillingMode = 'per-request'
       }
@@ -564,6 +571,14 @@ const ModelRatioVisualEditorComponent = forwardRef<
           setIfPresent(imageMap, name, data.imageRatio)
           setIfPresent(audioMap, name, data.audioRatio)
           setIfPresent(audioCompletionMap, name, data.audioCompletionRatio)
+        } else if (
+          data.billingMode === 'duration_second' ||
+          data.billingMode === 'duration_minute' ||
+          data.billingMode === 'duration_hour' ||
+          data.billingMode === 'characters'
+        ) {
+          setIfPresent(priceMap, name, data.price)
+          billingModeMap[name] = data.billingMode
         } else if (data.price && data.price !== '') {
           setIfPresent(priceMap, name, data.price)
         } else {

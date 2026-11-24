@@ -735,6 +735,7 @@ export interface NotebookDeploymentItem {
   account_id?: string
   account_label?: string
   name: string
+  model_id?: string
   model_repo: string
   model_file?: string
   model_files?: string
@@ -786,6 +787,7 @@ export interface CreateNotebookDeploymentPayload {
   provider: string
   account_id?: string
   name: string
+  model_id?: string
   model_repo: string
   model_file?: string
   model_files?: ModelFileSpec[]

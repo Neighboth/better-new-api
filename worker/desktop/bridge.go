@@ -246,11 +246,8 @@ func (b *localBridge) handleState(writer http.ResponseWriter, request *http.Requ
 		} else {
 			hardware.Disks[i].AllocatedGB = 0
 		}
-		if hardware.Disks[i].AllocatedGB <= 0 {
-			go pruneDriveModels(hardware.Disks[i].Drive)
-		}
 	}
-	go pruneAllModelsIfZeroDisk()
+	startPeriodicDiskPruner()
 	writeBridgeJSON(writer, bridgeState{
 		NodeId:           status.NodeId,
 		DeviceName:       status.DeviceName,
@@ -563,4 +560,32 @@ func randomKey() string {
 		return "byog"
 	}
 	return hex.EncodeToString(buffer)
+}
+
+var diskPrunerOnce sync.Once
+
+func startPeriodicDiskPruner() {
+	diskPrunerOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				State.Mu.Lock()
+				disksJson := State.Disks
+				resourcesSet := State.Config.ResourcesSet
+				State.Mu.Unlock()
+				if resourcesSet && disksJson != "" {
+					var savedDisks []DiskPartitionInfo
+					if err := json.Unmarshal([]byte(disksJson), &savedDisks); err == nil {
+						for _, sd := range savedDisks {
+							if sd.AllocatedGB <= 0 {
+								pruneDriveModels(sd.Drive)
+							}
+						}
+					}
+				}
+				pruneAllModelsIfZeroDisk()
+			}
+		}()
+	})
 }

@@ -11,6 +11,7 @@ type NotebookDeployment struct {
 	AccountID            string `json:"account_id" gorm:"type:varchar(64)"`
 	AccountLabel         string `json:"account_label" gorm:"type:varchar(128)"`
 	Name                 string `json:"name" gorm:"type:varchar(128);not null"`
+	ModelID              string `json:"model_id" gorm:"type:varchar(256)"`
 	ModelRepo            string `json:"model_repo" gorm:"type:varchar(256);not null"`
 	ModelFile            string `json:"model_file" gorm:"type:varchar(256)"`
 	ModelFiles           string `json:"model_files" gorm:"type:text"` // JSON array of {repo, file, role}
@@ -37,6 +38,13 @@ type NotebookDeployment struct {
 	ErrorMessage         string `json:"error_message" gorm:"type:text"`
 	CreatedTime          int64  `json:"created_time" gorm:"bigint;index"`
 	UpdatedTime          int64  `json:"updated_time" gorm:"bigint"`
+}
+
+func (d NotebookDeployment) EffectiveModelID() string {
+	if id := strings.TrimSpace(d.ModelID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(d.ModelRepo)
 }
 
 func normalizeNotebookDeployment(d *NotebookDeployment) {

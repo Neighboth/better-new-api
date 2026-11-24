@@ -26,7 +26,7 @@ import {
   Send,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Markdown } from '@/components/ui/markdown'
@@ -53,14 +53,18 @@ import {
 const DISMISS_KEY = 'live_support_dismissed_until'
 const GUEST_SESSION_KEY = 'guest_ticket_session'
 
+const stripThinkTags = (text: string) =>
+  text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/gi, '').trim()
+
 const MessageContent = ({ content, isAdmin }: { content: string, isAdmin?: boolean }) => {
+  const withoutThink = stripThinkTags(content)
   const buttonRegex = /BUTTON\[(.*?)\]\((.*?)\)/g
-  const match = buttonRegex.exec(content)
-  let cleanContent = content
+  const match = buttonRegex.exec(withoutThink)
+  let cleanContent = withoutThink
   let btnText = ''
   let btnUrl = ''
   if (match) {
-    cleanContent = content.replace(buttonRegex, '')
+    cleanContent = withoutThink.replace(buttonRegex, '')
     btnText = match[1]
     btnUrl = match[2]
   }
@@ -157,6 +161,22 @@ export function LiveSupportWidget() {
   })
 
   const [connectingHuman, setConnectingHuman] = useState(false)
+  const guestMessagesEndRef = useRef<HTMLDivElement>(null)
+  const userMessagesEndRef = useRef<HTMLDivElement>(null)
+  const guestIsTyping = Boolean(guestTicketResp?.data?.is_typing)
+  const userIsTyping = Boolean(liveTicketDetail?.data?.is_typing)
+
+  useEffect(() => {
+    if (open) {
+      guestMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [open, guestTicketResp?.data?.messages?.length, guestIsTyping])
+
+  useEffect(() => {
+    if (open) {
+      userMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [open, liveTicketDetail?.data?.messages?.length, userIsTyping])
 
   if (!isEnabled) {
     return null
@@ -364,14 +384,14 @@ export function LiveSupportWidget() {
                   </div>
 
                   {/* Messages */}
-                  <div className='space-y-2 max-h-[220px] overflow-y-auto pr-1'>
+                  <div className='space-y-2.5 max-h-[280px] overflow-y-auto pr-1'>
                     {guestTicketResp.data.messages.map((m) => (
                       <div
                         key={m.id}
-                        className={`p-2.5 rounded-lg text-xs max-w-[85%] ${
+                        className={`p-2.5 rounded-xl text-xs max-w-[85%] shadow-xs ${
                           m.is_admin
-                            ? 'bg-muted border mr-auto'
-                            : 'bg-primary text-primary-foreground ml-auto'
+                            ? 'bg-muted/80 border mr-auto rounded-bl-xs'
+                            : 'bg-primary text-primary-foreground ml-auto rounded-br-xs'
                         }`}
                       >
                         <div className='text-[10px] opacity-75 font-semibold mb-1'>
@@ -380,6 +400,13 @@ export function LiveSupportWidget() {
                         <div className='whitespace-pre-wrap break-words'><MessageContent content={m.content} isAdmin={m.is_admin} /></div>
                       </div>
                     ))}
+                    {guestIsTyping && (
+                      <div className='p-2.5 rounded-xl rounded-bl-xs text-xs max-w-[75%] bg-muted/80 border mr-auto flex items-center gap-2 text-muted-foreground'>
+                        <Loader2 className='h-3.5 w-3.5 animate-spin shrink-0' />
+                        <span>{t('Support is typing...')}</span>
+                      </div>
+                    )}
+                    <div ref={guestMessagesEndRef} />
                   </div>
                   {guestTicketResp?.data?.ticket?.is_claimed && !guestTicketResp?.data?.ticket?.human_connected && (
                     <div className='my-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-foreground flex flex-col gap-2'>
@@ -455,15 +482,22 @@ export function LiveSupportWidget() {
                     <div className='text-[11px] text-muted-foreground border-b pb-2'>
                       {t('Live Support')} · #{activeLiveTicket.id}
                     </div>
-                    <div className='space-y-2 max-h-[230px] overflow-y-auto pr-1'>
+                    <div className='space-y-2.5 max-h-[280px] overflow-y-auto pr-1'>
                       {loadingLiveTicket ? (
                         <div className='flex justify-center py-4'><Loader2 className='h-5 w-5 animate-spin text-muted-foreground' /></div>
                       ) : liveTicketDetail?.data?.messages?.map((message) => (
-                        <div key={message.id} className={`p-2.5 rounded-lg text-xs max-w-[88%] ${message.is_admin ? 'bg-muted border mr-auto' : 'bg-primary text-primary-foreground ml-auto'}`}>
+                        <div key={message.id} className={`p-2.5 rounded-xl text-xs max-w-[88%] shadow-xs ${message.is_admin ? 'bg-muted/80 border mr-auto rounded-bl-xs' : 'bg-primary text-primary-foreground ml-auto rounded-br-xs'}`}>
                           <div className='text-[10px] opacity-75 font-semibold mb-1'>{message.is_admin ? t('Support Agent') : t('You')}</div>
                           <div className='whitespace-pre-wrap break-words'><MessageContent content={message.content} isAdmin={message.is_admin} /></div>
                         </div>
                       ))}
+                      {userIsTyping && (
+                        <div className='p-2.5 rounded-xl rounded-bl-xs text-xs max-w-[75%] bg-muted/80 border mr-auto flex items-center gap-2 text-muted-foreground'>
+                          <Loader2 className='h-3.5 w-3.5 animate-spin shrink-0' />
+                          <span>{t('Support is typing...')}</span>
+                        </div>
+                      )}
+                      <div ref={userMessagesEndRef} />
                     </div>
                     {liveTicketDetail?.data?.ticket?.is_claimed && !liveTicketDetail?.data?.ticket?.human_connected && (
                       <div className='my-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-foreground flex flex-col gap-2'>
@@ -561,10 +595,12 @@ export function LiveSupportWidget() {
 
           <Button
             onClick={() => setOpen(true)}
-            className='h-12 w-12 sm:w-auto p-0 sm:px-4 rounded-full shadow-lg gap-2 bg-primary text-primary-foreground hover:shadow-xl transition-all flex items-center justify-center'
+            size='icon'
+            aria-label={t('Live Support')}
+            title={t('Live Support')}
+            className='h-12 w-12 p-0 rounded-full shadow-lg bg-primary text-primary-foreground hover:shadow-xl transition-all flex items-center justify-center'
           >
             <MessageCircle className='h-5 w-5' />
-            <span className='font-medium text-sm hidden sm:inline'>{t('Support')}</span>
           </Button>
         </div>
       )}

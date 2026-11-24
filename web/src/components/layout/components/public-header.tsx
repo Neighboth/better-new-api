@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { LanguageSwitcher } from '@/components/language-switcher'
+import { CurrencySwitcher } from '@/components/currency-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -270,6 +271,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                 <div className='bg-border/40 mx-2 h-4 w-px' />
               )}
 
+              <CurrencySwitcher />
               {showLanguageSwitcher && <LanguageSwitcher />}
               {showThemeSwitch && <ThemeSwitch />}
               {showNotifications && (

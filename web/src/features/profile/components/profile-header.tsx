@@ -168,7 +168,10 @@ export function ProfileHeader({
   }[] = [
     {
       label: t('Current Balance'),
-      value: formatQuota(profile.quota),
+      value: formatQuota(
+        (profile.quota ?? 0) +
+          (profile.referral_display || profile.referral_quota || 0)
+      ),
       description: t('Remaining quota'),
       icon: WalletCards,
       tone: 'success',

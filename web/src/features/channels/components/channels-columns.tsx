@@ -335,6 +335,9 @@ export function BalanceCell({ channel }: { channel: Channel }) {
   const balance = channel.balance || 0
   const usedQuota = channel.used_quota || 0
   const [isUpdating, setIsUpdating] = useState(false)
+  const [unsupportedBalance, setUnsupportedBalance] = useState(
+    Boolean(channel.channel_info?.is_multi_key)
+  )
   const [rawBalanceResponse, setRawBalanceResponse] = useState<string | null>(
     null
   )
@@ -447,8 +450,18 @@ export function BalanceCell({ channel }: { channel: Channel }) {
     }
 
     try {
-      const response = await updateChannelBalance(channel.id)
-      if (response.success && response.balance !== undefined) {
+      const response = await updateChannelBalance(channel.id) as {
+        success?: boolean
+        unsupported?: boolean
+        balance?: number
+        raw_response?: string
+        message?: string
+      }
+      if (response.unsupported) {
+        setUnsupportedBalance(true)
+        toast.info(t('Balance query is not supported for this channel'))
+      } else if (response.success && response.balance !== undefined) {
+        setUnsupportedBalance(false)
         toast.success(
           t('Balance updated: {{balance}}', {
             balance: formatCurrencyFromUSD(response.balance, {
@@ -475,7 +488,12 @@ export function BalanceCell({ channel }: { channel: Channel }) {
       setIsUpdating(false)
     }
   }
-  let remainingBadgeLabel = sensitiveVisible ? remainingDisplay : SENSITIVE_MASK
+  let remainingBadgeLabel =
+    !sensitiveVisible
+      ? SENSITIVE_MASK
+      : unsupportedBalance && balance === 0
+        ? '—'
+        : remainingDisplay
   if (sensitiveVisible && isUpdating) {
     remainingBadgeLabel = t('Updating...')
   } else if (sensitiveVisible && channel.type === 57) {
@@ -484,13 +502,15 @@ export function BalanceCell({ channel }: { channel: Channel }) {
   let remainingTooltipLabel = remainingLabel
   if (!sensitiveVisible) {
     remainingTooltipLabel = maskedRemainingLabel
+  } else if (unsupportedBalance && balance === 0) {
+    remainingTooltipLabel = t('Balance query not supported')
   } else if (channel.type === 57) {
     remainingTooltipLabel = t('Click to view Codex usage')
   }
   let remainingBadgeVariant: StatusBadgeProps['variant'] = variant
   if (channel.type === 57) {
     remainingBadgeVariant = 'info'
-  } else if (isUpdating) {
+  } else if (isUpdating || (unsupportedBalance && balance === 0)) {
     remainingBadgeVariant = 'neutral'
   }
 

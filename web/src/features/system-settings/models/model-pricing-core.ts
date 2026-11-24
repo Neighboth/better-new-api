@@ -39,7 +39,32 @@ export type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-export type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+export type PricingMode =
+  | 'per-token'
+  | 'per-request'
+  | 'duration_second'
+  | 'duration_minute'
+  | 'duration_hour'
+  | 'characters'
+  | 'tiered_expr'
+
+export const FIXED_UNIT_MODES: readonly PricingMode[] = [
+  'per-request',
+  'duration_second',
+  'duration_minute',
+  'duration_hour',
+  'characters',
+]
+
+export function isFixedUnitMode(mode?: string): boolean {
+  return (
+    mode === 'per-request' ||
+    mode === 'duration_second' ||
+    mode === 'duration_minute' ||
+    mode === 'duration_hour' ||
+    mode === 'characters'
+  )
+}
 
 export type LaneKey =
   | 'completion'
@@ -230,14 +255,18 @@ export function buildPreviewRows(
     ]
   }
 
-  if (mode === 'per-request') {
-    return [
+  if (isFixedUnitMode(mode)) {
+    const rows: PreviewRow[] = [
       {
         key: 'price',
         label: 'ModelPrice',
         value: values.price || t('Empty'),
       },
     ]
+    if (mode !== 'per-request') {
+      rows.push({ key: 'mode', label: 'BillingMode', value: mode })
+    }
+    return rows
   }
 
   return [

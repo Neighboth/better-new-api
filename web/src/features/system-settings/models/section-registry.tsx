@@ -182,6 +182,9 @@ const MODELS_SECTIONS = [
       <UnifiedDeploymentSettingsSection
         defaultValues={{
           priority: settings['model_deployment.priority'],
+          fineTuningEnabled:
+            settings['model_deployment.fine_tuning.enabled'] === true ||
+            settings['model_deployment.fine_tuning.enabled'] === 'true',
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],

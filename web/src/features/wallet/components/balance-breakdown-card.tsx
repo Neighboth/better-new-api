@@ -66,24 +66,10 @@ export function WalletBreakdownCard({ user, packages }: WalletBreakdownCardProps
               {t('Invitation rewards')}
             </dt>
             <dd className='font-mono text-base font-bold'>
-              {referralDisplay > referralQuota ? (
-                <>
-                  <span>{formatQuota(referralDisplay)}</span>
-                  <span className='text-muted-foreground ml-2 text-xs font-normal'>
-                    ({t('gerçek bakiye')}: {formatQuota(referralQuota)})
-                  </span>
-                </>
-              ) : (
-                formatQuota(referralQuota)
-              )}
+              {formatQuota(referralDisplay > 0 ? referralDisplay : referralQuota)}
             </dd>
             <p className='text-muted-foreground text-[11px]'>
-              {referralDisplay > referralQuota
-                ? t('Spendable balance: {{real}} (shown in wallet as {{display}}).', {
-                    real: formatQuota(referralQuota),
-                    display: formatQuota(referralDisplay),
-                  })
-                : t('Spent before topped-up balance.')}
+              {t('Spent before topped-up balance.')}
             </p>
           </div>
         </div>

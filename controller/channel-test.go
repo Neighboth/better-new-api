@@ -1952,6 +1952,26 @@ func TestChannel(c *gin.Context) {
 		requestCtx = c.Request.Context()
 	}
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
+	if channel.ChannelInfo.IsMultiKey && result.newAPIError != nil && result.newAPIError.StatusCode == http.StatusTooManyRequests {
+		rawKeys := strings.Split(strings.TrimSpace(channel.Key), "\n")
+		for idx, rawKey := range rawKeys {
+			k := strings.TrimSpace(rawKey)
+			if k == "" {
+				continue
+			}
+			if status, ok := channel.ChannelInfo.MultiKeyStatusList[idx]; ok && status != common.ChannelStatusEnabled {
+				continue
+			}
+			candidate := *channel
+			candidate.ChannelInfo.IsMultiKey = false
+			candidate.Key = k
+			retryRes := testChannel(requestCtx, &candidate, testUserID, testModel, endpointType, isStream)
+			result = retryRes
+			if retryRes.localErr == nil && (retryRes.newAPIError == nil || retryRes.newAPIError.StatusCode != http.StatusTooManyRequests) {
+				break
+			}
+		}
+	}
 	if result.localErr != nil {
 		resp := gin.H{
 			"success": false,

@@ -185,6 +185,38 @@ function getConfig(): CurrencyConfig {
 }
 
 function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
+  const list = config.displayCurrencies
+  if (list && list.length > 0) {
+    const selectedCode = (config.selectedCurrencyCode ?? '').trim().toUpperCase()
+    const match =
+      (selectedCode
+        ? list.find((c) => c.code.toUpperCase() === selectedCode)
+        : undefined) ?? list[0]
+    if (match) {
+      const code = match.code.toUpperCase()
+      if (code === 'TOKENS') {
+        return {
+          kind: 'tokens',
+          quotaPerUnit: config.quotaPerUnit,
+        }
+      }
+      if (code === 'USD' || code === 'CNY' || code === 'EUR' || code === 'TRY' || code === 'GBP' || code === 'JPY') {
+        return {
+          kind: 'currency',
+          symbol: match.symbol || code,
+          currencyCode: code,
+          exchangeRate:
+            code === 'USD' ? 1 : match.exchange_rate > 0 ? match.exchange_rate : 1,
+        }
+      }
+      return {
+        kind: 'custom',
+        symbol: match.symbol || code,
+        exchangeRate: match.exchange_rate > 0 ? match.exchange_rate : 1,
+      }
+    }
+  }
+
   switch (config.quotaDisplayType) {
     case 'CNY':
       return {
@@ -304,8 +336,14 @@ function formatCurrencyValue(
 ): string {
   if (meta.kind === 'tokens') {
     if (options.compact) {
+      const abs = Math.abs(value)
+      const fmt = (scaled: number, suffix: string) =>
+        `${new Intl.NumberFormat(options.locale, { maximumFractionDigits: 1 }).format(scaled)}${suffix}`
+      if (abs >= 1e12) return fmt(value / 1e12, 'T')
+      if (abs >= 1e9) return fmt(value / 1e9, 'B')
+      if (abs >= 1e6) return fmt(value / 1e6, 'M')
+      if (abs >= 1e3) return fmt(value / 1e3, 'K')
       return new Intl.NumberFormat(options.locale, {
-        notation: 'compact',
         maximumFractionDigits: 1,
       }).format(value)
     }
@@ -417,8 +455,14 @@ export function formatCurrencyFromUSD(
   if (meta.kind === 'tokens') {
     const tokens = amountUSD * config.quotaPerUnit
     if (merged.compact) {
+      const abs = Math.abs(tokens)
+      const fmt = (scaled: number, suffix: string) =>
+        `${new Intl.NumberFormat(merged.locale, { maximumFractionDigits: 1 }).format(scaled)}${suffix}`
+      if (abs >= 1e12) return fmt(tokens / 1e12, 'T')
+      if (abs >= 1e9) return fmt(tokens / 1e9, 'B')
+      if (abs >= 1e6) return fmt(tokens / 1e6, 'M')
+      if (abs >= 1e3) return fmt(tokens / 1e3, 'K')
       return new Intl.NumberFormat(merged.locale, {
-        notation: 'compact',
         maximumFractionDigits: 1,
       }).format(tokens)
     }

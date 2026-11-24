@@ -10,6 +10,14 @@ const (
 	QuotaDisplayTypeCustom = "CUSTOM"
 )
 
+type DisplayCurrencyOption struct {
+	Code         string  `json:"code"`
+	Symbol       string  `json:"symbol"`
+	Name         string  `json:"name"`
+	ExchangeRate float64 `json:"exchange_rate"`
+	AutoRate     bool    `json:"auto_rate"`
+}
+
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
@@ -20,6 +28,9 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 多币种展示列表与自动汇率开关
+	DisplayCurrencies []DisplayCurrencyOption `json:"display_currencies"`
+	AutoExchangeRates bool                    `json:"auto_exchange_rates"`
 }
 
 // 默认配置
@@ -30,6 +41,8 @@ var generalSetting = GeneralSetting{
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
 	CustomCurrencyExchangeRate: 1.0,
+	DisplayCurrencies:          []DisplayCurrencyOption{},
+	AutoExchangeRates:          true,
 }
 
 func init() {

@@ -40,6 +40,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   addTicketMessage,
   adminAddTicketMessage,
+  adminSetTicketTyping,
   closeTicket,
   downloadTicketTranscript,
   getTicketDetail,
@@ -74,6 +75,8 @@ export function TicketDetailView({
   const [closing, setClosing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const lastTypingSentRef = useRef(0)
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -173,8 +176,34 @@ export function TicketDetailView({
     }
   }, [ticketId, auth.accessToken, auth.session?.sid])
 
+  const handleReplyChange = (value: string) => {
+    setReplyText(value)
+    if (!isAdminView || !ticketId) return
+    const now = Date.now()
+    if (value.trim()) {
+      if (now - lastTypingSentRef.current > 3000) {
+        lastTypingSentRef.current = now
+        void adminSetTicketTyping(ticketId, true)
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = setTimeout(() => {
+        lastTypingSentRef.current = 0
+        void adminSetTicketTyping(ticketId, false)
+      }, 4000)
+    } else {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      lastTypingSentRef.current = 0
+      void adminSetTicketTyping(ticketId, false)
+    }
+  }
+
   const handleSendReply = async () => {
     if (!replyText.trim()) return
+    if (isAdminView && ticketId) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      lastTypingSentRef.current = 0
+      void adminSetTicketTyping(ticketId, false)
+    }
 
     try {
       setSending(true)
@@ -456,7 +485,7 @@ export function TicketDetailView({
                     : t('Type your reply here...')
                 }
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
+                onChange={(e) => handleReplyChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()

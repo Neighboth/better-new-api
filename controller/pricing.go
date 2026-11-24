@@ -166,10 +166,20 @@ func GetPricing(c *gin.Context) {
 			if n.Status == "banned" || n.OperatingMode == "mode_a" {
 				continue
 			}
-			assigned, err := byog.GlobalScheduler.EvaluateNodeModelAssignment(n)
-			if err == nil {
-				for _, m := range assigned {
-					runnableModelSet[m] = true
+			var installed []string
+			if strings.TrimSpace(n.InstalledModels) != "" {
+				_ = common.UnmarshalJsonStr(n.InstalledModels, &installed)
+			}
+			if sess, ok := byog.GlobalHub.GetSession(n.NodeId); ok && sess != nil && len(sess.InstalledModels) > 0 {
+				for m, has := range sess.InstalledModels {
+					if has && strings.TrimSpace(m) != "" {
+						installed = append(installed, m)
+					}
+				}
+			}
+			for _, m := range installed {
+				if trimmed := strings.TrimSpace(m); trimmed != "" {
+					runnableModelSet[trimmed] = true
 				}
 			}
 		}
@@ -234,7 +244,7 @@ func GetPricing(c *gin.Context) {
 			if dep.Enabled == 2 || !strings.EqualFold(dep.Status, "running") || strings.TrimSpace(dep.EndpointURL) == "" {
 				continue
 			}
-			modelID := strings.TrimSpace(dep.ModelRepo)
+			modelID := dep.EffectiveModelID()
 			if modelID == "" {
 				continue
 			}

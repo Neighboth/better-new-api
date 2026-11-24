@@ -137,6 +137,8 @@ func GetStatus(c *gin.Context) {
 		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
 		"custom_currency_symbol":        operation_setting.GetGeneralSetting().CustomCurrencySymbol,
 		"custom_currency_exchange_rate": operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
+		"display_currencies":            service.ResolveDisplayCurrencies(),
+		"auto_exchange_rates":           operation_setting.GetGeneralSetting().AutoExchangeRates,
 		"enable_batch_update":           common.BatchUpdateEnabled,
 		"enable_drawing":                common.DrawingEnabled,
 		"enable_task":                   common.TaskEnabled,
@@ -550,4 +552,20 @@ func ResetPassword(c *gin.Context) {
 		"data":    password,
 	})
 	return
+}
+
+func GetExchangeRates(c *gin.Context) {
+	force := c.Query("refresh") == "true"
+	rates, err := service.GetExchangeRates(force)
+	if err != nil && len(rates) <= 1 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    rates,
+	})
 }

@@ -1254,7 +1254,7 @@ CRITICAL RULES:
                 </div>
                 <p className='text-muted-foreground truncate text-xs'>
                   {dayjs(post.created_at).format('YYYY-MM-DD HH:mm')}
-                  {post.tags ? ` Â· ${post.tags}` : ''}
+                  {post.tags ? ` · ${post.tags}` : ''}
                 </p>
               </div>
               <div className='flex items-center gap-1'>
@@ -1703,10 +1703,10 @@ function CommentsDialog(props: { postId: number | null; onClose: () => void }) {
           <div className='min-w-0 flex-1'>
             <p className='text-xs font-medium'>
               {comment.username}
-              {comment.parent_id ? ` Â· ${t('Reply')} #${comment.parent_id}` : ''}
+              {comment.parent_id ? ` · ${t('Reply')} #${comment.parent_id}` : ''}
               <span className='text-muted-foreground font-normal'>
                 {' '}
-                Â· {dayjs(comment.created_at).format('YYYY-MM-DD HH:mm')}
+                · {dayjs(comment.created_at).format('YYYY-MM-DD HH:mm')}
               </span>
             </p>
             <p className='mt-1 text-sm break-words whitespace-pre-wrap'>

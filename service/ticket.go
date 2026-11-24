@@ -36,6 +36,7 @@ type TicketHub struct {
 	clients    map[*TicketClient]bool
 	register   chan *TicketClient
 	unregister chan *TicketClient
+	typing     map[int]time.Time
 	mu         sync.RWMutex
 }
 
@@ -110,9 +111,45 @@ func NewTicketHub() *TicketHub {
 		clients:    make(map[*TicketClient]bool),
 		register:   make(chan *TicketClient),
 		unregister: make(chan *TicketClient),
+		typing:     make(map[int]time.Time),
 	}
 	go hub.run()
 	return hub
+}
+
+const ticketTypingTTL = 8 * time.Second
+
+func (h *TicketHub) SetTicketTyping(ticketId int, isTyping bool) {
+	if ticketId <= 0 {
+		return
+	}
+	h.mu.Lock()
+	if h.typing == nil {
+		h.typing = make(map[int]time.Time)
+	}
+	if isTyping {
+		h.typing[ticketId] = time.Now().Add(ticketTypingTTL)
+	} else {
+		delete(h.typing, ticketId)
+	}
+	h.mu.Unlock()
+	h.BroadcastToTicket(ticketId, "typing", map[string]any{
+		"ticket_id": ticketId,
+		"is_typing": isTyping,
+	})
+}
+
+func (h *TicketHub) IsTicketTyping(ticketId int) bool {
+	if ticketId <= 0 {
+		return false
+	}
+	h.mu.RLock()
+	until, ok := h.typing[ticketId]
+	h.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return time.Now().Before(until)
 }
 
 func (h *TicketHub) run() {
@@ -222,6 +259,15 @@ func (c *TicketClient) readPump() {
 			select {
 			case c.Send <- pongBytes:
 			default:
+			}
+		case "typing":
+			ticketId := c.TicketId
+			if tid, ok := incoming["ticket_id"].(float64); ok && int(tid) > 0 {
+				ticketId = int(tid)
+			}
+			isTyping, _ := incoming["is_typing"].(bool)
+			if ticketId > 0 && c.Role >= common.RoleAdminUser {
+				c.Hub.SetTicketTyping(ticketId, isTyping)
 			}
 		case "send_message":
 			// Live chat or ticket message sent over WebSocket

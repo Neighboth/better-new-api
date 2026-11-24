@@ -82,6 +82,7 @@ const defaultModelSettings: ModelSettings = {
   'channel_affinity_setting.default_ttl_seconds': 3600,
   'channel_affinity_setting.rules': '[]',
   'model_deployment.priority': 'deployments_first',
+  'model_deployment.fine_tuning.enabled': false,
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
   'model_deployment.ionet.idle_timeout_seconds': 300,

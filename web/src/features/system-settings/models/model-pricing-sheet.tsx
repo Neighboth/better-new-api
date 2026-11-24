@@ -54,6 +54,13 @@ import {
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -70,6 +77,7 @@ import {
   createInitialLaneState,
   createModelPricingSchema,
   hasValue,
+  isFixedUnitMode,
   laneConfigs,
   numericDraftRegex,
   ratioFieldByLane,
@@ -191,9 +199,11 @@ export const ModelPricingEditorPanel = forwardRef<
       setPricingMode(
         editData.billingMode === 'tiered_expr'
           ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
+          : isFixedUnitMode(editData.billingMode)
+            ? editData.billingMode!
+            : editData.price
+              ? 'per-request'
+              : 'per-token'
       )
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
@@ -540,7 +550,7 @@ export const ModelPricingEditorPanel = forwardRef<
                 />
 
                 <Tabs
-                  value={pricingMode}
+                  value={isFixedUnitMode(pricingMode) ? 'per-request' : pricingMode}
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
@@ -549,7 +559,7 @@ export const ModelPricingEditorPanel = forwardRef<
                       {t('Per-token')}
                     </TabsTrigger>
                     <TabsTrigger value='per-request'>
-                      {t('Per-request')}
+                      {t('Fixed / Unit')}
                     </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
@@ -600,6 +610,24 @@ export const ModelPricingEditorPanel = forwardRef<
 
                   <TabsContent value='per-request' className='pt-0'>
                     <FieldGroup className='gap-5'>
+                      <Field>
+                        <FieldLabel>{t('Billing Unit')}</FieldLabel>
+                        <Select
+                          value={isFixedUnitMode(pricingMode) ? pricingMode : 'per-request'}
+                          onValueChange={(value) => setPricingMode(value as PricingMode)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='per-request'>{t('Per request')}</SelectItem>
+                            <SelectItem value='duration_second'>{t('Per second')}</SelectItem>
+                            <SelectItem value='duration_minute'>{t('Per minute')}</SelectItem>
+                            <SelectItem value='duration_hour'>{t('Per hour')}</SelectItem>
+                            <SelectItem value='characters'>{t('Per 1M characters')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
                       <FormField
                         control={form.control}
                         name='price'
@@ -622,13 +650,21 @@ export const ModelPricingEditorPanel = forwardRef<
                                     }}
                                   />
                                   <InputGroupAddon align='inline-end'>
-                                    {t('per request')}
+                                    {pricingMode === 'duration_second'
+                                      ? t('per second')
+                                      : pricingMode === 'duration_minute'
+                                        ? t('per minute')
+                                        : pricingMode === 'duration_hour'
+                                          ? t('per hour')
+                                          : pricingMode === 'characters'
+                                            ? t('per 1M chars')
+                                            : t('per request')}
                                   </InputGroupAddon>
                                 </InputGroup>
                               </FormControl>
                               <FieldDescription>
                                 {t(
-                                  'Cost in USD per request, regardless of tokens used.'
+                                  'Cost in USD per selected billing unit.'
                                 )}
                               </FieldDescription>
                               <FormMessage />

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/byog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -284,8 +285,32 @@ func ListModels(c *gin.Context, modelType int) {
 		for _, m := range userOpenAiModels {
 			existingIds[m.Id] = true
 		}
+		onlineSessions := byog.GlobalHub.GetAllOnlineNodes()
+		installedSet := make(map[string]bool)
+		for _, sess := range onlineSessions {
+			for m, has := range sess.InstalledModels {
+				if has {
+					if trimmed := strings.TrimSpace(m); trimmed != "" {
+						installedSet[trimmed] = true
+					}
+				}
+			}
+			if n, nErr := model.GetByogNodeByNodeId(sess.NodeId); nErr == nil && n != nil && strings.TrimSpace(n.InstalledModels) != "" {
+				var nodeInstalled []string
+				if common.UnmarshalJsonStr(n.InstalledModels, &nodeInstalled) == nil {
+					for _, m := range nodeInstalled {
+						if trimmed := strings.TrimSpace(m); trimmed != "" {
+							installedSet[trimmed] = true
+						}
+					}
+				}
+			}
+		}
 		if byogModels, err := model.GetAllByogModels(true); err == nil {
 			for _, bm := range byogModels {
+				if !installedSet[bm.ModelId] {
+					continue
+				}
 				if !existingIds[bm.ModelId] {
 					userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
 						Id:      bm.ModelId,
@@ -309,7 +334,7 @@ func ListModels(c *gin.Context, modelType int) {
 			if dep.Enabled == 2 || !strings.EqualFold(dep.Status, "running") || strings.TrimSpace(dep.EndpointURL) == "" {
 				continue
 			}
-			modelID := strings.TrimSpace(dep.ModelRepo)
+			modelID := dep.EffectiveModelID()
 			if modelID == "" || existingDepIds[modelID] {
 				continue
 			}

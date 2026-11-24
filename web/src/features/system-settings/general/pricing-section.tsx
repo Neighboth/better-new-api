@@ -17,9 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import * as z from 'zod'
+
+import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
 
 import {
   Form,
@@ -40,7 +46,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  type DisplayCurrencyOption,
+} from '@/stores/system-config-store'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
@@ -70,6 +79,18 @@ const createPricingSchema = (t: (key: string) => string) =>
         custom_currency_exchange_rate: z.coerce
           .number()
           .min(0.0001, t('Exchange rate must be greater than 0'))
+          .optional(),
+        auto_exchange_rates: z.boolean().optional(),
+        display_currencies: z
+          .array(
+            z.object({
+              code: z.string(),
+              symbol: z.string(),
+              name: z.string().optional(),
+              exchange_rate: z.coerce.number().min(0),
+              auto_rate: z.boolean().optional(),
+            })
+          )
           .optional(),
       }),
     })
@@ -118,6 +139,13 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
           if (value === undefined || value === null) continue
+          if (key === 'general_setting.display_currencies') {
+            await updateOption.mutateAsync({
+              key,
+              value: JSON.stringify(value),
+            })
+            continue
+          }
           if (typeof value === 'object') continue
 
           let serialized: string | boolean = value as string | boolean
@@ -138,6 +166,39 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
 
   const displayType = form.watch('general_setting.quota_display_type') ?? 'USD'
   const displayInCurrencyEnabled = form.watch('DisplayInCurrencyEnabled')
+  const displayCurrencies =
+    (form.watch('general_setting.display_currencies') as
+      | DisplayCurrencyOption[]
+      | undefined) ?? []
+  const [fetchingRates, setFetchingRates] = useState(false)
+
+  const handleFetchLiveRates = async () => {
+    try {
+      setFetchingRates(true)
+      const res = await api.get('/api/currency/rates?refresh=true')
+      if (res.data?.success && res.data?.data) {
+        const rates = res.data.data as Record<string, number>
+        const updated = displayCurrencies.map((c) => {
+          const code = c.code.trim().toUpperCase()
+          if (code === 'USD' || code === 'TOKENS') return { ...c, exchange_rate: 1 }
+          if (c.auto_rate !== false && rates[code] && rates[code] > 0) {
+            return { ...c, exchange_rate: Number(rates[code].toFixed(4)) }
+          }
+          return c
+        })
+        form.setValue('general_setting.display_currencies', updated, {
+          shouldDirty: true,
+        })
+        toast.success(t('Live exchange rates updated'))
+      } else {
+        toast.error(res.data?.message || t('Failed to fetch exchange rates'))
+      }
+    } catch {
+      toast.error(t('Failed to fetch exchange rates'))
+    } finally {
+      setFetchingRates(false)
+    }
+  }
   const showTokensOnlyOption = displayType === 'TOKENS'
   const showQuotaPerUnit =
     displayType === 'TOKENS' ||
@@ -368,6 +429,211 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                 </SettingsSwitchItem>
               )}
             />
+
+            <div className='space-y-4 rounded-xl border p-4'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <div>
+                  <h4 className='text-sm font-medium'>
+                    {t('Multi-Currency Display Options')}
+                  </h4>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      'Configure multiple display currencies for the header switcher. Leave empty to use the single default currency above.'
+                    )}
+                  </p>
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    disabled={fetchingRates || displayCurrencies.length === 0}
+                    onClick={() => void handleFetchLiveRates()}
+                  >
+                    <RefreshCw
+                      className={`mr-1.5 h-3.5 w-3.5 ${fetchingRates ? 'animate-spin' : ''}`}
+                    />
+                    {t('Fetch Live Rates')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      const next =
+                        displayCurrencies.length === 0
+                          ? [
+                              {
+                                code: 'USD',
+                                symbol: '$',
+                                name: 'US Dollar',
+                                exchange_rate: 1,
+                                auto_rate: true,
+                              },
+                              {
+                                code: 'TRY',
+                                symbol: '₺',
+                                name: 'Turkish Lira',
+                                exchange_rate: 0,
+                                auto_rate: true,
+                              },
+                            ]
+                          : [
+                              ...displayCurrencies,
+                              {
+                                code: '',
+                                symbol: '',
+                                name: '',
+                                exchange_rate: 0,
+                                auto_rate: true,
+                              },
+                            ]
+                      form.setValue('general_setting.display_currencies', next, {
+                        shouldDirty: true,
+                      })
+                    }}
+                  >
+                    <Plus className='mr-1.5 h-3.5 w-3.5' />
+                    {t('Add Currency')}
+                  </Button>
+                </div>
+              </div>
+
+              <FormField
+                control={form.control}
+                name='general_setting.auto_exchange_rates'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Auto-Fetch Exchange Rates')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Automatically update currency exchange rates from public live rates API.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value ?? true}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+
+              {displayCurrencies.length > 0 && (
+                <div className='space-y-2'>
+                  {displayCurrencies.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className='grid grid-cols-12 items-center gap-2 rounded-lg border bg-muted/20 p-2.5'
+                    >
+                      <div className='col-span-6 sm:col-span-2'>
+                        <Input
+                          placeholder='USD / TRY'
+                          value={item.code}
+                          onChange={(e) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = {
+                              ...next[idx],
+                              code: e.target.value.toUpperCase(),
+                            }
+                            form.setValue('general_setting.display_currencies', next, {
+                              shouldDirty: true,
+                            })
+                          }}
+                          className='h-8 font-mono text-xs'
+                        />
+                      </div>
+                      <div className='col-span-6 sm:col-span-2'>
+                        <Input
+                          placeholder='$ / ₺'
+                          value={item.symbol}
+                          onChange={(e) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = { ...next[idx], symbol: e.target.value }
+                            form.setValue('general_setting.display_currencies', next, {
+                              shouldDirty: true,
+                            })
+                          }}
+                          className='h-8 text-xs'
+                        />
+                      </div>
+                      <div className='col-span-6 sm:col-span-3'>
+                        <Input
+                          placeholder={t('Display Name')}
+                          value={item.name ?? ''}
+                          onChange={(e) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = { ...next[idx], name: e.target.value }
+                            form.setValue('general_setting.display_currencies', next, {
+                              shouldDirty: true,
+                            })
+                          }}
+                          className='h-8 text-xs'
+                        />
+                      </div>
+                      <div className='col-span-6 sm:col-span-2'>
+                        <Input
+                          type='number'
+                          step='0.0001'
+                          placeholder='1.0'
+                          value={item.exchange_rate ?? 0}
+                          disabled={item.auto_rate !== false}
+                          onChange={(e) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = {
+                              ...next[idx],
+                              exchange_rate: Number(e.target.value) || 0,
+                            }
+                            form.setValue('general_setting.display_currencies', next, {
+                              shouldDirty: true,
+                            })
+                          }}
+                          className='h-8 font-mono text-xs'
+                        />
+                      </div>
+                      <div className='col-span-9 sm:col-span-2 flex items-center gap-1.5'>
+                        <Switch
+                          checked={item.auto_rate !== false}
+                          onCheckedChange={(checked) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = { ...next[idx], auto_rate: checked }
+                            form.setValue('general_setting.display_currencies', next, {
+                              shouldDirty: true,
+                            })
+                          }}
+                        />
+                        <span className='text-muted-foreground text-[11px]'>
+                          {t('Auto')}
+                        </span>
+                      </div>
+                      <div className='col-span-3 sm:col-span-1 flex justify-end'>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='icon'
+                          className='h-8 w-8 text-destructive'
+                          onClick={() => {
+                            const next = displayCurrencies.filter(
+                              (_, i) => i !== idx
+                            )
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
+                          }}
+                        >
+                          <Trash2 className='h-3.5 w-3.5' />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </SettingsForm>
         </Form>
       </SettingsSection>

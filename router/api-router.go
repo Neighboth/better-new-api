@@ -35,6 +35,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
+		apiRouter.GET("/currency/rates", controller.GetExchangeRates)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
@@ -198,6 +199,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/crypto/deposits", controller.GetUserCryptoDeposits)
 				selfRoute.POST("/aff_transfer", middleware.UserCriticalRateLimit("aff-transfer"), controller.TransferAffQuota)
 				selfRoute.PUT("/setting", controller.UpdateUserSetting)
+				selfRoute.GET("/rate_limit", controller.GetUserRateLimit)
 
 				// 2FA routes
 				selfRoute.GET("/2fa/status", controller.Get2FAStatus)
@@ -527,6 +529,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminTicketRoute.GET("/:id/transcript", middleware.RequirePermission(authz.TicketRead), controller.DownloadTicketTranscript)
 			adminTicketRoute.PUT("/:id", middleware.RequirePermission(authz.TicketWrite), controller.AdminUpdateTicket)
 			adminTicketRoute.POST("/:id/message", middleware.RequirePermission(authz.TicketWrite), controller.AddTicketMessage)
+			adminTicketRoute.POST("/:id/typing", middleware.RequirePermission(authz.TicketWrite), controller.SetTicketTyping)
 			adminTicketRoute.DELETE("/:id", middleware.RequirePermission(authz.TicketDelete), controller.AdminDeleteTicket)
 			adminTicketRoute.DELETE("/:id/permanent", middleware.RequirePermission(authz.TicketDelete), controller.AdminDeleteTicketPermanently)
 		}
@@ -570,6 +573,7 @@ func SetApiRouter(router *gin.Engine) {
 
 		// Public deployment callback (authenticated via per-deployment callback token)
 		apiRouter.POST("/deployments/notebooks/:id/callback", controller.NotebookDeploymentCallback)
+		apiRouter.POST("/deployments/fine_tuning/:job_id/callback", controller.FineTuningWorkerCallback)
 
 		// Deployments (model deployment management)
 		deploymentsRoute := apiRouter.Group("/deployments")

@@ -135,7 +135,7 @@ export function ByogUserDashboard() {
         setNodes(userNodes)
         if (selectedNode) {
           const fresh = userNodes.find((n: ByogNode) => n.node_id === selectedNode.node_id)
-          if (fresh && !isSaving) {
+          if (fresh && !isSaving && !configOpen) {
             setSelectedNode((prev) => (prev ? { ...prev, ...fresh } : fresh))
           }
         }
@@ -144,7 +144,7 @@ export function ByogUserDashboard() {
       }
     }, intervalMs)
     return () => clearInterval(timer)
-  }, [nodes, selectedNode, isSaving])
+  }, [nodes, selectedNode, isSaving, configOpen])
 
   // If user is banned from BYOG, show Section 3.8 Banned Screen
   if (statusData?.is_banned) {

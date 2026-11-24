@@ -17,6 +17,7 @@ type UserSetting struct {
 	BillingPreference                string   `json:"billing_preference,omitempty"`                   // BillingPreference 扣费策略（订阅/钱包）
 	BillingPriority                  []string `json:"billing_priority,omitempty"`                     // BillingPriority 扣费优先级序列（如 ["requests", "subscription", "tokens", "wallet"]）
 	Language                         string   `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
+	PreferredCurrency                string   `json:"preferred_currency,omitempty"`                   // PreferredCurrency 用户首选展示货币代码 (USD, TRY, EUR, TOKENS...)
 	// MarketingEmailOptOut is the choice of the user about the promotional
 	// messages of the installation. The mail of the installation is accepted
 	// by the settings of the profile, therefore the flag is written only when

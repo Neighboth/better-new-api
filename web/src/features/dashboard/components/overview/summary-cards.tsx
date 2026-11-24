@@ -142,7 +142,9 @@ export function SummaryCards() {
   const { status, loading } = useStatus()
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
-  const remainQuota = Number(user?.quota ?? 0)
+  const remainQuota =
+    Number(user?.quota ?? 0) +
+    Number(user?.referral_display ?? user?.referral_quota ?? 0)
   const usedQuota = Number(user?.used_quota ?? 0)
   const requestCount = Number(user?.request_count ?? 0)
 

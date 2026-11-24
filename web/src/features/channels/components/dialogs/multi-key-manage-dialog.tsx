@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import { Loader2, RefreshCw, Trash2, Power, PowerOff } from 'lucide-react'
+import { CheckCheck, Loader2, RefreshCw, Trash2, Power, PowerOff } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -51,6 +51,7 @@ import {
   enableAllMultiKeys,
   disableAllMultiKeys,
   deleteDisabledMultiKeys,
+  testAllKeysOfChannel,
 } from '../../api'
 import { MULTI_KEY_FILTER_OPTIONS } from '../../constants'
 import {
@@ -86,6 +87,7 @@ export function MultiKeyManageDialog({
 
   // Data state
   const [isLoading, setIsLoading] = useState(false)
+  const [isTestingKeys, setIsTestingKeys] = useState(false)
   const [keys, setKeys] = useState<KeyStatus[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -321,8 +323,45 @@ export function MultiKeyManageDialog({
               <Button
                 variant='outline'
                 size='sm'
+                onClick={async () => {
+                  if (!currentRow || isTestingKeys) return
+                  setIsTestingKeys(true)
+                  try {
+                    const res = await testAllKeysOfChannel(currentRow.id)
+                    if (res.success && res.data) {
+                      toast.success(
+                        t('Test completed: {{success}}/{{total}} keys active', {
+                          success: res.data.success_count,
+                          total: res.data.total_keys,
+                        })
+                      )
+                      await loadKeyStatus()
+                      void queryClient.invalidateQueries({
+                        queryKey: channelsQueryKeys.lists(),
+                      })
+                    } else {
+                      toast.error(res.message || t('Failed to test keys'))
+                    }
+                  } catch {
+                    toast.error(t('Failed to test keys'))
+                  } finally {
+                    setIsTestingKeys(false)
+                  }
+                }}
+                disabled={isTestingKeys || isLoading}
+              >
+                {isTestingKeys ? (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : (
+                  <CheckCheck className='mr-2 h-4 w-4' />
+                )}
+                {t('Test All Keys')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
                 onClick={() => loadKeyStatus()}
-                disabled={isLoading}
+                disabled={isLoading || isTestingKeys}
               >
                 <RefreshCw className='h-4 w-4' />
               </Button>

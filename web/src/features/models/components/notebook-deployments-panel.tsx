@@ -255,6 +255,7 @@ export function UnifiedDeploymentsPanel({
 
   // Single create state
   const [name, setName] = useState('')
+  const [modelId, setModelId] = useState('')
   const [modelRepo, setModelRepo] = useState('')
   const [modelFile, setModelFile] = useState('')
   const [modelFiles, setModelFiles] = useState<ModelFileSpec[]>([])
@@ -469,6 +470,7 @@ export function UnifiedDeploymentsPanel({
         provider,
         account_id: selectedAccount?.id,
         name: name.trim(),
+        model_id: modelId.trim() || undefined,
         model_repo: modelRepo.trim(),
         model_file: modelFile.trim() || undefined,
         model_files: modelFiles.filter((mf) => mf.file.trim() !== ''),
@@ -489,6 +491,7 @@ export function UnifiedDeploymentsPanel({
         toast.success(t('Deployment started'))
         onCreateOpenChange(false)
         setName('')
+        setModelId('')
         setModelRepo('')
         setModelFile('')
         setModelFiles([])
@@ -839,7 +842,7 @@ export function UnifiedDeploymentsPanel({
                             maxWidth='max-w-full'
                           />
                           <div className='flex items-center gap-1.5 text-xs text-muted-foreground font-mono truncate'>
-                            <span className='truncate'>{item.model_repo}</span>
+                            <span className='truncate'>{item.model_id || item.model_repo}</span>
                             {extraFiles.length > 0 && (
                               <span className='shrink-0'>
                                 (+{extraFiles.length})
@@ -1187,6 +1190,16 @@ export function UnifiedDeploymentsPanel({
                         {t('Selected file')}: {modelFile}
                       </p>
                     ) : null}
+                    <div className='space-y-1.5 pt-1'>
+                      <label className='text-xs font-medium'>
+                        {t('Model ID (Optional)')}
+                      </label>
+                      <Input
+                        placeholder={t('custom-model-id (defaults to repo name)')}
+                        value={modelId}
+                        onChange={(e) => setModelId(e.target.value)}
+                      />
+                    </div>
                   </div>
 
                   <div className='space-y-2 rounded-lg border p-3 bg-muted/15'>

@@ -231,49 +231,47 @@ export function usePricingColumns(
           )
         }
 
-        if (model.billing_mode === 'duration_second') {
-          const secPrice = stripTrailingZeros(
-            formatPrice(
-              model,
-              'input',
-              tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
-              selectedGroup
-            )
+        if (
+          model.billing_mode === 'duration_second' ||
+          model.billing_mode === 'duration_minute' ||
+          model.billing_mode === 'duration_hour' ||
+          model.billing_mode === 'characters'
+        ) {
+          const isToken = isTokenBasedModel(model)
+          const unitPrice = stripTrailingZeros(
+            isToken
+              ? formatPrice(
+                  model,
+                  'input',
+                  tokenUnit,
+                  showRechargePrice,
+                  priceRate,
+                  usdExchangeRate,
+                  selectedGroup
+                )
+              : formatRequestPrice(
+                  model,
+                  showRechargePrice,
+                  priceRate,
+                  usdExchangeRate,
+                  selectedGroup
+                )
           )
+          const unitLabel =
+            model.billing_mode === 'characters'
+              ? '/ 1M chars'
+              : model.billing_mode === 'duration_second'
+                ? '/ sec'
+                : model.billing_mode === 'duration_minute'
+                  ? '/ min'
+                  : '/ hour'
           return (
             <div className='max-w-full min-w-0'>
               <span className='font-mono text-sm tabular-nums'>
-                {secPrice}
+                {unitPrice}
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
-                / sec
-              </div>
-            </div>
-          )
-        }
-
-        if (model.billing_mode === 'characters') {
-          const charPrice = stripTrailingZeros(
-            formatPrice(
-              model,
-              'input',
-              tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
-              selectedGroup
-            )
-          )
-          return (
-            <div className='max-w-full min-w-0'>
-              <span className='font-mono text-sm tabular-nums'>
-                {charPrice}
-              </span>
-              <div className='text-muted-foreground/50 text-[10px]'>
-                / 1M chars
+                {unitLabel}
               </div>
             </div>
           )

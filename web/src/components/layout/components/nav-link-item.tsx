@@ -52,8 +52,13 @@ export function NavLinkItem({ link, className }: NavLinkItemProps) {
     )
   }
 
+  const [path, query] = link.href.split('?')
+  const searchObj = query
+    ? Object.fromEntries(new URLSearchParams(query).entries())
+    : undefined
+
   return (
-    <Link to={link.href} className={linkClassName} disabled={link.disabled}>
+    <Link to={path} search={searchObj} className={linkClassName} disabled={link.disabled}>
       {link.title}
     </Link>
   )

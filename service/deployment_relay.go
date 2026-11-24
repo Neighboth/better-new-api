@@ -54,7 +54,8 @@ func FindMatchingDeployments(modelName, usingGroup string) []model.NotebookDeplo
 		if d.Enabled == 2 || !strings.EqualFold(d.Status, "running") || strings.TrimSpace(d.EndpointURL) == "" {
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(d.ModelRepo), targetModel) &&
+		if !strings.EqualFold(strings.TrimSpace(d.ModelID), targetModel) &&
+			!strings.EqualFold(strings.TrimSpace(d.ModelRepo), targetModel) &&
 			!strings.EqualFold(strings.TrimSpace(d.Name), targetModel) {
 			continue
 		}
@@ -106,14 +107,13 @@ func PickWeightedDeployment(candidates []model.NotebookDeployment) model.Noteboo
 	return top[0]
 }
 
-// TryHandleDeploymentRelay proxies the incoming OpenAI-compatible request to a matching
-// enabled & running Model Deployment if one exists.
+// TryHandleDeploymentRelay proxies the incoming OpenAI-compatible request to matching
+// enabled & running Model Deployments, falling back across candidates on upstream errors.
 func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool {
 	candidates := FindMatchingDeployments(modelName, usingGroup)
 	if len(candidates) == 0 {
 		return false
 	}
-	picked := PickWeightedDeployment(candidates)
 
 	var bodyBytes []byte
 	if c.Request.Body != nil {
@@ -124,6 +124,28 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 		}
 	}
 
+	remaining := append([]model.NotebookDeployment{}, candidates...)
+	for len(remaining) > 0 {
+		picked := PickWeightedDeployment(remaining)
+		filtered := remaining[:0]
+		for _, item := range remaining {
+			if item.Id != picked.Id {
+				filtered = append(filtered, item)
+			}
+		}
+		remaining = filtered
+
+		if tryProxyDeployment(c, picked, bodyBytes) {
+			return true
+		}
+		if c.Request.Context().Err() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func tryProxyDeployment(c *gin.Context, picked model.NotebookDeployment, bodyBytes []byte) bool {
 	baseEndpoint := strings.TrimRight(strings.TrimSpace(picked.EndpointURL), "/")
 	reqPath := c.Request.URL.Path
 	isJobEligible := (picked.Provider == "colab" || picked.Provider == "kaggle" || picked.Provider == "modal") &&
@@ -188,8 +210,7 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 								return true
 							}
 							if st.Status == "failed" {
-								c.JSON(http.StatusInternalServerError, gin.H{"error": st.Error})
-								return true
+								return false
 							}
 						}
 						return false
@@ -219,6 +240,10 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 		return false
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 {
+		return false
+	}
 
 	for k, vals := range resp.Header {
 		if strings.EqualFold(k, "Content-Length") || strings.EqualFold(k, "Transfer-Encoding") {

@@ -199,3 +199,83 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		}
 	}
 }
+
+type UserRateLimitStatus struct {
+	Enabled       bool   `json:"enabled"`
+	Group         string `json:"group"`
+	Limit         int    `json:"limit"`
+	Used          int    `json:"used"`
+	Remaining     int    `json:"remaining"`
+	WindowMinutes int    `json:"window_minutes"`
+	ResetAt       int64  `json:"reset_at"`
+}
+
+// GetUserRateLimitStatus returns the user's current request rate-limit usage
+// for their active group (using the success-request sliding window).
+func GetUserRateLimitStatus(userId int, group string) UserRateLimitStatus {
+	status := UserRateLimitStatus{
+		Enabled:       setting.ModelRequestRateLimitEnabled,
+		Group:         group,
+		WindowMinutes: setting.ModelRequestRateLimitDurationMinutes,
+	}
+	if !setting.ModelRequestRateLimitEnabled || userId <= 0 {
+		return status
+	}
+
+	limit := setting.ModelRequestRateLimitSuccessCount
+	totalLimit := setting.ModelRequestRateLimitCount
+	if groupTotal, groupSuccess, found := setting.GetGroupRateLimit(group); found {
+		totalLimit = groupTotal
+		limit = groupSuccess
+	}
+	if limit <= 0 {
+		limit = totalLimit
+	}
+	status.Limit = limit
+	if limit <= 0 {
+		return status
+	}
+
+	duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
+	if duration <= 0 {
+		duration = 60
+	}
+
+	if common.RedisEnabled && common.RDB != nil {
+		ctx := context.Background()
+		key := fmt.Sprintf("rateLimit:%s:%d", ModelRequestRateLimitSuccessCountMark, userId)
+		used := 0
+		var resetAt int64
+		if items, err := common.RDB.LRange(ctx, key, 0, -1).Result(); err == nil {
+			cutoff := time.Now().UTC().Add(-time.Duration(duration) * time.Second)
+			var oldest time.Time
+			for _, tsStr := range items {
+				if parsed, parseErr := time.Parse(modelRateLimitTimeFormat, tsStr); parseErr == nil {
+					if parsed.After(cutoff) {
+						used++
+						if oldest.IsZero() || parsed.Before(oldest) {
+							oldest = parsed
+						}
+					}
+				}
+			}
+			if !oldest.IsZero() {
+				resetAt = oldest.Add(time.Duration(duration) * time.Second).Unix()
+			}
+		}
+		status.Used = used
+		status.ResetAt = resetAt
+	} else {
+		key := ModelRequestRateLimitSuccessCountMark + strconv.Itoa(userId)
+		used, resetAt := inMemoryRateLimiter.GetUsage(key, duration)
+		status.Used = used
+		status.ResetAt = resetAt
+	}
+
+	if status.Used < status.Limit {
+		status.Remaining = status.Limit - status.Used
+	} else {
+		status.Remaining = 0
+	}
+	return status
+}

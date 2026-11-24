@@ -1104,6 +1104,29 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
+	// 检查是否是首选货币更新请求
+	if preferredCurrency, currExists := requestData["preferred_currency"]; currExists {
+		userId := c.GetInt("id")
+		user, err := model.GetUserById(userId, false)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+
+		currentSetting := user.GetSetting()
+		if currStr, ok := preferredCurrency.(string); ok {
+			currentSetting.PreferredCurrency = strings.ToUpper(strings.TrimSpace(currStr))
+		}
+
+		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
+			return
+		}
+
+		common.ApiSuccessI18n(c, i18n.MsgUpdateSuccess, nil)
+		return
+	}
+
 	// 原有的用户信息更新逻辑
 	var user model.User
 	requestDataBytes, err := common.Marshal(requestData)
@@ -1917,5 +1940,23 @@ func UserHeartbeat(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
+	})
+}
+
+func GetUserRateLimit(c *gin.Context) {
+	userId := c.GetInt("id")
+	group := c.Query("group")
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
+	if group == "" {
+		if user, err := model.GetUserById(userId, false); err == nil && user != nil {
+			group = user.Group
+		}
+	}
+	status := middleware.GetUserRateLimitStatus(userId, group)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    status,
 	})
 }

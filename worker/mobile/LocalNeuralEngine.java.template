@@ -327,8 +327,11 @@ public class LocalNeuralEngine {
                 cachedModelKey = null;
             }
 
-            // Single thread ensures 100% stability under ARM translation without OpenMP futex issues
-            int threads = 1;
+            int availProcs = Math.max(1, Runtime.getRuntime().availableProcessors());
+            int threads = Math.max(2, Math.min(4, availProcs / 2));
+            if (threads > availProcs) {
+                threads = availProcs;
+            }
 
             ModelParameters params = new ModelParameters()
                     .setModel(file.getAbsolutePath())

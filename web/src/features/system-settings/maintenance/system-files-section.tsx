@@ -152,6 +152,12 @@ export function SystemFilesSection() {
   const [downloadName, setDownloadName] = useState('')
   const [downloading, setDownloading] = useState(false)
 
+  const [uploadConfirmOpen, setUploadConfirmOpen] = useState(false)
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null)
+  const [pendingUploadName, setPendingUploadName] = useState('')
+  const [pendingUploadPreviewUrl, setPendingUploadPreviewUrl] = useState('')
+  const [pendingUploading, setPendingUploading] = useState(false)
+
   const filesQuery = useQuery({
     queryKey: ['admin-managed-files'],
     queryFn: async () => {
@@ -323,6 +329,53 @@ export function SystemFilesSection() {
     }
   }
 
+  const openUploadConfirm = (file: File) => {
+    if (isCurrentFolderReadOnly) {
+      toast.error(t('Uploads directory is read-only'))
+      return
+    }
+    if (pendingUploadPreviewUrl) {
+      URL.revokeObjectURL(pendingUploadPreviewUrl)
+    }
+    const previewUrl =
+      file.type.startsWith('image/') ||
+      file.type.startsWith('video/') ||
+      file.type.startsWith('audio/')
+        ? URL.createObjectURL(file)
+        : ''
+    setPendingUploadFile(file)
+    setPendingUploadName(file.name)
+    setPendingUploadPreviewUrl(previewUrl)
+    setUploadConfirmOpen(true)
+  }
+
+  const closeUploadConfirm = () => {
+    if (pendingUploadPreviewUrl) {
+      URL.revokeObjectURL(pendingUploadPreviewUrl)
+    }
+    setUploadConfirmOpen(false)
+    setPendingUploadFile(null)
+    setPendingUploadName('')
+    setPendingUploadPreviewUrl('')
+  }
+
+  const handleConfirmUpload = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!pendingUploadFile) return
+    const trimmedName = pendingUploadName.trim() || pendingUploadFile.name
+    const fileToUpload =
+      trimmedName === pendingUploadFile.name
+        ? pendingUploadFile
+        : new File([pendingUploadFile], trimmedName, { type: pendingUploadFile.type })
+    setPendingUploading(true)
+    try {
+      await uploadFile(fileToUpload)
+      closeUploadConfirm()
+    } finally {
+      setPendingUploading(false)
+    }
+  }
+
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement
@@ -334,14 +387,12 @@ export function SystemFilesSection() {
       const files = e.clipboardData?.files
       if (files && files.length > 0) {
         e.preventDefault()
-        for (let i = 0; i < files.length; i++) {
-          void uploadFile(files[i])
-        }
+        openUploadConfirm(files[0])
       }
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
-  }, [currentFolder, isCurrentFolderReadOnly])
+  }, [currentFolder, isCurrentFolderReadOnly, pendingUploadPreviewUrl])
 
   const proceedOpenEdit = async (path: string, item?: ManagedFileItem) => {
     const kind = previewKindOf(path)
@@ -716,7 +767,7 @@ export function SystemFilesSection() {
         className='hidden'
         onChange={(e) => {
           const file = e.target.files?.[0]
-          if (file) void handleUpload(file)
+          if (file) openUploadConfirm(file)
           e.target.value = ''
         }}
       />
@@ -922,6 +973,65 @@ export function SystemFilesSection() {
         </DialogContent>
       </Dialog>
 
+      {/* Upload Confirmation & Preview Dialog */}
+      <Dialog open={uploadConfirmOpen} onOpenChange={(open) => { if (!open) closeUploadConfirm() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Confirm File Upload')}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConfirmUpload} className='space-y-4 py-2'>
+            {pendingUploadFile && (
+              <>
+                {pendingUploadPreviewUrl && pendingUploadFile.type.startsWith('image/') && (
+                  <div className='flex justify-center rounded-md border bg-muted/30 p-3'>
+                    <img
+                      src={pendingUploadPreviewUrl}
+                      alt={pendingUploadName}
+                      className='max-h-56 max-w-full rounded object-contain'
+                    />
+                  </div>
+                )}
+                {pendingUploadPreviewUrl && pendingUploadFile.type.startsWith('video/') && (
+                  <div className='flex justify-center rounded-md border bg-black p-2'>
+                    <video
+                      controls
+                      src={pendingUploadPreviewUrl}
+                      className='max-h-56 w-full rounded'
+                    />
+                  </div>
+                )}
+                {pendingUploadPreviewUrl && pendingUploadFile.type.startsWith('audio/') && (
+                  <div className='rounded-md border bg-muted/30 p-3'>
+                    <audio controls src={pendingUploadPreviewUrl} className='w-full' />
+                  </div>
+                )}
+                <div className='space-y-2'>
+                  <Label>{t('File Name')}</Label>
+                  <Input
+                    value={pendingUploadName}
+                    onChange={(e) => setPendingUploadName(e.target.value)}
+                    placeholder={pendingUploadFile.name}
+                    autoFocus
+                    required
+                  />
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Target')}: /{currentFolder ? `${currentFolder}/` : ''}{pendingUploadName.trim() || pendingUploadFile.name} ({formatBytes(pendingUploadFile.size)})
+                  </p>
+                </div>
+              </>
+            )}
+            <DialogFooter>
+              <Button type='button' variant='outline' onClick={closeUploadConfirm}>
+                {t('Cancel')}
+              </Button>
+              <Button type='submit' disabled={pendingUploading}>
+                {pendingUploading ? t('Uploading...') : t('Upload')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Download from URL Dialog */}
       <Dialog open={downloadUrlOpen} onOpenChange={setDownloadUrlOpen}>
         <DialogContent>
@@ -948,6 +1058,24 @@ export function SystemFilesSection() {
                 onChange={(e) => setDownloadName(e.target.value)}
               />
             </div>
+            {downloadUrl.trim() && previewKindOf(downloadUrl.trim()) === 'image' && (
+              <div className='flex justify-center rounded-md border bg-muted/30 p-2'>
+                <img
+                  src={downloadUrl.trim()}
+                  alt='URL Preview'
+                  className='max-h-48 max-w-full rounded object-contain'
+                />
+              </div>
+            )}
+            {downloadUrl.trim() && previewKindOf(downloadUrl.trim()) === 'video' && (
+              <div className='flex justify-center rounded-md border bg-black p-2'>
+                <video
+                  controls
+                  src={downloadUrl.trim()}
+                  className='max-h-48 w-full rounded'
+                />
+              </div>
+            )}
             <DialogFooter>
               <Button type='button' variant='outline' onClick={() => setDownloadUrlOpen(false)}>
                 {t('Cancel')}

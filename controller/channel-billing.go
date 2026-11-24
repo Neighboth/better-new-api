@@ -540,13 +540,22 @@ func UpdateChannelBalance(c *gin.Context) {
 	}
 	if channel.ChannelInfo.IsMultiKey {
 		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "多密钥渠道不支持余额查询",
+			"success":     true,
+			"unsupported": true,
+			"message":     "多密钥渠道不支持余额查询",
 		})
 		return
 	}
 	result, err := updateChannelBalance(channel)
 	if err != nil {
+		if err.Error() == "尚未实现" {
+			c.JSON(http.StatusOK, gin.H{
+				"success":     true,
+				"unsupported": true,
+				"message":     "Balance query not supported for this channel type",
+			})
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}

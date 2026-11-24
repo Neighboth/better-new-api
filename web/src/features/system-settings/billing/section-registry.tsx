@@ -126,6 +126,22 @@ const BILLING_SECTIONS = [
               settings['general_setting.custom_currency_symbol'] ?? '¤',
             custom_currency_exchange_rate:
               settings['general_setting.custom_currency_exchange_rate'] ?? 1,
+            display_currencies: (() => {
+              const raw = settings['general_setting.display_currencies']
+              if (Array.isArray(raw)) return raw
+              if (typeof raw === 'string' && raw.trim()) {
+                try {
+                  const parsed = JSON.parse(raw)
+                  return Array.isArray(parsed) ? parsed : []
+                } catch {
+                  return []
+                }
+              }
+              return []
+            })(),
+            auto_exchange_rates:
+              settings['general_setting.auto_exchange_rates'] !== false &&
+              settings['general_setting.auto_exchange_rates'] !== 'false',
           },
         }}
       />

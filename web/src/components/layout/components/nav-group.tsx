@@ -120,6 +120,12 @@ function NavBadge({ children }: { children: ReactNode }) {
 /**
  * Sidebar menu link item
  */
+function splitNavUrl(url: string): { to: string; search?: Record<string, string> } {
+  const [to, query] = url.split('?')
+  if (!query) return { to }
+  return { to, search: Object.fromEntries(new URLSearchParams(query).entries()) }
+}
+
 function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
   const { isMobile, setOpenMobile } = useSidebar()
   const handleClick = (e: React.MouseEvent) => {
@@ -144,7 +150,7 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
             />
           ) : (
             <Link
-              to={item.url}
+              {...splitNavUrl(item.url)}
               preload={isMobile ? false : undefined}
               onClick={() => setOpenMobile(false)}
             />
@@ -207,7 +213,7 @@ function SidebarMenuCollapsible({
                 isActive={checkIsActive(href, subItem)}
                 render={
                   <Link
-                    to={subItem.url}
+                    {...splitNavUrl(subItem.url)}
                     preload={isMobile ? false : undefined}
                     onClick={() => setOpenMobile(false)}
                   />
@@ -263,7 +269,7 @@ function SidebarMenuCollapsedDropdown({
                 key={`${sub.title}-${sub.url}`}
                 render={
                   <Link
-                    to={sub.url}
+                    {...splitNavUrl(sub.url)}
                     className={`${checkIsActive(href, sub) ? 'bg-secondary' : ''}`}
                   />
                 }

@@ -44,10 +44,15 @@ export function formatCompactNumber(
   locales?: Intl.LocalesArgument
 ): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(locales, {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value as number)
+  const num = value as number
+  const abs = Math.abs(num)
+  const fmt = (scaled: number, suffix: string) =>
+    `${Intl.NumberFormat(locales, { maximumFractionDigits: 1 }).format(scaled)}${suffix}`
+  if (abs >= 1e12) return fmt(num / 1e12, 'T')
+  if (abs >= 1e9) return fmt(num / 1e9, 'B')
+  if (abs >= 1e6) return fmt(num / 1e6, 'M')
+  if (abs >= 1e3) return fmt(num / 1e3, 'K')
+  return Intl.NumberFormat(locales, { maximumFractionDigits: 1 }).format(num)
 }
 
 export function formatPercent(value: number | null | undefined): string {

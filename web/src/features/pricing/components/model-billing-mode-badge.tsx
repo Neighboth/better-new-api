@@ -40,6 +40,12 @@ export function ModelBillingModeBadge(props: ModelBillingModeBadgeProps) {
   } else if (props.model.billing_mode === 'duration_second') {
     label = t('Duration-based (s)')
     variant = 'info'
+  } else if (props.model.billing_mode === 'duration_minute') {
+    label = t('Duration-based (m)')
+    variant = 'info'
+  } else if (props.model.billing_mode === 'duration_hour') {
+    label = t('Duration-based (h)')
+    variant = 'info'
   } else if (props.model.billing_mode === 'characters') {
     label = t('1M Characters')
     variant = 'info'

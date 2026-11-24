@@ -21,10 +21,12 @@ import { useEffect, useCallback } from 'react'
 import { useTheme } from '@/context/theme-provider'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
   type CurrencyDisplayType,
+  type DisplayCurrencyOption,
   type SystemConfig,
   DEFAULT_CURRENCY_CONFIG,
 } from '@/stores/system-config-store'
@@ -56,6 +58,8 @@ interface StatusApiResponse {
     usd_exchange_rate?: number
     custom_currency_symbol?: string
     custom_currency_exchange_rate?: number
+    display_currencies?: DisplayCurrencyOption[]
+    auto_exchange_rates?: boolean
   }
 }
 
@@ -113,6 +117,10 @@ export function mapStatusDataToConfig(
       data.custom_currency_exchange_rate,
       DEFAULT_CURRENCY_CONFIG.customCurrencyExchangeRate
     ),
+    displayCurrencies: Array.isArray(data.display_currencies)
+      ? data.display_currencies
+      : [],
+    autoExchangeRates: data.auto_exchange_rates !== false,
   }
 
   return {
@@ -205,9 +213,37 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     }
   }, [setConfig, setLoading])
 
+  const authUser = useAuthStore((s) => s.auth.user)
+  const setSelectedCurrencyCode = useSystemConfigStore(
+    (s) => s.setSelectedCurrencyCode
+  )
+
   useEffect(() => {
     if (autoLoad) loadConfig()
   }, [autoLoad, loadConfig])
+
+  useEffect(() => {
+    if (!authUser?.setting) return
+    let preferred = ''
+    if (typeof authUser.setting === 'string') {
+      try {
+        const parsed = JSON.parse(authUser.setting) as {
+          preferred_currency?: string
+        }
+        preferred = parsed?.preferred_currency ?? ''
+      } catch {
+        preferred = ''
+      }
+    } else if (typeof authUser.setting === 'object') {
+      preferred = String(
+        (authUser.setting as Record<string, unknown>).preferred_currency ?? ''
+      )
+    }
+    const normalized = preferred.trim().toUpperCase()
+    if (normalized) {
+      setSelectedCurrencyCode(normalized)
+    }
+  }, [authUser?.setting, setSelectedCurrencyCode])
 
   // Preload logo image when URL changes & update favicon
   // Preload the inactive theme logo in the background so theme switches apply instantly.

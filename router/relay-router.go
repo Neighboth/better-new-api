@@ -86,6 +86,16 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
+		// Fine-tuning jobs (OpenAI-compatible, gated by model_deployment.fine_tuning.enabled)
+		fineTuningRouter := relayV1Router.Group("/fine_tuning")
+		{
+			fineTuningRouter.POST("/jobs", controller.CreateFineTuningJob)
+			fineTuningRouter.GET("/jobs", controller.ListFineTuningJobs)
+			fineTuningRouter.GET("/jobs/:fine_tuning_job_id", controller.RetrieveFineTuningJob)
+			fineTuningRouter.POST("/jobs/:fine_tuning_job_id/cancel", controller.CancelFineTuningJob)
+		}
+	}
+	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
 		wsRouter.Use(middleware.Distribute())

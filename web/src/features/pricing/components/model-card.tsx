@@ -329,6 +329,30 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           <p className='text-muted-foreground mt-3 text-xs'>
             {t('No price of its own: every request is billed as the model the router picks for it.')}
           </p>
+        ) : props.model.billing_mode === 'characters' ||
+          props.model.billing_mode === 'duration_second' ||
+          props.model.billing_mode === 'duration_minute' ||
+          props.model.billing_mode === 'duration_hour' ? (
+          <div className='mt-3 flex flex-col gap-0.5'>
+            <span className='text-[11px] text-muted-foreground font-sans'>
+              {t('Price')}
+            </span>
+            <div className='flex items-baseline gap-1 font-mono'>
+              <span className='text-sm sm:text-base font-bold text-foreground'>
+                {isTokenBased ? inputPrice : requestPrice}
+              </span>
+              <span className='text-[11px] text-muted-foreground/80'>
+                /{' '}
+                {props.model.billing_mode === 'characters'
+                  ? '1M chars'
+                  : props.model.billing_mode === 'duration_second'
+                    ? 'sec'
+                    : props.model.billing_mode === 'duration_minute'
+                      ? 'min'
+                      : 'hour'}
+              </span>
+            </div>
+          </div>
         ) : isTokenBased ? (
           hasCachedPrice ? (
             <div className='mt-3 grid grid-cols-3 gap-2 sm:gap-4'>

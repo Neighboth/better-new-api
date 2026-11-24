@@ -37,7 +37,7 @@ export type ResolvedCustomNavItem = CustomNavItem & {
 
 export function buildCustomNavUrl(id: string, view?: 'sidebar' | 'header'): string {
   const base = `/custom/${id}`
-  return view ? `${base}?view=${view}` : base
+  return view === 'header' ? `${base}?view=header` : base
 }
 
 /**

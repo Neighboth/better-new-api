@@ -23,7 +23,6 @@ import { CopyChannelDialog } from './dialogs/copy-channel-dialog'
 import { EditTagDialog } from './dialogs/edit-tag-dialog'
 import { FetchModelsDialog } from './dialogs/fetch-models-dialog'
 import { MultiKeyManageDialog } from './dialogs/multi-key-manage-dialog'
-import { MultiKeyTestDialog } from './dialogs/multi-key-test-dialog'
 import { OllamaModelsDialog } from './dialogs/ollama-models-dialog'
 import { TagBatchEditDialog } from './dialogs/tag-batch-edit-dialog'
 import { UpstreamUpdateDialog } from './dialogs/upstream-update-dialog'
@@ -71,15 +70,9 @@ export function ChannelsDialogs() {
         onOpenChange={(v) => !v && setOpen(null)}
       />
 
-      {/* Multi-Key Management Dialog */}
+      {/* Multi-Key Management & Test Dialog */}
       <MultiKeyManageDialog
-        open={open === 'multi-key-manage'}
-        onOpenChange={(v) => !v && setOpen(null)}
-      />
-
-      {/* Multi-Key Parallel Test Dialog */}
-      <MultiKeyTestDialog
-        open={open === 'multi-key-test'}
+        open={open === 'multi-key-manage' || open === 'multi-key-test'}
         onOpenChange={(v) => !v && setOpen(null)}
       />
 

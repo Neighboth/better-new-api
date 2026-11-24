@@ -21,7 +21,6 @@ import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
   Boxes,
-  CheckCheck,
   Pencil,
   PlugZap,
   Gauge,
@@ -142,11 +141,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleManageKeys = () => {
     setCurrentRow(channel)
     setOpen('multi-key-manage')
-  }
-
-  const handleTestAllKeys = () => {
-    setCurrentRow(channel)
-    setOpen('multi-key-test')
   }
 
   const handleToggleStatus = async (
@@ -382,20 +376,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
           {/* Manage Keys (only for multi-key channels) */}
           {isMultiKey && (
-            <>
-              <DropdownMenuItem onClick={handleTestAllKeys}>
-                {t('Test All Keys')}
-                <DropdownMenuShortcut>
-                  <CheckCheck size={16} />
-                </DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleManageKeys}>
-                {t('Manage Keys')}
-                <DropdownMenuShortcut>
-                  <Key size={16} />
-                </DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem onClick={handleManageKeys}>
+              {t('Manage & Test Keys')}
+              <DropdownMenuShortcut>
+                <Key size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
           )}
 
           <DropdownMenuSeparator />

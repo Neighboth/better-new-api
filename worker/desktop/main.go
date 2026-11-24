@@ -1703,6 +1703,15 @@ func (e *LocalTransformerEngine) GenerateStreamMessages(ctx context.Context, mes
 	if runtime.ServerPath == "" {
 		return nil, errors.New("the llama.cpp runtime does not provide llama-server")
 	}
+	State.Mu.Lock()
+	allocCores := State.Config.AllocatedCores
+	allocVram := State.Config.AllocatedVramGB
+	State.Mu.Unlock()
+	hw := readHardware()
+	gpuModel := strings.ToLower(hw.GpuModel)
+	runtime.AllocatedCores = allocCores
+	runtime.AllocatedVramGB = allocVram
+	runtime.CudaAvailable = hw.VramMB > 0 && (strings.Contains(gpuModel, "nvidia") || strings.Contains(gpuModel, "geforce") || strings.Contains(gpuModel, "rtx") || strings.Contains(gpuModel, "gtx") || strings.Contains(gpuModel, "quadro") || strings.Contains(gpuModel, "tesla"))
 
 	return runtime.InferMessages(ctx, e.GgufPath, filepath.Dir(e.GgufPath), messages, maxTokens, temperature, onChunk)
 }

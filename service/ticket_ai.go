@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,11 +39,20 @@ type aiRequest struct {
 	Tools    []ToolDefinition `json:"tools,omitempty"`
 }
 
+var thinkTagRe = regexp.MustCompile(`(?is)<think>.*?</think>|<think>.*$`)
+
+func stripThinkTags(content string) string {
+	return strings.TrimSpace(thinkTagRe.ReplaceAllString(content, ""))
+}
+
 func InvokeAiAssistant(ticketId int) {
 	setting := operation_setting.GetTicketSetting()
 	if !setting.AiAssistantEnabled || setting.AiAssistantModel == "" {
 		return
 	}
+
+	GlobalTicketHub.SetTicketTyping(ticketId, true)
+	defer GlobalTicketHub.SetTicketTyping(ticketId, false)
 
 	messages, err := model.GetTicketMessages(ticketId)
 	if err != nil || len(messages) == 0 {
@@ -189,7 +199,8 @@ func InvokeAiAssistant(ticketId int) {
 		}
 	}
 
-	if strings.TrimSpace(replyContent) == "" {
+	replyContent = stripThinkTags(replyContent)
+	if replyContent == "" {
 		return
 	}
 

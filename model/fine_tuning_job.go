@@ -1,0 +1,51 @@
+package model
+
+import (
+	"strings"
+)
+
+type FineTuningJob struct {
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	JobID           string `json:"job_id" gorm:"type:varchar(64);uniqueIndex;not null"`
+	UserId          int    `json:"user_id" gorm:"index;not null"`
+	TokenId         int    `json:"token_id" gorm:"index"`
+	Model           string `json:"model" gorm:"type:varchar(256);not null"`
+	FineTunedModel  string `json:"fine_tuned_model" gorm:"type:varchar(256)"`
+	TrainingFile    string `json:"training_file" gorm:"type:varchar(256);not null"`
+	ValidationFile  string `json:"validation_file" gorm:"type:varchar(256)"`
+	Hyperparameters string `json:"hyperparameters" gorm:"type:text"`
+	Status          string `json:"status" gorm:"type:varchar(32);index;not null"` // queued | running | succeeded | failed | cancelled
+	TrainedTokens   int64  `json:"trained_tokens"`
+	Error           string `json:"error" gorm:"type:text"`
+	Provider        string `json:"provider" gorm:"type:varchar(32)"`
+	DeploymentID    int    `json:"deployment_id"`
+	CallbackToken   string `json:"-" gorm:"type:varchar(64)"`
+	CreatedAt       int64  `json:"created_at" gorm:"bigint;index"`
+	FinishedAt      int64  `json:"finished_at" gorm:"bigint"`
+	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func CreateFineTuningJob(job *FineTuningJob) error {
+	return DB.Create(job).Error
+}
+
+func GetFineTuningJobByJobID(jobID string) (*FineTuningJob, error) {
+	var job FineTuningJob
+	if err := DB.Where("job_id = ?", strings.TrimSpace(jobID)).First(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func ListUserFineTuningJobs(userId int, limit int) ([]FineTuningJob, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	var jobs []FineTuningJob
+	err := DB.Where("user_id = ?", userId).Order("id desc").Limit(limit).Find(&jobs).Error
+	return jobs, err
+}
+
+func UpdateFineTuningJobStatus(jobID string, fields map[string]any) error {
+	return DB.Model(&FineTuningJob{}).Where("job_id = ?", strings.TrimSpace(jobID)).Updates(fields).Error
+}

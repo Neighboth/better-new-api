@@ -35,11 +35,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { getUserGroups, getUserModels } from '../api'
+import { getPlaygroundRuntimeConfig, getUserGroups, getUserModels } from '../api'
 import {
   getGroupFallback,
   getModelFallback,
@@ -110,21 +110,46 @@ export function usePlaygroundOptions({
     )
   }, [isGroupsError, groupsError, t])
 
-  useEffect(() => {
-    if (!modelsData) return
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['playground-runtime-config'],
+    queryFn: ({ signal }) => getPlaygroundRuntimeConfig(signal),
+    staleTime: 60 * 1000,
+  })
 
-    setModels(modelsData)
-    const fallback = getModelFallback(modelsData, currentModel)
+  const filteredModels = useMemo(() => {
+    if (!modelsData) return undefined
+    const hiddenSet = new Set(
+      (runtimeConfig?.playground?.hidden_models ?? [])
+        .map((m) => m.trim())
+        .filter(Boolean)
+    )
+    if (hiddenSet.size === 0) return modelsData
+    return modelsData.filter((m) => !hiddenSet.has(m.value))
+  }, [modelsData, runtimeConfig?.playground?.hidden_models])
+
+  useEffect(() => {
+    if (!filteredModels) return
+
+    setModels(filteredModels)
+    const configuredDefault = (runtimeConfig?.playground?.default_model ?? '').trim()
+    const hasCurrent = Boolean(
+      currentModel && filteredModels.some((m) => m.value === currentModel)
+    )
+    if (!hasCurrent && configuredDefault && filteredModels.some((m) => m.value === configuredDefault)) {
+      updateConfig('model', configuredDefault)
+      return
+    }
+    const fallback = getModelFallback(filteredModels, currentModel)
 
     if (fallback) {
       updateConfig('model', fallback)
       return
     }
 
-    if (shouldClearModelForGroup(modelsData, currentModel)) {
+    if (shouldClearModelForGroup(filteredModels, currentModel)) {
       updateConfig('model', '')
     }
-  }, [modelsData, currentModel, setModels, updateConfig])
+  }, [filteredModels, currentModel, runtimeConfig?.playground?.default_model, setModels, updateConfig])
 
   useEffect(() => {
     if (!groupsData) return

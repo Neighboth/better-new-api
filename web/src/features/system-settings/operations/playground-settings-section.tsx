@@ -93,6 +93,8 @@ export type PlaygroundSettingsDefaults = {
   videoModels?: MediaModelConfig[]
   studioEnabled?: boolean
   studioDefaultModel?: string
+  playgroundDefaultModel?: string
+  playgroundHiddenModels?: string[]
   promptOptimizerEnabled?: boolean
   promptOptimizerModel?: string
   promptOptimizerSystemPrompt?: string
@@ -805,6 +807,12 @@ export function PlaygroundSettingsSection({
   const [studioDefaultModel, setStudioDefaultModel] = useState<string>(
     defaultValues.studioDefaultModel ?? ''
   )
+  const [playgroundDefaultModel, setPlaygroundDefaultModel] = useState<string>(
+    defaultValues.playgroundDefaultModel ?? ''
+  )
+  const [playgroundHiddenModelsText, setPlaygroundHiddenModelsText] = useState<string>(
+    (defaultValues.playgroundHiddenModels ?? []).join(', ')
+  )
   const [imageModels, setImageModels] = useState<MediaModelConfig[]>(() =>
     ensureRowIds(normalizeImageModels(defaultValues))
   )
@@ -835,6 +843,11 @@ export function PlaygroundSettingsSection({
     ),
     studio_enabled: studioEnabled,
     studio_default_model: studioDefaultModel,
+    playground_default_model: playgroundDefaultModel,
+    playground_hidden_models: playgroundHiddenModelsText
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
     prompt_optimizer_enabled: true,
     prompt_optimizer_model: promptOptimizerModel,
     prompt_optimizer_system_prompt: promptOptimizerSystemPrompt,
@@ -923,6 +936,13 @@ export function PlaygroundSettingsSection({
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
         'playground_setting.studio_default_model': studioDefaultModel,
+        'playground_setting.playground_default_model': playgroundDefaultModel.trim(),
+        'playground_setting.playground_hidden_models': JSON.stringify(
+          playgroundHiddenModelsText
+            .split(/[\n,]+/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        ),
         'playground_setting.prompt_optimizer_enabled': 'true',
         'playground_setting.prompt_optimizer_model': promptOptimizerModel.trim(),
         'playground_setting.prompt_optimizer_system_prompt': promptOptimizerSystemPrompt,
@@ -1239,6 +1259,33 @@ export function PlaygroundSettingsSection({
               </p>
             </div>
           )}
+
+          <div className='border border-border rounded-xl p-4 bg-card/50 space-y-3 shadow-xs'>
+            <div className='space-y-1.5'>
+              <Label className='text-xs font-medium'>{t('Playground Default Model')}</Label>
+              <Input
+                className='font-mono text-xs'
+                placeholder='gpt-4o, claude-3-5-sonnet...'
+                value={playgroundDefaultModel}
+                onChange={(e) => setPlaygroundDefaultModel(e.target.value)}
+              />
+              <p className='text-muted-foreground text-[11px]'>
+                {t('Default model preselected when opening the Playground chat.')}
+              </p>
+            </div>
+            <div className='space-y-1.5'>
+              <Label className='text-xs font-medium'>{t('Hidden Models in Playground')}</Label>
+              <Input
+                className='font-mono text-xs'
+                placeholder='whisper-1, tts-1, text-embedding-3-small'
+                value={playgroundHiddenModelsText}
+                onChange={(e) => setPlaygroundHiddenModelsText(e.target.value)}
+              />
+              <p className='text-muted-foreground text-[11px]'>
+                {t('Comma-separated model IDs to hide from the Playground model selector.')}
+              </p>
+            </div>
+          </div>
 
         </div>
         )}

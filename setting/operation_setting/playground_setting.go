@@ -102,6 +102,10 @@ type PlaygroundSetting struct {
 	StudioEnabled      bool   `json:"studio_enabled"`
 	StudioDefaultModel string `json:"studio_default_model"`
 
+	// Playground model selector defaults and hidden models.
+	PlaygroundDefaultModel string   `json:"playground_default_model"`
+	PlaygroundHiddenModels []string `json:"playground_hidden_models"`
+
 	// Prompt Optimizer settings for Studio / Video generations
 	PromptOptimizerEnabled      bool   `json:"prompt_optimizer_enabled"`
 	PromptOptimizerModel        string `json:"prompt_optimizer_model"`
@@ -157,6 +161,9 @@ var playgroundSetting = PlaygroundSetting{
 
 	StudioEnabled:      true,
 	StudioDefaultModel: "",
+
+	PlaygroundDefaultModel: "",
+	PlaygroundHiddenModels: []string{},
 
 	PromptOptimizerEnabled:      false,
 	PromptOptimizerModel:        "",

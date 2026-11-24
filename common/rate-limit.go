@@ -68,3 +68,33 @@ func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration in
 	}
 	return true
 }
+
+// GetUsage returns the number of active hits within the sliding window [now-duration, now]
+// and the Unix timestamp when the oldest active hit expires.
+func (l *InMemoryRateLimiter) GetUsage(key string, duration int64) (int, int64) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.store == nil {
+		return 0, 0
+	}
+	queue, ok := l.store[key]
+	if !ok || queue == nil || len(*queue) == 0 {
+		return 0, 0
+	}
+	now := time.Now().Unix()
+	cutoff := now - duration
+	count := 0
+	var oldest int64
+	for _, ts := range *queue {
+		if ts > cutoff {
+			if count == 0 {
+				oldest = ts
+			}
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, 0
+	}
+	return count, oldest + duration
+}

@@ -23,6 +23,14 @@ import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 
 export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 
+export interface DisplayCurrencyOption {
+  code: string
+  symbol: string
+  name?: string
+  exchange_rate: number
+  auto_rate?: boolean
+}
+
 export interface CurrencyConfig {
   /** Whether to render quota values as currency instead of raw units */
   displayInCurrency: boolean
@@ -36,6 +44,12 @@ export interface CurrencyConfig {
   customCurrencySymbol: string
   /** Exchange rate from USD to the custom currency (used when type === CUSTOM) */
   customCurrencyExchangeRate: number
+  /** Multi-currency options configured by the admin */
+  displayCurrencies?: DisplayCurrencyOption[]
+  /** Whether auto exchange rates are enabled */
+  autoExchangeRates?: boolean
+  /** User-selected display currency code */
+  selectedCurrencyCode?: string
 }
 
 export interface SystemConfig {
@@ -69,6 +83,7 @@ interface SystemConfigState {
   loading: boolean
   loadedLogoUrl: string
   setConfig: (config: Partial<SystemConfig>) => void
+  setSelectedCurrencyCode: (code: string) => void
   setLoadedLogoUrl: (url: string) => void
   setLoading: (loading: boolean) => void
 }
@@ -99,6 +114,19 @@ export const useSystemConfigStore = create<SystemConfigState>()(
             currency: {
               ...state.config.currency,
               ...(newConfig.currency ?? {}),
+              selectedCurrencyCode:
+                newConfig.currency?.selectedCurrencyCode ??
+                state.config.currency.selectedCurrencyCode,
+            },
+          },
+        })),
+      setSelectedCurrencyCode: (code) =>
+        set((state) => ({
+          config: {
+            ...state.config,
+            currency: {
+              ...state.config.currency,
+              selectedCurrencyCode: code,
             },
           },
         })),

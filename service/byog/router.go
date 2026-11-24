@@ -29,6 +29,33 @@ type NodeQueue struct {
 	Lock        sync.Mutex
 }
 
+const ownerSelfUsageDailyCapTokens int64 = 1000
+
+var (
+	ownerDailySelfTokensMu sync.Mutex
+	ownerDailySelfTokens   = make(map[string]int64)
+)
+
+func applyOwnerSelfUsageCap(ownerUserId int, requested int64) int64 {
+	if ownerUserId <= 0 || requested <= 0 {
+		return 0
+	}
+	key := fmt.Sprintf("%d:%s", ownerUserId, time.Now().UTC().Format("2006-01-02"))
+	ownerDailySelfTokensMu.Lock()
+	defer ownerDailySelfTokensMu.Unlock()
+	used := ownerDailySelfTokens[key]
+	remaining := ownerSelfUsageDailyCapTokens - used
+	if remaining <= 0 {
+		return 0
+	}
+	if requested > remaining {
+		ownerDailySelfTokens[key] = ownerSelfUsageDailyCapTokens
+		return remaining
+	}
+	ownerDailySelfTokens[key] = used + requested
+	return requested
+}
+
 var GlobalRouter = &Router{}
 
 // Get or create queue for a node
@@ -416,11 +443,9 @@ func (r *Router) DispatchInference(c *gin.Context, session *NodeSession, modelDe
 				clientIp := c.ClientIP()
 				isSameIp := clientIp != "" && (clientIp == node.IpAddress || clientIp == "127.0.0.1" || clientIp == "::1")
 
-				// Item 10: Anti-Manipulation / Alt-Account Self-Farming Block:
-				// If the caller is the owner of the node, or querying from the exact same IP/network,
-				// they cannot earn mining tokens from self-queries!
+				// Cap owner self-usage earnings at 1000 tokens/day to allow testing while preventing farming
 				if isOwner || isSameIp {
-					tokensToCredit = 0
+					tokensToCredit = applyOwnerSelfUsageCap(node.UserId, tokensToCredit)
 				}
 
 				// Credit tokens to compute provider node

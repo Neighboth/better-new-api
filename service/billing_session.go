@@ -560,19 +560,24 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
-		if preConsumedQuota > 0 && userQuota <= 0 {
+		refQuota, refErr := model.GetReferralQuota(relayInfo.UserId)
+		if refErr != nil {
+			return nil, types.NewError(refErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		effectiveWalletQuota := int64(userQuota) + refQuota
+		if preConsumedQuota > 0 && effectiveWalletQuota <= 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(userQuota)),
+				fmt.Errorf("用户额度不足, 剩余额度: %s", logger.FormatQuota(int(effectiveWalletQuota))),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
-		if preConsumedQuota > 0 && userQuota-preConsumedQuota < 0 {
+		if preConsumedQuota > 0 && effectiveWalletQuota-int64(preConsumedQuota) < 0 {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(userQuota), logger.FormatQuota(preConsumedQuota)),
+				fmt.Errorf("预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s", logger.FormatQuota(int(effectiveWalletQuota)), logger.FormatQuota(preConsumedQuota)),
 				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
 		}
-		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 0, int64(userQuota), relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName)
+		available, restricted, err := model.UserBalancePackageAvailable(relayInfo.UserId, relayInfo.OriginModelName, 0, effectiveWalletQuota, relayInfo.GetUpstreamModelName(), relayInfo.RequestedModelName)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}

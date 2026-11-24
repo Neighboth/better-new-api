@@ -547,6 +547,7 @@ func (r *Runtime) InferMessages(ctx context.Context, modelPath string, storageDi
 		StreamOptions: map[string]bool{
 			"include_usage": true,
 		},
+		CachePrompt: true,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -202,8 +202,9 @@ func GetTicketDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"ticket":   ticket,
-			"messages": messages,
+			"ticket":    ticket,
+			"messages":  messages,
+			"is_typing": service.GlobalTicketHub.IsTicketTyping(ticket.Id),
 		},
 	})
 }
@@ -601,8 +602,9 @@ func GetGuestTicket(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"ticket":   ticket,
-			"messages": messages,
+			"ticket":    ticket,
+			"messages":  messages,
+			"is_typing": service.GlobalTicketHub.IsTicketTyping(ticket.Id),
 		},
 	})
 }
@@ -724,4 +726,32 @@ func ConnectHuman(c *gin.Context) {
 	service.GlobalTicketHub.BroadcastToTicket(ticketId, "human_connected", ticket)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": ticket})
+}
+
+type SetTicketTypingRequest struct {
+	IsTyping bool `json:"is_typing"`
+}
+
+func SetTicketTyping(c *gin.Context) {
+	if !operation_setting.IsTicketEnabled() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Ticket system is disabled"})
+		return
+	}
+	role := c.GetInt("role")
+	if role < common.RoleAdminUser {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Permission denied"})
+		return
+	}
+	ticketId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid ticket ID"})
+		return
+	}
+	var req SetTicketTypingRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
+		return
+	}
+	service.GlobalTicketHub.SetTicketTyping(ticketId, req.IsTyping)
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }

@@ -82,6 +82,10 @@ const ratioToPrice = (ratio?: string, denominator?: string) => {
 
 export const getModeLabel = (mode?: string) => {
   if (mode === 'per-request') return 'Per-request'
+  if (mode === 'duration_second') return 'Per second'
+  if (mode === 'duration_minute') return 'Per minute'
+  if (mode === 'duration_hour') return 'Per hour'
+  if (mode === 'characters') return 'Per 1M chars'
   if (mode === 'tiered_expr') return 'Expression'
   return 'Per-token'
 }
@@ -89,7 +93,15 @@ export const getModeLabel = (mode?: string) => {
 export const getModeVariant = (
   mode?: string
 ): 'warning' | 'info' | 'success' => {
-  if (mode === 'per-request') return 'warning'
+  if (
+    mode === 'per-request' ||
+    mode === 'duration_second' ||
+    mode === 'duration_minute' ||
+    mode === 'duration_hour' ||
+    mode === 'characters'
+  ) {
+    return 'warning'
+  }
   if (mode === 'tiered_expr') return 'info'
   return 'success'
 }
@@ -114,6 +126,18 @@ export const getPriceSummary = (
   }
   if (row.billingMode === 'per-request') {
     return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+  }
+  if (row.billingMode === 'duration_second') {
+    return row.price ? `$${row.price} / ${t('second')}` : t('Unset price')
+  }
+  if (row.billingMode === 'duration_minute') {
+    return row.price ? `$${row.price} / ${t('minute')}` : t('Unset price')
+  }
+  if (row.billingMode === 'duration_hour') {
+    return row.price ? `$${row.price} / ${t('hour')}` : t('Unset price')
+  }
+  if (row.billingMode === 'characters') {
+    return row.price ? `$${row.price} / ${t('1M chars')}` : t('Unset price')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -144,6 +168,18 @@ export const getPriceDetail = (
   }
   if (row.billingMode === 'per-request') {
     return t('Fixed request price')
+  }
+  if (row.billingMode === 'duration_second') {
+    return t('Duration-based (s)')
+  }
+  if (row.billingMode === 'duration_minute') {
+    return t('Duration-based (m)')
+  }
+  if (row.billingMode === 'duration_hour') {
+    return t('Duration-based (h)')
+  }
+  if (row.billingMode === 'characters') {
+    return t('1M Characters')
   }
 
   const inputPrice = ratioToPrice(row.ratio)
@@ -261,6 +297,14 @@ export const buildModelSnapshots = ({
       }
     }
 
+    const resolvedFixedMode =
+      modeForModel === 'duration_second' ||
+      modeForModel === 'duration_minute' ||
+      modeForModel === 'duration_hour' ||
+      modeForModel === 'characters'
+        ? modeForModel
+        : null
+
     return {
       name,
       price,
@@ -271,7 +315,7 @@ export const buildModelSnapshots = ({
       imageRatio: image,
       audioRatio: audio,
       audioCompletionRatio: audioCompletion,
-      billingMode: price !== '' ? 'per-request' : 'per-token',
+      billingMode: resolvedFixedMode ?? (price !== '' ? 'per-request' : 'per-token'),
       hasConflict:
         price !== '' &&
         (ratio !== '' ||

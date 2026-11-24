@@ -547,6 +547,8 @@ func updatePricing() {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
 			}
+		} else if billingMode != "" && billingMode != billing_setting.BillingModeRatio {
+			pricing.BillingMode = billingMode
 		}
 		pricingMap = append(pricingMap, pricing)
 	}

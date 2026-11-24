@@ -33,6 +33,7 @@ const (
 	MsgTypeForceUpdate      = "force_update"
 	MsgTypePauseWorker      = "pause_worker"
 	MsgTypeResumeWorker     = "resume_worker"
+	MsgTypeUpdateResources  = "update_resources"
 	MsgTypeDeviceRemoved    = "device_removed"
 	MsgTypePairingRevoked   = "pairing_revoked"
 	// MsgTypeTunnelClosed is a synthetic frame the coordinator produces when the
@@ -62,6 +63,49 @@ func NotifyDeviceRemoved(nodeId string, message string) {
 		return
 	}
 	_ = session.WriteFrame(TunnelFrame{Type: MsgTypeDeviceRemoved, Payload: payload})
+}
+
+// NotifyUpdateResources pushes updated allocation, mode, power, schedule, and mobile
+// settings to a connected worker over WebSocket.
+func NotifyUpdateResources(node *model.ByogNode) {
+	if node == nil || node.NodeId == "" {
+		return
+	}
+	s, ok := GlobalHub.GetSession(node.NodeId)
+	if !ok || s == nil {
+		return
+	}
+	var disksObj interface{}
+	if node.Disks != "" {
+		_ = json.Unmarshal([]byte(node.Disks), &disksObj)
+	}
+	if disksObj == nil {
+		disksObj = []interface{}{}
+	}
+	updatePayload, err := json.Marshal(map[string]interface{}{
+		"allocated_ram_gb":        node.AllocatedRamGB,
+		"allocated_vram_gb":       node.AllocatedVramGB,
+		"allocated_cores":         node.AllocatedCores,
+		"allocated_disk_gb":       node.AllocatedDiskGB,
+		"hot_start_enabled":       node.HotStartEnabled,
+		"operating_mode":          node.OperatingMode,
+		"power_profile":           node.PowerProfile,
+		"schedule_config":         node.ScheduleConfig,
+		"wifi_only_download":      node.WifiOnlyDownload,
+		"monthly_data_limit_mb":   node.MonthlyDataLimitMB,
+		"run_only_while_charging": node.RunOnlyWhileCharging,
+		"battery_cutoff_enabled":  node.BatteryCutoffEnabled,
+		"battery_cutoff_percent":  node.BatteryCutoffPercent,
+		"max_battery_temp":        node.MaxBatteryTemp,
+		"disks":                   disksObj,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.WriteFrame(TunnelFrame{
+		Type:    MsgTypeUpdateResources,
+		Payload: updatePayload,
+	})
 }
 
 // Tunnel Frame

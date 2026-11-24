@@ -83,4 +83,5 @@ export interface TicketListResponse {
 export interface TicketDetailResponse {
   ticket: Ticket
   messages: TicketMessage[]
+  is_typing?: boolean
 }

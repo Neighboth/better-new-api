@@ -109,6 +109,18 @@ export async function adminAddTicketMessage(
   return res.data
 }
 
+export async function adminSetTicketTyping(
+  ticketId: number,
+  isTyping: boolean
+): Promise<ApiResponse<void>> {
+  const res = await api.post<ApiResponse<void>>(
+    `/api/admin/ticket/${ticketId}/typing`,
+    { is_typing: isTyping },
+    { skipErrorHandler: true }
+  )
+  return res.data
+}
+
 export async function adminGetAllTickets(params: {
   page?: number
   pageSize?: number
@@ -165,6 +177,7 @@ export async function downloadTicketTranscript(id: number): Promise<void> {
 export interface GuestTicketResponse {
   ticket: Ticket
   messages: TicketMessage[]
+  is_typing?: boolean
 }
 
 export async function createGuestTicket(data: {

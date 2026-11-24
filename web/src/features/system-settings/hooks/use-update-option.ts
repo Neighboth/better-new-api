@@ -47,6 +47,8 @@ const STATUS_RELATED_KEYS = new Set([
   'general_setting.quota_display_type',
   'general_setting.custom_currency_symbol',
   'general_setting.custom_currency_exchange_rate',
+  'general_setting.display_currencies',
+  'general_setting.auto_exchange_rates',
   'oidc.display_name',
   'byog_setting.enabled',
   'AnnouncementBars',
