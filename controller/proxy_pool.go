@@ -295,6 +295,12 @@ func truncateError(text string) string {
 	return text[:480] + "…"
 }
 
+func isPsiphonSupportedChannel(channelType int) bool {
+	return channelType == constant.ChannelTypeOpenCode ||
+		channelType == constant.ChannelTypeKiloCodeAnon ||
+		channelType == constant.ChannelTypeOHVCloudAnon
+}
+
 // ListProxyPoolChannels exposes multi-key channels together with their key
 // count and current assignment state so the admin UI can bind proxies per key.
 func ListProxyPoolChannels(c *gin.Context) {
@@ -327,7 +333,7 @@ func ListProxyPoolChannels(c *gin.Context) {
 			MultiKeyChannelSummary: channel,
 			AssignedKeys:           assignedByChannel[channel.Id],
 		}
-		if channel.Type == constant.ChannelTypeOpenCode {
+		if isPsiphonSupportedChannel(channel.Type) {
 			ps := service.GetPsiphonStatus(channel.Id)
 			item.PsiphonEnabled = ps.Enabled
 			item.PsiphonStatus = ps.Status
@@ -620,6 +626,11 @@ func GetProxyChannelDetail(c *gin.Context) {
 	if err != nil {
 		globalEvents = []model.ProxyPoolEvent{}
 	}
+	var psiphonInfo *service.PsiphonRuntimeStatus
+	if isPsiphonSupportedChannel(ch.Type) {
+		st := service.GetPsiphonStatus(id)
+		psiphonInfo = &st
+	}
 	common.ApiSuccess(c, gin.H{
 		"channel": gin.H{
 			"id":             ch.Id,
@@ -629,13 +640,14 @@ func GetProxyChannelDetail(c *gin.Context) {
 			"group":          ch.Group,
 			"multi_key_size": ch.ChannelInfo.MultiKeySize,
 		},
-		"assignments":       assignments,
-		"assignments_total": totalAssignments,
-		"assignments_page":  page,
+		"assignments":           assignments,
+		"assignments_total":     totalAssignments,
+		"assignments_page":      page,
 		"assignments_page_size": pageSize,
-		"cooldowns":         cooldowns,
-		"events":            events,
-		"global_events":     globalEvents,
+		"cooldowns":             cooldowns,
+		"events":                events,
+		"global_events":         globalEvents,
+		"psiphon":               psiphonInfo,
 	})
 }
 
@@ -1056,8 +1068,8 @@ func AssignChannelPsiphon(c *gin.Context) {
 		common.ApiErrorMsg(c, "channel not found")
 		return
 	}
-	if ch.Type != constant.ChannelTypeOpenCode {
-		common.ApiErrorMsg(c, "Psiphon is only supported for OpenCode channels")
+	if !isPsiphonSupportedChannel(ch.Type) {
+		common.ApiErrorMsg(c, "Psiphon is only supported for anonymous channels (OpenCode, Kilo Code, OHVCloud)")
 		return
 	}
 	if assignedCount, cErr := model.CountProxyPoolChannelAssignments(id); cErr == nil && assignedCount > 0 {

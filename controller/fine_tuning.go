@@ -144,6 +144,7 @@ func CancelFineTuningJob(c *gin.Context) {
 		c.JSON(http.StatusOK, service.FormatOpenAIFineTuningJob(job))
 		return
 	}
+	service.CancelFineTuningJobRunner(jobID)
 	_ = service.ApplyFineTuningWorkerCallback(job, "cancelled", "", "", job.TrainedTokens)
 	updated, _ := model.GetFineTuningJobByJobID(jobID)
 	if updated != nil {
@@ -202,25 +203,31 @@ func UserListFineTuningJobs(c *gin.Context) {
 		return
 	}
 	for i := range jobs {
-		if jobs[i].ModelFilePath != "" {
-			if _, statErr := os.Stat(jobs[i].ModelFilePath); statErr == nil {
+		jobs[i].HasModelFile = false
+		if jobs[i].Status == "succeeded" {
+			if jobs[i].ModelFilePath != "" {
+				if _, statErr := os.Stat(jobs[i].ModelFilePath); statErr == nil {
+					jobs[i].HasModelFile = true
+				}
+			} else {
 				jobs[i].HasModelFile = true
 			}
-		}
-		if !jobs[i].HasModelFile && jobs[i].Status == "succeeded" {
-			jobs[i].HasModelFile = true
 		}
 	}
 	pricePerSec, gpuMultipliers := service.GetFineTuningPricing()
 	gpuOptions := service.GetFineTuningGPUOptions()
+	colabNormalMult, colabHighMult := service.GetColabRAMMultipliers()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":          service.IsFineTuningEnabled(),
-			"price_per_second": pricePerSec,
-			"gpu_multipliers":  gpuMultipliers,
-			"gpu_options":      gpuOptions,
-			"jobs":             jobs,
+			"enabled":                      service.IsFineTuningEnabled(),
+			"price_per_second":             pricePerSec,
+			"gpu_multipliers":              gpuMultipliers,
+			"gpu_options":                  gpuOptions,
+			"colab_enabled":                service.IsColabDeploymentEnabled(),
+			"colab_normal_ram_multiplier":  colabNormalMult,
+			"colab_high_ram_multiplier":    colabHighMult,
+			"jobs":                         jobs,
 		},
 	})
 }
@@ -231,7 +238,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, modelSource, modelSourceURL string
+	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, taskType, ramTier, modelSource, modelSourceURL string
 	epochs := 3
 	estimatedSec := int64(300)
 
@@ -244,6 +251,8 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		provider = strings.TrimSpace(c.PostForm("provider"))
 		suffix = strings.TrimSpace(c.PostForm("suffix"))
 		method = strings.ToLower(strings.TrimSpace(c.PostForm("method")))
+		taskType = strings.ToLower(strings.TrimSpace(c.PostForm("task_type")))
+		ramTier = strings.ToLower(strings.TrimSpace(c.PostForm("ram_tier")))
 		modelSource = strings.ToLower(strings.TrimSpace(c.PostForm("model_source")))
 		modelSourceURL = strings.TrimSpace(c.PostForm("model_url"))
 		if ep, err := strconv.Atoi(c.PostForm("epochs")); err == nil && ep > 0 && ep <= 50 {
@@ -261,6 +270,8 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			Provider         string `json:"provider"`
 			Suffix           string `json:"suffix"`
 			Method           string `json:"method"`
+			TaskType         string `json:"task_type"`
+			RamTier          string `json:"ram_tier"`
 			ModelSource      string `json:"model_source"`
 			ModelURL         string `json:"model_url"`
 			Epochs           int    `json:"epochs"`
@@ -277,6 +288,8 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		provider = strings.TrimSpace(req.Provider)
 		suffix = strings.TrimSpace(req.Suffix)
 		method = strings.ToLower(strings.TrimSpace(req.Method))
+		taskType = strings.ToLower(strings.TrimSpace(req.TaskType))
+		ramTier = strings.ToLower(strings.TrimSpace(req.RamTier))
 		modelSource = strings.ToLower(strings.TrimSpace(req.ModelSource))
 		modelSourceURL = strings.TrimSpace(req.ModelURL)
 		if req.Epochs > 0 && req.Epochs <= 50 {
@@ -287,8 +300,16 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		}
 	}
 
+	switch taskType {
+	case "text", "image", "audio", "vision":
+	default:
+		taskType = "text"
+	}
+	if ramTier != "high" {
+		ramTier = "normal"
+	}
 	switch method {
-	case "lora", "qlora", "sft", "dpo", "full":
+	case "lora", "qlora", "sft", "dpo", "dreambooth", "textual_inversion", "full":
 	default:
 		method = "lora"
 	}
@@ -326,11 +347,17 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		}
 		if fh, fErr := c.FormFile("file"); fErr == nil && fh != nil {
 			if err := os.MkdirAll(storageDir, 0o755); err == nil {
-				dst := filepath.Join(storageDir, "train.jsonl")
+				ext := strings.ToLower(filepath.Ext(fh.Filename))
+				switch ext {
+				case ".jsonl", ".json", ".parquet", ".csv", ".zip", ".tar", ".gz", ".txt":
+				default:
+					ext = ".jsonl"
+				}
+				dst := filepath.Join(storageDir, "train"+ext)
 				if src, oErr := fh.Open(); oErr == nil {
 					if out, cErr := os.Create(dst); cErr == nil {
 						// Stream directly to disk so large multi-million-row datasets never exhaust memory
-						_, _ = io.Copy(out, io.LimitReader(src, 512<<20))
+						_, _ = io.Copy(out, io.LimitReader(src, 1024<<20))
 						_ = out.Close()
 						trainingFilePath = dst
 						if trainingFile == "" {
@@ -382,15 +409,20 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 
+	if estimatedSec <= 0 {
+		estimatedSec = int64(epochs) * 120
+	}
 	hyperBytes, _ := common.Marshal(map[string]any{
 		"n_epochs":     epochs,
 		"suffix":       suffix,
 		"method":       method,
+		"task_type":    taskType,
+		"ram_tier":     ramTier,
 		"model_source": modelSource,
 		"model_url":    modelSourceURL,
 	})
 	now := time.Now().Unix()
-	estCost := service.EstimateFineTuningCostUSD(gpu, estimatedSec)
+	estCost := service.EstimateFineTuningCostUSDWithRAM(gpu, ramTier, estimatedSec)
 	ftName := "ft:" + baseModel
 	if suffix != "" {
 		ftName = ftName + ":" + suffix
@@ -411,6 +443,8 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		Provider:          provider,
 		GPU:               gpu,
 		Method:            method,
+		TaskType:          taskType,
+		RamTier:           ramTier,
 		ModelSource:       modelSource,
 		ModelSourceURL:    modelSourceURL,
 		DurationSeconds:   estimatedSec,
@@ -423,6 +457,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	service.StartFineTuningJobRunner(job.JobID)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": job})
 }
 
@@ -435,10 +470,33 @@ func UserCancelFineTuningJob(c *gin.Context) {
 		return
 	}
 	if job.Status != "succeeded" && job.Status != "failed" && job.Status != "cancelled" {
+		service.CancelFineTuningJobRunner(jobID)
 		_ = service.ApplyFineTuningWorkerCallback(job, "cancelled", "", "", job.TrainedTokens)
 	}
 	updated, _ := model.GetFineTuningJobByJobID(jobID)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
+}
+
+func UserGetFineTuningJobLogs(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"job_id":           job.JobID,
+			"fine_tuned_model": job.FineTunedModel,
+			"status":           job.Status,
+			"progress":         job.Progress,
+			"trained_tokens":   job.TrainedTokens,
+			"error":            job.Error,
+			"logs":             service.ReadFineTuningJobLogs(job.JobID),
+		},
+	})
 }
 
 func UserDownloadFineTuningModel(c *gin.Context) {
@@ -447,6 +505,10 @@ func UserDownloadFineTuningModel(c *gin.Context) {
 	job, err := model.GetFineTuningJobByJobID(jobID)
 	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		return
+	}
+	if job.Status != "succeeded" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Model is not ready for download yet; training must complete first"})
 		return
 	}
 	if job.ModelFilePath != "" {

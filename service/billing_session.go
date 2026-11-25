@@ -167,6 +167,20 @@ func (s *BillingSession) GetPreConsumedQuota() int {
 	return s.preConsumedQuota
 }
 
+// ReferralConsumedQuota returns the portion of quota funded by promotional
+// referral credits so users.used_quota reflects only real wallet spend.
+func (s *BillingSession) ReferralConsumedQuota() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if wallet, ok := s.funding.(*WalletFunding); ok && wallet.referralConsumed > 0 {
+		return wallet.referralConsumed
+	}
+	return 0
+}
+
 func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

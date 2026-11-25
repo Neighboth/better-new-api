@@ -207,6 +207,14 @@ export interface ProxyChannelDetailData {
   cooldowns: Record<string, number>
   events: ProxyPoolEvent[]
   global_events: ProxyPoolEvent[]
+  psiphon?: {
+    enabled: boolean
+    status: string
+    proxy_url?: string
+    egress_ip?: string
+    region?: string
+    last_error?: string
+  }
 }
 
 export async function getChannelDetail(

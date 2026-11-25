@@ -580,7 +580,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                       key={idx}
                       className='grid grid-cols-12 items-center gap-2 rounded-lg border bg-muted/20 p-2.5'
                     >
-                      <div className='col-span-3 sm:col-span-1'>
+                      <div className='col-span-3 sm:col-span-2'>
                         <Input
                           placeholder='🇺🇸'
                           title={t('Currency Icon')}
@@ -597,7 +597,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                           className='h-8 px-1.5 text-center text-sm'
                         />
                       </div>
-                      <div className='col-span-4 sm:col-span-2'>
+                      <div className='col-span-5 sm:col-span-3'>
                         <Input
                           placeholder='USD'
                           value={item.code}
@@ -616,7 +616,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                           className='h-8 font-mono text-xs'
                         />
                       </div>
-                      <div className='col-span-5 sm:col-span-1'>
+                      <div className='col-span-4 sm:col-span-2'>
                         <Input
                           placeholder='$'
                           value={item.symbol}
@@ -630,22 +630,6 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                             )
                           }}
                           className='h-8 text-center text-xs'
-                        />
-                      </div>
-                      <div className='col-span-6 sm:col-span-3'>
-                        <Input
-                          placeholder={t('Display Name')}
-                          value={item.name ?? ''}
-                          onChange={(e) => {
-                            const next = [...displayCurrencies]
-                            next[idx] = { ...next[idx], name: e.target.value }
-                            form.setValue(
-                              'general_setting.display_currencies',
-                              next,
-                              { shouldDirty: true }
-                            )
-                          }}
-                          className='h-8 text-xs'
                         />
                       </div>
                       <div className='col-span-6 sm:col-span-2'>

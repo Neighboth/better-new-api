@@ -34,8 +34,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatNumber } from '@/lib/format'
+import {
+  formatCurrencyFromUSD,
+  getActiveDisplayExchangeRate,
+  getCurrencySymbol,
+} from '@/lib/currency'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   formatCurrency,
@@ -114,20 +119,40 @@ export function RechargeFormCard({
   enableWaffoPancakeTopup,
 }: RechargeFormCardProps) {
   const { t } = useTranslation()
-  const [localAmount, setLocalAmount] = useState(topupAmount.toString())
+  // Subscribe to currency store so switching display currency updates the wallet immediately
+  const currencyConfig = useSystemConfigStore((s) => s.config.currency)
+  const activeCurrencySymbol = getCurrencySymbol() || '$'
+  const activeDisplayRate = getActiveDisplayExchangeRate()
+  const formatInputAmount = (usdVal: number) => {
+    const converted = usdVal * activeDisplayRate
+    if (!Number.isFinite(converted)) return '0'
+    return Number(converted.toFixed(4)).toString()
+  }
+  const [localAmount, setLocalAmount] = useState(() =>
+    formatInputAmount(topupAmount)
+  )
+  void currencyConfig
 
   useEffect(() => {
     // Empty string must survive, otherwise the field can never be cleared
-    setLocalAmount((prev) =>
-      prev === '' && topupAmount === 0 ? prev : topupAmount.toString()
-    )
-  }, [topupAmount])
+    setLocalAmount((prev) => {
+      if (prev === '' && topupAmount === 0) return prev
+      const parsedPrev = Number.parseFloat(prev)
+      if (
+        Number.isFinite(parsedPrev) &&
+        Math.abs(parsedPrev / activeDisplayRate - topupAmount) < 1e-6
+      ) {
+        return prev
+      }
+      return formatInputAmount(topupAmount)
+    })
+  }, [topupAmount, activeDisplayRate])
 
   const handleAmountChange = (value: string) => {
     setLocalAmount(value)
     const numValue = Number.parseFloat(value) || 0
     if (numValue >= 0) {
-      onTopupAmountChange(numValue)
+      onTopupAmountChange(numValue / activeDisplayRate)
     }
   }
 
@@ -236,7 +261,6 @@ export function RechargeFormCard({
                         topupInfo?.discount?.[preset.value] ||
                         1.0
                       const {
-                        displayValue,
                         actualPrice,
                         savedAmount,
                         hasDiscount,
@@ -260,7 +284,7 @@ export function RechargeFormCard({
                         >
                           <div className='flex w-full items-center justify-between'>
                             <div className='text-base font-semibold sm:text-lg'>
-                              {formatNumber(displayValue)}
+                              {formatCurrencyFromUSD(preset.value)}
                             </div>
                             {hasDiscount && (
                               <div className='text-xs font-medium text-green-600'>
@@ -302,7 +326,7 @@ export function RechargeFormCard({
                       aria-hidden='true'
                       className='text-muted-foreground pointer-events-none absolute left-3 text-base font-medium sm:text-lg'
                     >
-                      $
+                      {activeCurrencySymbol}
                     </span>
                     <Input
                       id='topup-amount'
@@ -310,10 +334,15 @@ export function RechargeFormCard({
                       step='any'
                       value={localAmount}
                       onChange={(e) => handleAmountChange(e.target.value)}
-                      min={minTopup}
-                      max={MAX_SAFE_TOPUP_AMOUNT}
-                      placeholder={t('Minimum {{amount}}', { amount: minTopup })}
-                      className='h-9 pl-7 text-base sm:h-10 sm:pl-8 sm:text-lg'
+                      min={Number((minTopup * activeDisplayRate).toFixed(4))}
+                      max={Number((MAX_SAFE_TOPUP_AMOUNT * activeDisplayRate).toFixed(2))}
+                      placeholder={t('Minimum {{amount}}', {
+                        amount: formatCurrencyFromUSD(minTopup),
+                      })}
+                      style={{
+                        paddingLeft: `${Math.max(2, activeCurrencySymbol.length * 0.65 + 1.25)}rem`,
+                      }}
+                      className='h-9 text-base sm:h-10 sm:text-lg'
                     />
                   </div>
                   <div className='bg-muted/30 flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>

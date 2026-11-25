@@ -280,6 +280,14 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	if ctx.GetBool(common.WalletTransferHoldRetainContextKey) {
+		// A previous realtime adjustment may have committed without an
+		// acknowledgement. Do not issue another, potentially duplicate debit.
+		logger.LogError(ctx, "realtime billing requires reconciliation; final settlement skipped")
+	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+		logger.LogError(ctx, "error settling billing: "+err.Error())
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -289,16 +297,14 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
 			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, modelName, relayInfo.FinalPreConsumedQuota))
 	} else {
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
+		userUsedDelta := quota
+		if bs, ok := relayInfo.Billing.(*BillingSession); ok {
+			if ref := bs.ReferralConsumedQuota(); ref > 0 {
+				userUsedDelta = max(0, quota-ref)
+			}
+		}
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, userUsedDelta)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
-	}
-
-	if ctx.GetBool(common.WalletTransferHoldRetainContextKey) {
-		// A previous realtime adjustment may have committed without an
-		// acknowledgement. Do not issue another, potentially duplicate debit.
-		logger.LogError(ctx, "realtime billing requires reconciliation; final settlement skipped")
-	} else if err := SettleBilling(ctx, relayInfo, quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
 	logModel := relayInfo.RequestedModelName
@@ -413,6 +419,10 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
+		logger.LogError(ctx, "error settling billing: "+err.Error())
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -422,12 +432,14 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
 			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, relayInfo.OriginModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
+		userUsedDelta := quota
+		if bs, ok := relayInfo.Billing.(*BillingSession); ok {
+			if ref := bs.ReferralConsumedQuota(); ref > 0 {
+				userUsedDelta = max(0, quota-ref)
+			}
+		}
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, userUsedDelta)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
-	}
-
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
 	logModel := relayInfo.RequestedModelName

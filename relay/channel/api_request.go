@@ -556,7 +556,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon || info.ChannelType == rootconstant.ChannelTypeOHVCloudAnon)
 	isLocalhost := info != nil && (strings.Contains(info.ChannelBaseUrl, "localhost") || strings.Contains(info.ChannelBaseUrl, "127.0.0.1"))
 	usingPsiphon := false
-	if info != nil && info.ChannelType == rootconstant.ChannelTypeOpenCode && !isLocalhost {
+	if isAnonChannel && !isLocalhost {
 		if psiphonURL, ok := service.GetPsiphonProxyURL(info.ChannelId); ok && psiphonURL != "" {
 			rawProxyURL = psiphonURL
 			usingPsiphon = true
@@ -646,12 +646,17 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 				break
 			}
 			req.Body = newBody
-			// Mint fresh session/request IDs so upstream treats the new IP as a fresh session
-			freshSes := "ses_" + strings.ReplaceAll(common2.GetUUID(), "-", "")[:26]
-			freshMsg := "msg_" + strings.ReplaceAll(common2.GetUUID(), "-", "")[:26]
-			req.Header.Set("x-opencode-session", freshSes)
-			req.Header.Set("x-opencode-request", freshMsg)
-			req.Header.Set("x-session-affinity", freshSes)
+			if info.ChannelType == rootconstant.ChannelTypeOpenCode {
+				// Mint fresh v2 session/project IDs so upstream treats the new IP as a fresh session
+				freshSes := "ses_" + strings.ReplaceAll(common2.GetUUID(), "-", "")[:26]
+				freshProj := strings.ReplaceAll(common2.GetUUID(), "-", "") + strings.ReplaceAll(common2.GetUUID(), "-", "")[:8]
+				req.Header.Set("x-opencode-session", freshSes)
+				req.Header.Set("x-opencode-session-id", freshSes)
+				req.Header.Set("x-session-affinity", freshSes)
+				req.Header.Set("X-Session-Id", freshSes)
+				req.Header.Set("x-opencode-project", freshProj)
+				req.Header.Del("x-opencode-request")
+			}
 
 			retryClient, clientErr := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
 			if clientErr != nil {

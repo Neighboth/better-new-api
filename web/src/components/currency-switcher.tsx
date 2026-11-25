@@ -33,7 +33,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 export function CurrencySwitcher() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
   const setUser = useAuthStore((s) => s.auth.setUser)
   const displayCurrencies = useSystemConfigStore(
@@ -50,6 +50,8 @@ export function CurrencySwitcher() {
     async (code: string) => {
       const normalized = code.toUpperCase()
       setSelectedCurrencyCode(normalized)
+      // Trigger immediate in-place re-render of all translated views without reloading the page
+      i18n.emit('languageChanged', i18n.language)
       if (user) {
         try {
           const parsedSetting =
@@ -66,7 +68,7 @@ export function CurrencySwitcher() {
         }
       }
     },
-    [setSelectedCurrencyCode, setUser, user]
+    [i18n, setSelectedCurrencyCode, setUser, user]
   )
 
   if (!displayCurrencies || displayCurrencies.length <= 1) {
@@ -95,7 +97,7 @@ export function CurrencySwitcher() {
         <Coins aria-hidden='true' className='h-4 w-4' />
         <span className='sr-only'>{t('Display Currency')}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end' className='min-w-[180px]'>
+      <DropdownMenuContent align='end' className='min-w-[140px]'>
         {displayCurrencies.map((option) => {
           const isSelected =
             option.code.toUpperCase() === active.code.toUpperCase()
@@ -107,11 +109,7 @@ export function CurrencySwitcher() {
               <span aria-hidden='true' className='me-2 text-base leading-none'>
                 {option.icon || option.symbol || option.code}
               </span>
-              <span>
-                {option.name
-                  ? `${option.code} · ${option.name}`
-                  : `${option.code}${option.symbol ? ` (${option.symbol})` : ''}`}
-              </span>
+              <span>{option.code}</span>
               <Check
                 size={14}
                 className={cn('ms-auto', !isSelected && 'hidden')}

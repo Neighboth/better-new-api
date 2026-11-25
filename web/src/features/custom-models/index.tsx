@@ -25,12 +25,14 @@ import {
   Plus,
   Search,
   Square,
+  Terminal,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   HfModelPickerDialog,
   type HfPickedModel,
@@ -73,10 +75,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
 import { formatCurrencyFromUSD } from '@/lib/currency'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 interface FineTuningGPUOption {
   id: string
   label: string
+  kind?: 'cpu' | 'gpu' | 'tpu'
+  providers?: string[]
+  supports_colab_ram?: boolean
   price_per_second: number
   enabled: boolean
 }
@@ -88,11 +94,14 @@ interface FineTuningJobItem {
   fine_tuned_model: string
   training_file: string
   status: string
+  progress?: number
   trained_tokens: number
   error?: string
   provider?: string
   gpu?: string
   method?: string
+  task_type?: string
+  ram_tier?: string
   model_source?: string
   duration_seconds: number
   estimated_cost_usd: number
@@ -106,7 +115,20 @@ interface FineTuningListResponse {
   price_per_second: number
   gpu_multipliers: Record<string, number>
   gpu_options?: FineTuningGPUOption[]
+  colab_enabled?: boolean
+  colab_normal_ram_multiplier?: number
+  colab_high_ram_multiplier?: number
   jobs: FineTuningJobItem[]
+}
+
+interface FineTuningLogsResponse {
+  job_id: string
+  fine_tuned_model: string
+  status: string
+  progress: number
+  trained_tokens: number
+  error?: string
+  logs: string
 }
 
 interface UserModelAlias {
@@ -118,21 +140,113 @@ interface UserModelAlias {
   updated_at: number
 }
 
-const FINE_TUNING_METHODS = [
-  { id: 'lora', label: 'LoRA (Low-Rank Adaptation)' },
-  { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
-  { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
-  { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
-  { id: 'full', label: 'Full Fine-Tuning' },
-] as const
+type FineTuningTaskType = 'text' | 'image' | 'audio' | 'vision'
+
+const TASK_TYPE_CONFIG: Record<
+  FineTuningTaskType,
+  {
+    labelKey: string
+    methods: Array<{ id: string; label: string }>
+    datasetAccept: string
+    datasetHintKey: string
+    modelAccept: string
+  }
+> = {
+  text: {
+    labelKey: 'Text / LLM',
+    methods: [
+      { id: 'lora', label: 'LoRA (Low-Rank Adaptation)' },
+      { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
+      { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
+      { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
+      { id: 'full', label: 'Full Fine-Tuning' },
+    ],
+    datasetAccept: '.jsonl,.json,.parquet,.csv',
+    datasetHintKey:
+      'Supported: JSONL (OpenAI chat/messages), JSON, Parquet, or CSV',
+    modelAccept: '.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz',
+  },
+  image: {
+    labelKey: 'Image / Diffusion',
+    methods: [
+      { id: 'lora', label: 'LoRA (Style / Character Adapter)' },
+      { id: 'dreambooth', label: 'DreamBooth (Subject Fine-Tuning)' },
+      { id: 'textual_inversion', label: 'Textual Inversion (Token Embedding)' },
+      { id: 'full', label: 'Full UNet / Checkpoint Fine-Tuning' },
+    ],
+    datasetAccept: '.zip,.tar,.gz,.parquet',
+    datasetHintKey:
+      'Supported: ZIP/TAR archive with images + matching .txt/.jsonl captions, or Parquet',
+    modelAccept: '.safetensors,.ckpt,.bin,.pt,.zip,.tar,.gz',
+  },
+  audio: {
+    labelKey: 'Audio / Speech',
+    methods: [
+      { id: 'lora', label: 'LoRA (Voice / Acoustic Adapter)' },
+      { id: 'full', label: 'Full Fine-Tuning' },
+    ],
+    datasetAccept: '.zip,.tar,.gz,.jsonl,.parquet,.csv',
+    datasetHintKey:
+      'Supported: ZIP/TAR audio clips + metadata.jsonl/csv, or Parquet',
+    modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
+  },
+  vision: {
+    labelKey: 'Vision / Multimodal',
+    methods: [
+      { id: 'lora', label: 'LoRA (Vision-Language Adapter)' },
+      { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
+      { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
+      { id: 'full', label: 'Full Fine-Tuning' },
+    ],
+    datasetAccept: '.jsonl,.json,.zip,.parquet',
+    datasetHintKey:
+      'Supported: JSONL/JSON multimodal conversations, ZIP (images + metadata.jsonl), or Parquet',
+    modelAccept: '.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz',
+  },
+}
+
+const KNOWN_HW_LABELS: Record<string, string> = {
+  CPU: 'CPU (Standard)',
+  'cpu-basic': 'CPU: Basic (x2)',
+  'cpu-upgrade': 'CPU: Upgrade (x4)',
+  T4: 'GPU: NVIDIA T4 (16GB)',
+  't4-small': 'GPU: NVIDIA T4 Small (16GB)',
+  't4-medium': 'GPU: NVIDIA T4 Medium',
+  NVIDIA_TESLA_T4: 'GPU: NVIDIA Tesla T4 (16GB)',
+  NvidiaTeslaT4: 'GPU: NVIDIA Tesla T4 x2',
+  L4: 'GPU: NVIDIA L4 (24GB)',
+  l4x1: 'GPU: NVIDIA L4 x1 (24GB)',
+  NVIDIA_L4: 'GPU: NVIDIA L4 (24GB)',
+  NvidiaL4: 'GPU: NVIDIA L4',
+  A10G: 'GPU: NVIDIA A10G (24GB)',
+  NVIDIA_A10G: 'GPU: NVIDIA A10G (24GB)',
+  NVIDIA_TESLA_A100: 'GPU: NVIDIA A100 (40GB)',
+  NVIDIA_TESLA_A100_80GB: 'GPU: NVIDIA A100 (80GB)',
+  'A100-40GB': 'GPU: NVIDIA A100 (40GB)',
+  'A100-80GB': 'GPU: NVIDIA A100 (80GB)',
+  NVIDIA_H100_80GB: 'GPU: NVIDIA H100 (80GB)',
+  H100: 'GPU: NVIDIA H100 (80GB)',
+  H200: 'GPU: NVIDIA H200 SXM (141GB)',
+  B200: 'GPU: NVIDIA B200 (180GB)',
+  B300: 'GPU: NVIDIA B300 (262GB)',
+  TPU_V2_8: 'TPU: v2-8',
+  TPU_V5E_1: 'TPU: v5e-1',
+  TPU_V6E_1: 'TPU: v6e-1',
+  TpuV5E8: 'TPU: v5e-8',
+  TpuV6E8: 'TPU: v6e-8',
+}
 
 export function CustomModelsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  // Subscribe to currency store so switching currency updates all cost displays instantly
+  const currencyConfig = useSystemConfigStore((s) => s.config.currency)
+  void currencyConfig
 
   // Fine-tuning state
   const [ftCreateOpen, setFtCreateOpen] = useState(false)
   const [hfPickerOpen, setHfPickerOpen] = useState(false)
+  const [ftTaskType, setFtTaskType] = useState<FineTuningTaskType>('text')
   const [ftModelSource, setFtModelSource] = useState<
     'huggingface' | 'url' | 'upload'
   >('huggingface')
@@ -142,8 +256,15 @@ export function CustomModelsPage() {
   const [ftMethod, setFtMethod] = useState<string>('lora')
   const [ftSuffix, setFtSuffix] = useState('')
   const [ftGpu, setFtGpu] = useState('')
+  const [ftRamTier, setFtRamTier] = useState<'normal' | 'high'>('normal')
   const [ftEpochs, setFtEpochs] = useState(3)
   const [ftFile, setFtFile] = useState<File | null>(null)
+  const [deleteFtTarget, setDeleteFtTarget] =
+    useState<FineTuningJobItem | null>(null)
+  const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
+  const consoleEndRef = useRef<HTMLDivElement | null>(null)
+  const consoleViewportRef = useRef<HTMLPreElement | null>(null)
+  const stickToBottomRef = useRef(true)
 
   // Auto model alias state
   const [aliasDialogOpen, setAliasDialogOpen] = useState(false)
@@ -151,6 +272,8 @@ export function CustomModelsPage() {
   const [aliasName, setAliasName] = useState('')
   const [targetModel, setTargetModel] = useState('')
   const [aliasDesc, setAliasDesc] = useState('')
+  const [deleteAliasTarget, setDeleteAliasTarget] =
+    useState<UserModelAlias | null>(null)
 
   const ftQuery = useQuery({
     queryKey: ['user-fine-tuning-jobs'],
@@ -165,16 +288,56 @@ export function CustomModelsPage() {
           price_per_second: 0.002,
           gpu_multipliers: {},
           gpu_options: [],
+          colab_enabled: false,
+          colab_normal_ram_multiplier: 1,
+          colab_high_ram_multiplier: 1.5,
           jobs: [],
         }
       )
     },
-    refetchInterval: 5000,
+    refetchInterval: 3000,
   })
 
-  const enabledGpuOptions = (ftQuery.data?.gpu_options ?? []).filter(
-    (g) => g.enabled
+  const consoleLogsQuery = useQuery({
+    queryKey: ['user-fine-tuning-logs', consoleJob?.job_id],
+    queryFn: async () => {
+      if (!consoleJob) return null
+      const res = await api.get<{
+        success: boolean
+        data?: FineTuningLogsResponse
+      }>(`/api/user/fine_tuning/jobs/${consoleJob.job_id}/logs`)
+      return res.data?.data ?? null
+    },
+    enabled: Boolean(consoleJob),
+    refetchInterval: 2000,
+  })
+
+  useEffect(() => {
+    if (consoleJob && stickToBottomRef.current && consoleEndRef.current) {
+      consoleEndRef.current.scrollIntoView({ behavior: 'auto' })
+    }
+  }, [consoleLogsQuery.data?.logs, consoleJob])
+
+  const allGpuOptions = ftQuery.data?.gpu_options ?? []
+  const enabledGpuOptions = useMemo(
+    () => allGpuOptions.filter((g) => g.enabled),
+    [allGpuOptions]
   )
+
+  const gpuLabelMap = useMemo(() => {
+    const map: Record<string, string> = { ...KNOWN_HW_LABELS }
+    for (const opt of allGpuOptions) {
+      if (opt.id && opt.label) {
+        map[opt.id] = opt.label
+      }
+    }
+    return map
+  }, [allGpuOptions])
+
+  const formatHardwareLabel = (id?: string) => {
+    if (!id) return '—'
+    return gpuLabelMap[id] || id
+  }
 
   useEffect(() => {
     if (
@@ -184,6 +347,14 @@ export function CustomModelsPage() {
       setFtGpu(enabledGpuOptions[0].id)
     }
   }, [enabledGpuOptions, ftGpu])
+
+  // Keep method valid when task type switches
+  useEffect(() => {
+    const allowed = TASK_TYPE_CONFIG[ftTaskType].methods
+    if (!allowed.some((m) => m.id === ftMethod)) {
+      setFtMethod(allowed[0].id)
+    }
+  }, [ftTaskType, ftMethod])
 
   const aliasesQuery = useQuery({
     queryKey: ['user-model-aliases'],
@@ -206,14 +377,33 @@ export function CustomModelsPage() {
     staleTime: 60 * 1000,
   })
 
+  const selectedGpuObj = enabledGpuOptions.find((g) => g.id === ftGpu)
+  const showColabRamSelector = Boolean(selectedGpuObj?.supports_colab_ram)
+  const colabNormalMult = ftQuery.data?.colab_normal_ram_multiplier ?? 1
+  const colabHighMult = ftQuery.data?.colab_high_ram_multiplier ?? 1.5
+  const activeRamMultiplier = showColabRamSelector
+    ? ftRamTier === 'high'
+      ? colabHighMult
+      : colabNormalMult
+    : 1
+  const estimatedDurationSeconds = Math.max(60, ftEpochs * 120)
+  const effectivePricePerSecond =
+    (selectedGpuObj?.price_per_second ?? 0.0015) * activeRamMultiplier
+  const estimatedRatePerMin = effectivePricePerSecond * 60
+  const estimatedTotalCostUSD =
+    effectivePricePerSecond * estimatedDurationSeconds
+
   const createFtMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData()
+      formData.append('task_type', ftTaskType)
       formData.append('model_source', ftModelSource)
       formData.append('method', ftMethod)
       formData.append('suffix', ftSuffix.trim())
       formData.append('gpu', ftGpu)
+      formData.append('ram_tier', showColabRamSelector ? ftRamTier : 'normal')
       formData.append('epochs', String(ftEpochs))
+      formData.append('estimated_seconds', String(estimatedDurationSeconds))
       if (ftModelSource === 'huggingface') {
         formData.append('model', ftBaseModel.trim())
       } else if (ftModelSource === 'url') {
@@ -226,8 +416,9 @@ export function CustomModelsPage() {
       if (ftFile) {
         formData.append('file', ftFile)
       }
+      // Do NOT set manual Content-Type; let the browser set multipart/form-data with its boundary!
       const res = await api.post('/api/user/fine_tuning/jobs', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': undefined },
       })
       if (!res.data?.success) {
         throw new Error(
@@ -280,6 +471,7 @@ export function CustomModelsPage() {
     },
     onSuccess: () => {
       toast.success(t('Fine-tuning model deleted'))
+      setDeleteFtTarget(null)
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
@@ -327,6 +519,7 @@ export function CustomModelsPage() {
     },
     onSuccess: () => {
       toast.success(t('Auto model deleted'))
+      setDeleteAliasTarget(null)
       void queryClient.invalidateQueries({ queryKey: ['user-model-aliases'] })
       void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
     },
@@ -359,10 +552,13 @@ export function CustomModelsPage() {
           responseType: 'blob',
         }
       )
+      const disposition = String(res.headers?.['content-disposition'] ?? '')
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+      const filename = filenameMatch?.[1] || `${jobId}-model.tar.gz`
       const url = window.URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
-      a.download = `${jobId}-model.json`
+      a.download = filename
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -376,13 +572,19 @@ export function CustomModelsPage() {
     setFtBaseModel(
       picked.filename ? `${picked.repoId}/${picked.filename}` : picked.repoId
     )
+    if (picked.taskType === 'image') {
+      setFtTaskType('image')
+    } else if (picked.taskType === 'audio') {
+      setFtTaskType('audio')
+    } else {
+      setFtTaskType('text')
+    }
     setHfPickerOpen(false)
   }
 
   const ftData = ftQuery.data
   const fineTuningEnabled = Boolean(ftData?.enabled)
-  const selectedGpuObj = enabledGpuOptions.find((g) => g.id === ftGpu)
-  const estimatedRatePerMin = (selectedGpuObj?.price_per_second ?? 0.0015) * 60
+  const taskCfg = TASK_TYPE_CONFIG[ftTaskType]
 
   const hasValidModelInput =
     ftModelSource === 'huggingface'
@@ -391,12 +593,18 @@ export function CustomModelsPage() {
         ? Boolean(ftModelUrl.trim())
         : Boolean(ftModelFile)
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, progress?: number) => {
     switch (status) {
       case 'succeeded':
         return <Badge variant='default'>{t('Succeeded')}</Badge>
       case 'running':
-        return <Badge variant='secondary'>{t('Running')}</Badge>
+        return (
+          <Badge variant='secondary'>
+            {progress && progress > 0
+              ? `${t('Running')} (${progress}%)`
+              : t('Running')}
+          </Badge>
+        )
       case 'queued':
         return <Badge variant='outline'>{t('Queued')}</Badge>
       case 'cancelled':
@@ -485,7 +693,7 @@ export function CustomModelsPage() {
                           size='icon'
                           className='text-destructive hover:text-destructive'
                           title={t('Delete')}
-                          onClick={() => deleteAliasMutation.mutate(item.id)}
+                          onClick={() => setDeleteAliasTarget(item)}
                         >
                           <Trash2 className='h-4 w-4' />
                         </Button>
@@ -531,7 +739,7 @@ export function CustomModelsPage() {
                 <TableHead>{t('Model')}</TableHead>
                 <TableHead>{t('Base Model')}</TableHead>
                 <TableHead>{t('Method')}</TableHead>
-                <TableHead>{t('GPU')}</TableHead>
+                <TableHead>{t('Accelerator')}</TableHead>
                 <TableHead>{t('Status')}</TableHead>
                 <TableHead>{t('Estimated Cost')}</TableHead>
                 <TableHead className='text-right'>{t('Actions')}</TableHead>
@@ -564,17 +772,40 @@ export function CustomModelsPage() {
                     </TableCell>
                     <TableCell className='text-sm'>{job.model}</TableCell>
                     <TableCell className='text-xs uppercase'>
-                      {job.method || 'lora'}
+                      <div>{job.method || 'lora'}</div>
+                      {job.task_type && (
+                        <div className='text-muted-foreground text-[10px] capitalize'>
+                          {job.task_type}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className='text-xs'>
-                      {job.gpu || 'NVIDIA_TESLA_T4'}
+                      <div>{formatHardwareLabel(job.gpu)}</div>
+                      {job.ram_tier === 'high' && (
+                        <div className='text-muted-foreground text-[10px]'>
+                          {t('High RAM')}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell>{renderStatusBadge(job.status)}</TableCell>
+                    <TableCell>
+                      {renderStatusBadge(job.status, job.progress)}
+                    </TableCell>
                     <TableCell className='text-sm tabular-nums'>
                       {formatCurrencyFromUSD(job.estimated_cost_usd)}
                     </TableCell>
                     <TableCell className='text-right'>
                       <div className='flex items-center justify-end gap-1'>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          title={t('View Console')}
+                          onClick={() => {
+                            stickToBottomRef.current = true
+                            setConsoleJob(job)
+                          }}
+                        >
+                          <Terminal className='h-4 w-4' />
+                        </Button>
                         {(job.status === 'queued' ||
                           job.status === 'running') && (
                           <Button
@@ -586,20 +817,24 @@ export function CustomModelsPage() {
                             <Square className='h-4 w-4' />
                           </Button>
                         )}
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          title={t('Download')}
-                          onClick={() => void handleDownloadModel(job.job_id)}
-                        >
-                          <Download className='h-4 w-4' />
-                        </Button>
+                        {job.status === 'succeeded' && job.has_model_file && (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            title={t('Download')}
+                            onClick={() =>
+                              void handleDownloadModel(job.job_id)
+                            }
+                          >
+                            <Download className='h-4 w-4' />
+                          </Button>
+                        )}
                         <Button
                           variant='ghost'
                           size='icon'
                           className='text-destructive hover:text-destructive'
                           title={t('Delete')}
-                          onClick={() => deleteFtMutation.mutate(job.job_id)}
+                          onClick={() => setDeleteFtTarget(job)}
                         >
                           <Trash2 className='h-4 w-4' />
                         </Button>
@@ -651,7 +886,7 @@ export function CustomModelsPage() {
 
       {/* Create Fine-Tuning Job Dialog */}
       <Dialog open={ftCreateOpen} onOpenChange={setFtCreateOpen}>
-        <DialogContent className='sm:max-w-lg'>
+        <DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
           <DialogHeader>
             <DialogTitle>{t('New Fine-Tuning Job')}</DialogTitle>
             <DialogDescription>
@@ -661,24 +896,56 @@ export function CustomModelsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4 py-2'>
-            {/* Model Source */}
-            <div className='space-y-1.5'>
-              <Label>{t('Model Source')}</Label>
-              <Select
-                value={ftModelSource}
-                onValueChange={(v) =>
-                  setFtModelSource(v as 'huggingface' | 'url' | 'upload')
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='huggingface'>Hugging Face</SelectItem>
-                  <SelectItem value='url'>{t('Download from URL')}</SelectItem>
-                  <SelectItem value='upload'>{t('Upload Model File')}</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Task Type & Model Source */}
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label>{t('Task Type')}</Label>
+                <Select
+                  value={ftTaskType}
+                  onValueChange={(v) => setFtTaskType(v as FineTuningTaskType)}
+                >
+                  <SelectTrigger>
+                    <SelectValue>{t(taskCfg.labelKey)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(
+                      Object.keys(TASK_TYPE_CONFIG) as FineTuningTaskType[]
+                    ).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {t(TASK_TYPE_CONFIG[key].labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1.5'>
+                <Label>{t('Model Source')}</Label>
+                <Select
+                  value={ftModelSource}
+                  onValueChange={(v) =>
+                    setFtModelSource(v as 'huggingface' | 'url' | 'upload')
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue>
+                      {ftModelSource === 'huggingface'
+                        ? 'Hugging Face'
+                        : ftModelSource === 'url'
+                          ? t('Download from URL')
+                          : t('Upload Model File')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='huggingface'>Hugging Face</SelectItem>
+                    <SelectItem value='url'>
+                      {t('Download from URL')}
+                    </SelectItem>
+                    <SelectItem value='upload'>
+                      {t('Upload Model File')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {ftModelSource === 'huggingface' && (
@@ -720,24 +987,33 @@ export function CustomModelsPage() {
                 <Label>{t('Model File')}</Label>
                 <Input
                   type='file'
-                  accept='.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz'
+                  accept={taskCfg.modelAccept}
                   onChange={(e) =>
                     setFtModelFile(e.target.files?.[0] ?? null)
                   }
                 />
+                {ftModelFile && (
+                  <p className='text-muted-foreground text-xs'>
+                    {ftModelFile.name} (
+                    {(ftModelFile.size / (1024 * 1024)).toFixed(2)} MB)
+                  </p>
+                )}
               </div>
             )}
 
-            {/* Method + GPU */}
+            {/* Method + Accelerator */}
             <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
               <div className='space-y-1.5'>
                 <Label>{t('Fine-Tuning Method')}</Label>
                 <Select value={ftMethod} onValueChange={setFtMethod}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>
+                      {taskCfg.methods.find((m) => m.id === ftMethod)?.label ??
+                        ftMethod}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {FINE_TUNING_METHODS.map((m) => (
+                    {taskCfg.methods.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
                         {m.label}
                       </SelectItem>
@@ -746,21 +1022,52 @@ export function CustomModelsPage() {
                 </Select>
               </div>
               <div className='space-y-1.5'>
-                <Label>{t('GPU')}</Label>
+                <Label>{t('Accelerator')}</Label>
                 <Select value={ftGpu} onValueChange={setFtGpu}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>
+                      {selectedGpuObj
+                        ? selectedGpuObj.label
+                        : formatHardwareLabel(ftGpu)}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {enabledGpuOptions.map((g) => (
                       <SelectItem key={g.id} value={g.id}>
-                        {g.label} ({formatCurrencyFromUSD(g.price_per_second * 60)}/m)
+                        {g.label} (
+                        {formatCurrencyFromUSD(g.price_per_second * 60)}/m)
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
+            {showColabRamSelector && (
+              <div className='space-y-1.5'>
+                <Label>{t('RAM Tier')}</Label>
+                <Select
+                  value={ftRamTier}
+                  onValueChange={(v) => setFtRamTier(v as 'normal' | 'high')}
+                >
+                  <SelectTrigger>
+                    <SelectValue>
+                      {ftRamTier === 'high'
+                        ? `${t('High RAM')} (${colabHighMult}x)`
+                        : `${t('Normal RAM')} (${colabNormalMult}x)`}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='normal'>
+                      {t('Normal RAM')} ({colabNormalMult}x)
+                    </SelectItem>
+                    <SelectItem value='high'>
+                      {t('High RAM')} ({colabHighMult}x)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className='grid grid-cols-2 gap-3'>
               <div className='space-y-1.5'>
@@ -771,7 +1078,9 @@ export function CustomModelsPage() {
                   max={50}
                   value={ftEpochs}
                   onChange={(e) =>
-                    setFtEpochs(Math.max(1, Number(e.target.value) || 1))
+                    setFtEpochs(
+                      Math.min(50, Math.max(1, Number(e.target.value) || 1))
+                    )
                   }
                 />
               </div>
@@ -787,12 +1096,34 @@ export function CustomModelsPage() {
 
             {/* Dataset file upload ONLY (no inline paste to prevent browser freeze on large datasets) */}
             <div className='space-y-1.5'>
-              <Label>{t('Training Dataset File (.jsonl)')}</Label>
+              <Label>{t('Training Dataset File')}</Label>
               <Input
                 type='file'
-                accept='.jsonl,.json,.parquet,.csv'
+                accept={taskCfg.datasetAccept}
                 onChange={(e) => setFtFile(e.target.files?.[0] ?? null)}
               />
+              <p className='text-muted-foreground text-xs'>
+                {t(taskCfg.datasetHintKey)}
+              </p>
+            </div>
+
+            {/* Live Estimated Total Cost */}
+            <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>
+              <div className='space-y-0.5'>
+                <div className='text-xs font-medium'>
+                  {t('Estimated Total Cost')}
+                </div>
+                <div className='text-muted-foreground text-[11px]'>
+                  {t('{{rate}} / min · ~{{mins}} min ({{epochs}} epochs)', {
+                    rate: formatCurrencyFromUSD(estimatedRatePerMin),
+                    mins: Math.round(estimatedDurationSeconds / 60),
+                    epochs: ftEpochs,
+                  })}
+                </div>
+              </div>
+              <div className='text-base font-semibold tabular-nums'>
+                {formatCurrencyFromUSD(estimatedTotalCostUSD)}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -804,10 +1135,7 @@ export function CustomModelsPage() {
             </Button>
             <Button
               disabled={
-                createFtMutation.isPending ||
-                !hasValidModelInput ||
-                !ftGpu ||
-                !ftFile
+                createFtMutation.isPending || !hasValidModelInput || !ftFile
               }
               onClick={() => createFtMutation.mutate()}
             >
@@ -820,6 +1148,97 @@ export function CustomModelsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Live Sanitized Console Log Dialog */}
+      <Dialog
+        open={Boolean(consoleJob)}
+        onOpenChange={(open) => {
+          if (!open) setConsoleJob(null)
+        }}
+      >
+        <DialogContent className='sm:max-w-3xl max-h-[85vh] flex flex-col'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <Terminal className='h-4 w-4' />
+              {t('Training Console')}
+            </DialogTitle>
+            <DialogDescription className='flex flex-wrap items-center gap-2 font-mono text-xs'>
+              <span>{consoleJob?.fine_tuned_model || consoleJob?.job_id}</span>
+              {consoleLogsQuery.data?.status &&
+                renderStatusBadge(
+                  consoleLogsQuery.data.status,
+                  consoleLogsQuery.data.progress
+                )}
+            </DialogDescription>
+          </DialogHeader>
+          <pre
+            ref={consoleViewportRef}
+            onScroll={(e) => {
+              const el = e.currentTarget
+              const atBottom =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 40
+              stickToBottomRef.current = atBottom
+            }}
+            className='bg-zinc-950 text-zinc-100 h-96 overflow-y-auto rounded-lg border p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words'
+          >
+            {consoleLogsQuery.isLoading
+              ? t('Loading logs...')
+              : consoleLogsQuery.data?.logs ||
+                t('Waiting for training worker output...')}
+            <div ref={consoleEndRef} />
+          </pre>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setConsoleJob(null)}>
+              {t('Close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Fine-Tuned Model Confirm Dialog */}
+      <ConfirmDialog
+        open={Boolean(deleteFtTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteFtTarget(null)
+        }}
+        title={t('Delete fine-tuned model?')}
+        desc={t(
+          'Are you sure you want to delete "{{model}}"? Training logs, checkpoints, and saved model files will be permanently removed.',
+          {
+            model:
+              deleteFtTarget?.fine_tuned_model || deleteFtTarget?.job_id || '',
+          }
+        )}
+        destructive
+        isLoading={deleteFtMutation.isPending}
+        handleConfirm={() => {
+          if (deleteFtTarget) {
+            deleteFtMutation.mutate(deleteFtTarget.job_id)
+          }
+        }}
+        confirmText={t('Delete')}
+      />
+
+      {/* Delete Auto Model Confirm Dialog */}
+      <ConfirmDialog
+        open={Boolean(deleteAliasTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAliasTarget(null)
+        }}
+        title={t('Delete auto model?')}
+        desc={t('Are you sure you want to delete "{{alias}}"?', {
+          alias: deleteAliasTarget?.alias || '',
+        })}
+        destructive
+        isLoading={deleteAliasMutation.isPending}
+        handleConfirm={() => {
+          if (deleteAliasTarget) {
+            deleteAliasMutation.mutate(deleteAliasTarget.id)
+          }
+        }}
+        confirmText={t('Delete')}
+      />
+
+      {/* Hugging Face Picker for Fine-Tuning */}
       <HfModelPickerDialog
         open={hfPickerOpen}
         onOpenChange={setHfPickerOpen}
@@ -827,7 +1246,7 @@ export function CustomModelsPage() {
         apiBasePath='/api/user/fine_tuning/hf'
       />
 
-      {/* Create/Edit Auto Model Alias Dialog */}
+      {/* Auto Model Alias Create / Edit Dialog */}
       <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
@@ -836,7 +1255,7 @@ export function CustomModelsPage() {
             </DialogTitle>
             <DialogDescription>
               {t(
-                'Requests sent to this alias using your API key will transparently route to the target model.'
+                'Requests using this alias will automatically route to the selected target model.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -852,12 +1271,12 @@ export function CustomModelsPage() {
             <div className='space-y-1.5'>
               <Label>{t('Target Model')}</Label>
               <Input
-                list='alias-target-models'
-                placeholder='opus-5.5'
+                list='user-available-models-datalist'
+                placeholder='gpt-4o-mini'
                 value={targetModel}
                 onChange={(e) => setTargetModel(e.target.value)}
               />
-              <datalist id='alias-target-models'>
+              <datalist id='user-available-models-datalist'>
                 {(userModelsQuery.data ?? []).map((m) => (
                   <option key={m} value={m} />
                 ))}
@@ -866,7 +1285,7 @@ export function CustomModelsPage() {
             <div className='space-y-1.5'>
               <Label>{t('Description (Optional)')}</Label>
               <Input
-                placeholder={t('Production app default model')}
+                placeholder={t('Production chatbot default')}
                 value={aliasDesc}
                 onChange={(e) => setAliasDesc(e.target.value)}
               />

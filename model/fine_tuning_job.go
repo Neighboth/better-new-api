@@ -20,6 +20,9 @@ type FineTuningJob struct {
 	Provider          string  `json:"provider" gorm:"type:varchar(32)"`
 	GPU               string  `json:"gpu" gorm:"type:varchar(64)"`
 	Method            string  `json:"method" gorm:"type:varchar(32)"`
+	TaskType          string  `json:"task_type" gorm:"type:varchar(32)"`
+	RamTier           string  `json:"ram_tier" gorm:"type:varchar(16)"`
+	Progress          int     `json:"progress"`
 	ModelSource       string  `json:"model_source" gorm:"type:varchar(32)"`
 	ModelSourceURL    string  `json:"model_source_url" gorm:"type:text"`
 	DeploymentID      int     `json:"deployment_id"`
@@ -28,6 +31,7 @@ type FineTuningJob struct {
 	BilledQuota       int64   `json:"billed_quota"`
 	TrainingFilePath  string  `json:"-" gorm:"type:text"`
 	BaseModelFilePath string  `json:"-" gorm:"type:text"`
+	CheckpointPath    string  `json:"-" gorm:"type:text"`
 	ModelFilePath     string  `json:"-" gorm:"type:text"`
 	HasModelFile     bool    `json:"has_model_file" gorm:"-"`
 	CallbackToken    string  `json:"-" gorm:"type:varchar(64)"`

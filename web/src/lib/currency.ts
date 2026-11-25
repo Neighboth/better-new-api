@@ -593,16 +593,49 @@ export function getCurrencyLabel(): string {
   if (meta.kind === 'tokens') {
     return 'Tokens'
   }
+  if (meta.kind === 'currency') {
+    return meta.currencyCode
+  }
+  if (meta.kind === 'custom') {
+    return meta.symbol || 'Custom'
+  }
 
   switch (config.quotaDisplayType) {
     case 'CNY':
       return 'CNY'
     case 'CUSTOM':
-      return meta.kind === 'custom' ? meta.symbol : 'Custom'
+      return config.customCurrencySymbol || 'Custom'
     case 'USD':
     default:
       return 'USD'
   }
+}
+
+/**
+ * Get the active currency symbol for UI prefixes (e.g., "$", "₺", "€", "¥").
+ */
+export function getCurrencySymbol(): string {
+  const { config } = getCurrencyDisplay()
+  const meta = getBillingDisplayMeta(config)
+  if (meta.kind === 'currency' || meta.kind === 'custom') {
+    return meta.symbol || '$'
+  }
+  return '$'
+}
+
+/**
+ * Get the active multi-currency display exchange rate (1 when USD or legacy mode).
+ */
+export function getActiveDisplayExchangeRate(): number {
+  const { config } = getCurrencyDisplay()
+  if (!config.displayCurrencies || config.displayCurrencies.length === 0) {
+    return 1
+  }
+  const meta = getBillingDisplayMeta(config)
+  if (meta.kind === 'currency' || meta.kind === 'custom') {
+    return meta.exchangeRate > 0 ? meta.exchangeRate : 1
+  }
+  return 1
 }
 
 /**

@@ -192,6 +192,12 @@ const MODELS_SECTIONS = [
             settings['model_deployment.fine_tuning.gpu_multipliers'] ??
               '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}'
           ),
+          colabNormalRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.colab_normal_ram_multiplier'] ?? 1
+          ),
+          colabHighRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.colab_high_ram_multiplier'] ?? 1.5
+          ),
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],

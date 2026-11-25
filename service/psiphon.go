@@ -97,7 +97,20 @@ func allocateLocalPort() (int, error) {
 	return port, nil
 }
 
+const (
+	defaultPsiphonPropagationChannelID    = "FFFFFFFFFFFFFFFF"
+	defaultPsiphonSponsorID               = "FFFFFFFFFFFFFFFF"
+	defaultPsiphonRemoteServerListURL     = "https://s3.amazonaws.com//psiphon/web/mjr4-p23r-puwl/server_list_compressed"
+	defaultPsiphonRemoteServerListFile    = "remote_server_list"
+	defaultPsiphonRemoteServerListPubKey  = "MIICIDANBgkqhkiG9w0BAQEFAAOCAg0AMIICCAKCAgEAt7Ls+/39r+T6zNW7GiVpJfzq/xvL9SBH5rIFnk0RXYEYavax3WS6HOD35eTAqn8AniOwiH+DOkvgSKF2caqk/y1dfq47Pdymtwzp9ikpB1C5OfAysXzBiwVJlCdajBKvBZDerV1cMvRzCKvKwRmvDmHgphQQ7WfXIGbRbmmk6opMBh3roE42KcotLFtqp0RRwLtcBRNtCdsrVsjiI1Lqz/lH+T61sGjSjQ3CHMuZYSQJZo/KrvzgQXpkaCTdbObxHqb6/+i1qaVOfEsvjoiyzTxJADvSytVtcTjijhPEV6XskJVHE1Zgl+7rATr/pDQkw6DPCNBS1+Y6fy7GstZALQXwEDN/qhQI9kWkHijT8ns+i1vGg00Mk/6J75arLhqcodWsdeG/M/moWgqQAnlZAGVtJI1OgeF5fsPpXu4kctOfuZlGjVZXQNW34aOzm8r8S0eVZitPlbhcPiR4gT/aSMz/wd8lZlzZYsje/Jr8u/YtlwjjreZrGRmG8KMOzukV3lLmMppXFMvl4bxv6YFEmIuTsOhbLTwFgh7KYNjodLj/LsqRVfwz31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xalKxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM="
+	defaultPsiphonClientPlatform          = "Android_4.0.4_com.example.exampleClientLibraryApp"
+)
+
 func writePsiphonConfig(dir string, socksPort int, region string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err == nil {
+		dir = absDir
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -114,22 +127,41 @@ func writePsiphonConfig(dir string, socksPort int, region string) (string, error
 	if _, ok := cfgMap["PropagationChannelId"]; !ok {
 		propID := strings.TrimSpace(os.Getenv("PSIPHON_PROPAGATION_CHANNEL_ID"))
 		if propID == "" {
-			propID = "24BCA4EE20BEB92C"
+			propID = defaultPsiphonPropagationChannelID
 		}
 		cfgMap["PropagationChannelId"] = propID
 	}
 	if _, ok := cfgMap["SponsorId"]; !ok {
 		sponsorID := strings.TrimSpace(os.Getenv("PSIPHON_SPONSOR_ID"))
 		if sponsorID == "" {
-			sponsorID = "721AE60D76700F5A"
+			sponsorID = defaultPsiphonSponsorID
 		}
 		cfgMap["SponsorId"] = sponsorID
 	}
+	if _, ok := cfgMap["RemoteServerListUrl"]; !ok {
+		cfgMap["RemoteServerListUrl"] = defaultPsiphonRemoteServerListURL
+	}
+	if _, ok := cfgMap["RemoteServerListDownloadFilename"]; !ok {
+		cfgMap["RemoteServerListDownloadFilename"] = defaultPsiphonRemoteServerListFile
+	}
+	if _, ok := cfgMap["RemoteServerListSignaturePublicKey"]; !ok {
+		cfgMap["RemoteServerListSignaturePublicKey"] = defaultPsiphonRemoteServerListPubKey
+	}
+	if _, ok := cfgMap["ClientPlatform"]; !ok {
+		cfgMap["ClientPlatform"] = defaultPsiphonClientPlatform
+	}
+	if _, ok := cfgMap["ClientVersion"]; !ok {
+		cfgMap["ClientVersion"] = "1"
+	}
+	if _, ok := cfgMap["NetworkID"]; !ok {
+		cfgMap["NetworkID"] = "test"
+	}
 
 	cfgMap["LocalSocksProxyPort"] = socksPort
-	cfgMap["LocalHttpProxyPort"] = 0
+	cfgMap["DisableLocalHTTPProxy"] = true
 	cfgMap["DataRootDirectory"] = dir
 	cfgMap["TunnelPoolSize"] = 1
+	cfgMap["EstablishTunnelTimeoutSeconds"] = 60
 	cfgMap["UseIndistinguishableTLS"] = true
 	if region != "" {
 		cfgMap["EgressRegion"] = region
@@ -160,6 +192,9 @@ func startPsiphonInstanceLocked(channelID int, regionIdx int) (*psiphonTunnelIns
 	}
 	region := psiphonRotationRegions[regionIdx%len(psiphonRotationRegions)]
 	dataDir := filepath.Join("data", "psiphon", fmt.Sprintf("channel_%d", channelID))
+	if absDir, absErr := filepath.Abs(dataDir); absErr == nil {
+		dataDir = absDir
+	}
 	cfgPath, err := writePsiphonConfig(dataDir, port, region)
 	if err != nil {
 		_ = model.SetChannelPsiphon(channelID, true, region, "error", "", err.Error())
@@ -167,7 +202,7 @@ func startPsiphonInstanceLocked(channelID int, regionIdx int) (*psiphonTunnelIns
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, binPath, "-config", cfgPath)
+	cmd := exec.CommandContext(ctx, binPath, "-config", cfgPath, "-dataRootDirectory", dataDir)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
@@ -241,6 +276,17 @@ func startPsiphonInstanceLocked(channelID int, regionIdx int) (*psiphonTunnelIns
 					}
 					psiphonMu.Unlock()
 				}
+			case "EstablishTunnelTimeout":
+				psiphonMu.Lock()
+				inst.status = "error"
+				if inst.lastError == "" {
+					inst.lastError = "psiphon tunnel timed out before connecting"
+				}
+				curRegion := inst.region
+				errStr := inst.lastError
+				psiphonMu.Unlock()
+				inst.onceReady.Do(func() { close(inst.connectedCh) })
+				_ = model.SetChannelPsiphon(channelID, true, curRegion, "error", "", errStr)
 			case "Alert":
 				if msg, ok := notice.Data["message"].(string); ok && msg != "" {
 					psiphonMu.Lock()
@@ -267,6 +313,7 @@ func startPsiphonInstanceLocked(channelID int, regionIdx int) (*psiphonTunnelIns
 			}
 		}
 		psiphonMu.Unlock()
+		inst.onceReady.Do(func() { close(inst.connectedCh) })
 	}()
 
 	return inst, nil

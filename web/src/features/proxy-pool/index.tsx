@@ -1151,9 +1151,8 @@ export function ProxyPool() {
                   </TableHeader>
                   <TableBody>
                     {(channelsQuery.data ?? []).map((channel) => {
-                      const isOpenCode = channel.type === 65
                       const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
-                      const isPsiphon = isOpenCode && Boolean(channel.psiphon_enabled)
+                      const isPsiphon = isAnon && Boolean(channel.psiphon_enabled)
                       const hasProxies = channel.assigned_keys > 0
                       const isComplete = isPsiphon
                         ? channel.psiphon_status === 'connected'
@@ -1220,30 +1219,28 @@ export function ProxyPool() {
                                   render={
                                     <Button
                                       size='icon'
-                                      variant='outline'
-                                      className='h-8 w-8'
+                                      variant='ghost'
                                       onClick={() => {
                                         setAssignmentsPage(1)
                                         setDetailChannelId(channel.id)
                                       }}
                                       aria-label={t('Channel detail')}
                                     >
-                                      <Info className='h-3.5 w-3.5' />
+                                      <Info className='h-4 w-4' />
                                     </Button>
                                   }
                                 />
                                 <TooltipContent>{t('Channel detail')}</TooltipContent>
                               </Tooltip>
 
-                              {/* OpenCode: Psiphon button when no proxies assigned and Psiphon not active */}
-                              {isOpenCode && !isPsiphon && !hasProxies && (
+                              {/* Anonymous channels (OpenCode, Kilo Code, OHVCloud): Psiphon button */}
+                              {isAnon && !isPsiphon && !hasProxies && (
                                 <Tooltip>
                                   <TooltipTrigger
                                     render={
                                       <Button
                                         size='icon'
-                                        variant='outline'
-                                        className='h-8 w-8'
+                                        variant='ghost'
                                         disabled={psiphonAssignMutation.isPending}
                                         onClick={() =>
                                           psiphonAssignMutation.mutate(channel.id)
@@ -1251,9 +1248,9 @@ export function ProxyPool() {
                                         aria-label={t('Assign Psiphon')}
                                       >
                                         {psiphonAssignMutation.isPending ? (
-                                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                          <Loader2 className='h-4 w-4 animate-spin' />
                                         ) : (
-                                          <Shield className='h-3.5 w-3.5' />
+                                          <Shield className='h-4 w-4' />
                                         )}
                                       </Button>
                                     }
@@ -1264,15 +1261,14 @@ export function ProxyPool() {
                                 </Tooltip>
                               )}
 
-                              {/* OpenCode with Psiphon active: Rotate IP button (Manual & Evenly hidden) */}
+                              {/* Psiphon active: Rotate IP button (Manual & Evenly hidden) */}
                               {isPsiphon && (
                                 <Tooltip>
                                   <TooltipTrigger
                                     render={
                                       <Button
                                         size='icon'
-                                        variant='outline'
-                                        className='h-8 w-8'
+                                        variant='ghost'
                                         disabled={psiphonRotateMutation.isPending}
                                         onClick={() =>
                                           psiphonRotateMutation.mutate(channel.id)
@@ -1280,9 +1276,9 @@ export function ProxyPool() {
                                         aria-label={t('Rotate Psiphon IP')}
                                       >
                                         {psiphonRotateMutation.isPending ? (
-                                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                          <Loader2 className='h-4 w-4 animate-spin' />
                                         ) : (
-                                          <RefreshCw className='h-3.5 w-3.5' />
+                                          <RefreshCw className='h-4 w-4' />
                                         )}
                                       </Button>
                                     }
@@ -1299,15 +1295,14 @@ export function ProxyPool() {
                                       render={
                                         <Button
                                           size='icon'
-                                          variant='outline'
-                                          className='h-8 w-8'
+                                          variant='ghost'
                                           disabled={manualAssignMutation.isPending}
                                           onClick={() => {
                                             setManualAssignTarget(channel.id)
                                           }}
                                           aria-label={t('Assign manually')}
                                         >
-                                          <ListChecks className='h-3.5 w-3.5' />
+                                          <ListChecks className='h-4 w-4' />
                                         </Button>
                                       }
                                     />
@@ -1318,8 +1313,7 @@ export function ProxyPool() {
                                       render={
                                         <Button
                                           size='icon'
-                                          variant='outline'
-                                          className='h-8 w-8'
+                                          variant='ghost'
                                           disabled={
                                             assignMutation.isPending || enabledCount === 0
                                           }
@@ -1327,11 +1321,11 @@ export function ProxyPool() {
                                           aria-label={t('Assign evenly')}
                                         >
                                           {assignMutation.isPending ? (
-                                            <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                            <Loader2 className='h-4 w-4 animate-spin' />
                                           ) : isComplete ? (
-                                            <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600' />
+                                            <CheckCircle2 className='h-4 w-4 text-emerald-600' />
                                           ) : (
-                                            <Waypoints className='h-3.5 w-3.5' />
+                                            <Waypoints className='h-4 w-4' />
                                           )}
                                         </Button>
                                       }
@@ -1346,13 +1340,12 @@ export function ProxyPool() {
                                   render={
                                     <Button
                                       size='icon'
-                                      variant='outline'
-                                      className='h-8 w-8'
+                                      variant='ghost'
                                       disabled={clearMutation.isPending || !canRevert}
                                       onClick={() => setClearTarget(channel)}
                                       aria-label={t('Revert Distribution')}
                                     >
-                                      <Undo2 className='h-3.5 w-3.5' />
+                                      <Undo2 className='h-4 w-4' />
                                     </Button>
                                   }
                                 />
@@ -2136,7 +2129,80 @@ export function ProxyPool() {
                   <h3 className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
                     {t('Assigned proxies')}
                   </h3>
-                  {channelDetailData.assignments.length === 0 ? (
+                  {channelDetailData.psiphon?.enabled ? (
+                    <div className='flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-4'>
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <div className='flex items-center gap-2'>
+                          <Shield className='size-4 text-emerald-600' />
+                          <span className='text-sm font-medium'>
+                            {t('Psiphon assigned')}
+                          </span>
+                          <Badge
+                            variant='outline'
+                            className={cn(
+                              channelDetailData.psiphon.status === 'connected'
+                                ? 'border-emerald-500/40 text-emerald-600'
+                                : channelDetailData.psiphon.status === 'error'
+                                  ? 'border-destructive/40 text-destructive'
+                                  : 'text-amber-600'
+                            )}
+                          >
+                            {channelDetailData.psiphon.status === 'connected'
+                              ? t('Connected')
+                              : channelDetailData.psiphon.status === 'error'
+                                ? t('Failed')
+                                : t('Connecting...')}
+                          </Badge>
+                        </div>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={psiphonRotateMutation.isPending}
+                          onClick={() =>
+                            psiphonRotateMutation.mutate(channelDetailData.channel.id)
+                          }
+                        >
+                          {psiphonRotateMutation.isPending ? (
+                            <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                          ) : (
+                            <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+                          )}
+                          {t('Rotate Psiphon IP')}
+                        </Button>
+                      </div>
+                      <div className='flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground'>
+                        {channelDetailData.psiphon.egress_ip && (
+                          <span>
+                            {t('Egress')}:{' '}
+                            <span className='font-mono text-foreground'>
+                              {channelDetailData.psiphon.egress_ip}
+                            </span>
+                          </span>
+                        )}
+                        {channelDetailData.psiphon.region && (
+                          <span>
+                            {t('Region')}:{' '}
+                            <span className='font-mono text-foreground'>
+                              {channelDetailData.psiphon.region}
+                            </span>
+                          </span>
+                        )}
+                        {channelDetailData.psiphon.proxy_url && (
+                          <span>
+                            SOCKS5:{' '}
+                            <span className='font-mono text-foreground'>
+                              {channelDetailData.psiphon.proxy_url}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                      {channelDetailData.psiphon.last_error && (
+                        <p className='text-xs text-destructive'>
+                          {channelDetailData.psiphon.last_error}
+                        </p>
+                      )}
+                    </div>
+                  ) : channelDetailData.assignments.length === 0 ? (
                     <p className='rounded-lg border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground'>
                       {t('No proxies assigned to this channel yet. Use "Assign evenly" or "Rebalance All".')}
                     </p>
@@ -2611,11 +2677,15 @@ function eventKindBadgeVariant(kind: string): 'default' | 'secondary' | 'destruc
   switch (kind) {
     case 'cooldown_429':
     case 'switch_429':
+    case 'psiphon_rotate_429':
+    case 'psiphon_error':
       return 'destructive'
     case 'test_fail':
     case 'auto_disabled':
       return 'destructive'
     case 'assign':
+    case 'psiphon_assign':
+    case 'psiphon_rotate':
     case 'import':
     case 'auto_enabled':
     case 'test_ok':
@@ -2629,6 +2699,14 @@ function eventKindLabel(kind: string, t: (key: string) => string): string {
   switch (kind) {
     case 'assign':
       return t('Assignment')
+    case 'psiphon_assign':
+      return t('Psiphon assigned')
+    case 'psiphon_rotate':
+      return t('Psiphon rotated')
+    case 'psiphon_rotate_429':
+      return t('Psiphon 429 rotate')
+    case 'psiphon_error':
+      return t('Psiphon error')
     case 'import':
       return t('Imported')
     case 'clear':
