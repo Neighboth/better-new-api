@@ -71,6 +71,13 @@ func GetUserDetail(c *gin.Context) {
 		ticketsTotal = 0
 	}
 
+	ftJobs, ftErr := model.ListUserFineTuningJobs(id, 100)
+	if ftErr != nil {
+		ftJobs = []model.FineTuningJob{}
+	} else {
+		populateFineTuningFileFlags(ftJobs)
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"user":                  user,
 		"recent_logs":           recentLogs,
@@ -81,6 +88,7 @@ func GetUserDetail(c *gin.Context) {
 		"oauth_bindings":        bindings,
 		"subscriptions":         subscriptions,
 		"tickets_count":         ticketsTotal,
+		"fine_tuning_jobs":      ftJobs,
 		"server_time":           now,
 	})
 }

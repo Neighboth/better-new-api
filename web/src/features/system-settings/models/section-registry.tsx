@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChannelAffinitySection } from '../general/channel-affinity'
 import { UnifiedDeploymentSettingsSection } from '../integrations/unified-deployment-settings-section'
+import { FineTuningSettingsSection } from './fine-tuning-settings-section'
 import type { ModelSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { ClaudeSettingsCard } from './claude-settings-card'
@@ -182,22 +183,6 @@ const MODELS_SECTIONS = [
       <UnifiedDeploymentSettingsSection
         defaultValues={{
           priority: settings['model_deployment.priority'],
-          fineTuningEnabled:
-            settings['model_deployment.fine_tuning.enabled'] === true ||
-            settings['model_deployment.fine_tuning.enabled'] === 'true',
-          fineTuningPricePerSecond: Number(
-            settings['model_deployment.fine_tuning.price_per_second'] ?? 0.002
-          ),
-          fineTuningGpuMultipliers: String(
-            settings['model_deployment.fine_tuning.gpu_multipliers'] ??
-              '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}'
-          ),
-          colabNormalRamMultiplier: Number(
-            settings['model_deployment.fine_tuning.colab_normal_ram_multiplier'] ?? 1
-          ),
-          colabHighRamMultiplier: Number(
-            settings['model_deployment.fine_tuning.colab_high_ram_multiplier'] ?? 1.5
-          ),
           ionet: {
             enabled: settings['model_deployment.ionet.enabled'],
             apiKey: settings['model_deployment.ionet.api_key'],
@@ -248,6 +233,47 @@ const MODELS_SECTIONS = [
             apiKey: settings['model_deployment.kaggle.api_key'],
             idleTimeoutSeconds:
               settings['model_deployment.kaggle.idle_timeout_seconds'],
+          },
+        }}
+      />
+    ),
+  },
+  {
+    id: 'fine-tuning',
+    titleKey: 'Fine-Tuning',
+    build: (settings: ModelSettings) => (
+      <FineTuningSettingsSection
+        defaultValues={{
+          fineTuningEnabled:
+            settings['model_deployment.fine_tuning.enabled'] === true ||
+            settings['model_deployment.fine_tuning.enabled'] === 'true',
+          fineTuningPricePerSecond: Number(
+            settings['model_deployment.fine_tuning.price_per_second'] ?? 0.002
+          ),
+          fineTuningGpuMultipliers: String(
+            settings['model_deployment.fine_tuning.gpu_multipliers'] ??
+              '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}'
+          ),
+          colabNormalRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.colab_normal_ram_multiplier'] ?? 1
+          ),
+          colabHighRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.colab_high_ram_multiplier'] ?? 1.5
+          ),
+          retentionDays: Number(
+            settings['model_deployment.fine_tuning.retention_days'] ?? 30
+          ),
+          expiryWarningDays: Number(
+            settings['model_deployment.fine_tuning.expiry_warning_days'] ?? 3
+          ),
+          enabledProviders: {
+            colab: Boolean(settings['model_deployment.colab.enabled']),
+            kaggle: Boolean(settings['model_deployment.kaggle.enabled']),
+            modal: Boolean(settings['model_deployment.modal.enabled']),
+            huggingface: Boolean(settings['model_deployment.huggingface.enabled']),
+            runpod: Boolean(settings['model_deployment.runpod.enabled']),
+            hostinger: Boolean(settings['model_deployment.hostinger.enabled']),
+            ionet: Boolean(settings['model_deployment.ionet.enabled']),
           },
         }}
       />

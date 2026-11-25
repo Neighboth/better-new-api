@@ -403,6 +403,13 @@ export type ModelSettings = {
   'channel_affinity_setting.default_ttl_seconds': number
   'channel_affinity_setting.rules': string
   'model_deployment.priority'?: string
+  'model_deployment.fine_tuning.enabled'?: boolean | string
+  'model_deployment.fine_tuning.price_per_second'?: number | string
+  'model_deployment.fine_tuning.gpu_multipliers'?: string
+  'model_deployment.fine_tuning.colab_normal_ram_multiplier'?: number | string
+  'model_deployment.fine_tuning.colab_high_ram_multiplier'?: number | string
+  'model_deployment.fine_tuning.retention_days'?: number | string
+  'model_deployment.fine_tuning.expiry_warning_days'?: number | string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
   'model_deployment.ionet.idle_timeout_seconds'?: number

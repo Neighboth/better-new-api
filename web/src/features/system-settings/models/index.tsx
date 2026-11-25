@@ -87,6 +87,8 @@ const defaultModelSettings: ModelSettings = {
   'model_deployment.fine_tuning.gpu_multipliers': '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}',
   'model_deployment.fine_tuning.colab_normal_ram_multiplier': 1,
   'model_deployment.fine_tuning.colab_high_ram_multiplier': 1.5,
+  'model_deployment.fine_tuning.retention_days': 30,
+  'model_deployment.fine_tuning.expiry_warning_days': 3,
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
   'model_deployment.ionet.idle_timeout_seconds': 300,

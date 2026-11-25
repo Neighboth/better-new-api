@@ -43,6 +43,7 @@ type psiphonTunnelInstance struct {
 	status      string
 	egressIP    string
 	lastError   string
+	rotatedAt   time.Time
 	connectedCh chan struct{}
 	onceReady   sync.Once
 }
@@ -50,7 +51,23 @@ type psiphonTunnelInstance struct {
 var (
 	psiphonMu        sync.Mutex
 	psiphonInstances = map[int]*psiphonTunnelInstance{}
+	psiphonRotateMu  sync.Map // map[int]*sync.Mutex
 )
+
+func lockPsiphonChannelRotate(channelID int) func() {
+	val, _ := psiphonRotateMu.LoadOrStore(channelID, &sync.Mutex{})
+	mu := val.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+func psiphonChannelDataDir(channelID int) string {
+	dir := filepath.Join("psiphon", fmt.Sprintf("channel_%d", channelID))
+	if absDir, err := filepath.Abs(dir); err == nil {
+		return absDir
+	}
+	return dir
+}
 
 // findPsiphonBinary locates the psiphon-tunnel-core executable on the host.
 func findPsiphonBinary() (string, error) {
@@ -191,10 +208,7 @@ func startPsiphonInstanceLocked(channelID int, regionIdx int) (*psiphonTunnelIns
 		return nil, err
 	}
 	region := psiphonRotationRegions[regionIdx%len(psiphonRotationRegions)]
-	dataDir := filepath.Join("data", "psiphon", fmt.Sprintf("channel_%d", channelID))
-	if absDir, absErr := filepath.Abs(dataDir); absErr == nil {
-		dataDir = absDir
-	}
+	dataDir := psiphonChannelDataDir(channelID)
 	cfgPath, err := writePsiphonConfig(dataDir, port, region)
 	if err != nil {
 		_ = model.SetChannelPsiphon(channelID, true, region, "error", "", err.Error())
@@ -327,25 +341,25 @@ func truncatePsiphonErr(s string) string {
 	return s
 }
 
-func probePsiphonEgressIP(channelID int, inst *psiphonTunnelInstance, proxyURL string) {
+func probePsiphonEgressIPSync(channelID int, inst *psiphonTunnelInstance, proxyURL string, timeout time.Duration) string {
 	client, err := GetHttpClientWithProxy(proxyURL)
 	if err != nil {
-		return
+		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org?format=json", nil)
 	if err != nil {
-		return
+		return ""
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return ""
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if err != nil {
-		return
+		return ""
 	}
 	var parsed struct {
 		IP string `json:"ip"`
@@ -358,10 +372,15 @@ func probePsiphonEgressIP(channelID int, inst *psiphonTunnelInstance, proxyURL s
 			st := inst.status
 			psiphonMu.Unlock()
 			_ = model.SetChannelPsiphon(channelID, true, reg, st, parsed.IP, "")
-			return
+			return parsed.IP
 		}
 		psiphonMu.Unlock()
 	}
+	return ""
+}
+
+func probePsiphonEgressIP(channelID int, inst *psiphonTunnelInstance, proxyURL string) {
+	_ = probePsiphonEgressIPSync(channelID, inst, proxyURL, 10*time.Second)
 }
 
 func stopPsiphonInstanceLocked(channelID int) {
@@ -422,15 +441,32 @@ func StopPsiphonForChannel(channelID int) {
 }
 
 // RotatePsiphonForChannel reconnects psiphon-tunnel-core to a fresh egress region/IP.
-func RotatePsiphonForChannel(channelID int) (string, error) {
+// A per-channel mutex prevents concurrent 429 retries from tearing down each
+// other's tunnel mid-handshake. When failedProxyURL is provided and another
+// goroutine already rotated the channel to a different connected proxy within
+// the last 10 seconds, that fresh proxy is reused directly instead of churning.
+func RotatePsiphonForChannel(channelID int, failedProxyURL ...string) (string, error) {
+	unlock := lockPsiphonChannelRotate(channelID)
+	defer unlock()
+
+	failed := ""
+	if len(failedProxyURL) > 0 {
+		failed = strings.TrimSpace(failedProxyURL[0])
+	}
+
 	psiphonMu.Lock()
 	nextRegionIdx := 1
 	if cur, ok := psiphonInstances[channelID]; ok && cur != nil {
+		curProxy := fmt.Sprintf("socks5://127.0.0.1:%d", cur.socksPort)
+		if failed != "" && curProxy != failed && cur.status == "connected" && !cur.rotatedAt.IsZero() && time.Since(cur.rotatedAt) < 10*time.Second {
+			psiphonMu.Unlock()
+			return curProxy, nil
+		}
 		nextRegionIdx = (cur.regionIndex + 1) % len(psiphonRotationRegions)
 	}
 	stopPsiphonInstanceLocked(channelID)
 	// Remove cached datastore to encourage a fresh server & egress IP selection
-	dataDir := filepath.Join("data", "psiphon", fmt.Sprintf("channel_%d", channelID))
+	dataDir := psiphonChannelDataDir(channelID)
 	_ = os.Remove(filepath.Join(dataDir, "psiphon.boltdb"))
 
 	inst, err := startPsiphonInstanceLocked(channelID, nextRegionIdx)
@@ -441,15 +477,29 @@ func RotatePsiphonForChannel(channelID int) (string, error) {
 
 	select {
 	case <-inst.connectedCh:
-	case <-time.After(15 * time.Second):
+	case <-time.After(25 * time.Second):
 	}
 
 	psiphonMu.Lock()
-	defer psiphonMu.Unlock()
 	if psiphonInstances[channelID] != inst {
+		psiphonMu.Unlock()
 		return "", fmt.Errorf("psiphon instance replaced during rotation")
 	}
-	return fmt.Sprintf("socks5://127.0.0.1:%d", inst.socksPort), nil
+	if inst.status != "connected" {
+		errMsg := inst.lastError
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("psiphon tunnel did not connect in region %q (status=%s)", inst.region, inst.status)
+		}
+		psiphonMu.Unlock()
+		return "", fmt.Errorf("%s", errMsg)
+	}
+	inst.rotatedAt = time.Now()
+	proxyURL := fmt.Sprintf("socks5://127.0.0.1:%d", inst.socksPort)
+	psiphonMu.Unlock()
+
+	// Synchronously probe new egress IP briefly so logs & UI reflect the rotated IP immediately.
+	_ = probePsiphonEgressIPSync(channelID, inst, proxyURL, 4*time.Second)
+	return proxyURL, nil
 }
 
 // GetPsiphonProxyURL returns the active local SOCKS5 proxy URL if Psiphon is assigned to this channel.

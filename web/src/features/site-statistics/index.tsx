@@ -109,6 +109,7 @@ import {
   type SiteStatsRangePreset,
 } from './api'
 import { ClarityStatsCard } from './components/clarity-stats-card'
+import { FineTuningStatsCard } from './components/fine-tuning-stats-card'
 import { GoogleAnalyticsConsoleCard } from './components/google-analytics-console-card'
 import { ProxyPoolStatsCard } from './components/proxy-pool-stats-card'
 
@@ -1453,6 +1454,9 @@ export function SiteStatistics() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Fine-Tuning Statistics Section */}
+            <FineTuningStatsCard />
 
             {/* Proxy Pool Usage Section */}
             <ProxyPoolStatsCard />

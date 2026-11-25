@@ -605,8 +605,7 @@ func ServeManagedFileMiddleware() gin.HandlerFunc {
 		// every seek). These paths fall through to the static file server,
 		// which serves them with full Range support.
 		if strings.HasPrefix(cleanPath, "uploads/videos/") ||
-			strings.HasPrefix(cleanPath, "uploads/merged/") ||
-			strings.HasPrefix(cleanPath, "uploads/media_cache/") {
+			strings.HasPrefix(cleanPath, "uploads/merged/") {
 			c.Next()
 			return
 		}

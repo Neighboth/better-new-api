@@ -310,6 +310,92 @@ func GetColabRAMMultipliers() (normalMult float64, highMult float64) {
 	return normalMult, highMult
 }
 
+func GetFineTuningRetentionDays() int {
+	days := 30
+	common.OptionMapRWMutex.RLock()
+	raw := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.retention_days"])
+	common.OptionMapRWMutex.RUnlock()
+	if raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 1 && v <= 365 {
+			days = v
+		}
+	}
+	return days
+}
+
+func GetFineTuningExpiryWarningDays() int {
+	days := 3
+	common.OptionMapRWMutex.RLock()
+	raw := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.expiry_warning_days"])
+	common.OptionMapRWMutex.RUnlock()
+	if raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 0 && v <= 60 {
+			days = v
+		}
+	}
+	return days
+}
+
+// acceleratorSpeedFactor returns relative training throughput used to estimate
+// realistic training duration alongside dataset size and epochs.
+func acceleratorSpeedFactor(gpuID string) float64 {
+	upper := strings.ToUpper(strings.TrimSpace(gpuID))
+	switch {
+	case strings.Contains(upper, "B300"), strings.Contains(upper, "B200"), strings.Contains(upper, "H200"), strings.Contains(upper, "H100"):
+		return 5.5
+	case strings.Contains(upper, "A100"), strings.Contains(upper, "RTX-PRO-6000"), strings.Contains(upper, "RTX_PRO_6000"):
+		return 3.5
+	case strings.Contains(upper, "L40S"), strings.Contains(upper, "4090"):
+		return 2.6
+	case strings.Contains(upper, "TPU"):
+		return 2.4
+	case strings.Contains(upper, "A10G"), strings.Contains(upper, "3090"):
+		return 2.0
+	case strings.Contains(upper, "L4"):
+		return 1.6
+	case strings.Contains(upper, "T4"):
+		return 1.0
+	case strings.Contains(upper, "CPU"):
+		return 0.35
+	default:
+		return 1.0
+	}
+}
+
+// EstimateFineTuningDurationSeconds computes estimated training duration in
+// seconds accounting for dataset file size, epochs, task modality, and
+// accelerator throughput.
+func EstimateFineTuningDurationSeconds(gpuID string, taskType string, epochs int, datasetBytes int64) int64 {
+	if epochs < 1 {
+		epochs = 1
+	}
+	if datasetBytes < 0 {
+		datasetBytes = 0
+	}
+	datasetMB := float64(datasetBytes) / (1024.0 * 1024.0)
+	taskFactor := 1.0
+	switch strings.ToLower(strings.TrimSpace(taskType)) {
+	case "image":
+		taskFactor = 1.8
+	case "vision":
+		taskFactor = 1.6
+	case "audio":
+		taskFactor = 1.3
+	default:
+		taskFactor = 1.0
+	}
+	speed := acceleratorSpeedFactor(gpuID)
+	basePerEpochSec := 45.0 + datasetMB*90.0
+	est := int64((basePerEpochSec * taskFactor / speed) * float64(epochs))
+	if est < 30 {
+		est = 30
+	}
+	if est > 7*86400 {
+		est = 7 * 86400
+	}
+	return est
+}
+
 func parseSavedFineTuningPricing() map[string]FineTuningGPUOption {
 	common.OptionMapRWMutex.RLock()
 	rawPrice := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.price_per_second"])
@@ -429,20 +515,40 @@ func EstimateFineTuningCostUSDWithRAM(gpu string, ramTier string, durationSecond
 	return 0.002 * float64(durationSeconds)
 }
 
-func FineTuningStorageDir(jobID string) string {
-	safe := strings.Map(func(r rune) rune {
+func sanitizeFineTuningSegment(s string) string {
+	clean := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
 			return r
 		}
 		return '_'
-	}, jobID)
-	return filepath.Join("data", "fine_tuning", safe)
+	}, strings.TrimSpace(s))
+	if clean == "" {
+		return "unknown"
+	}
+	return clean
+}
+
+func FineTuningStorageDirForUser(userID int, jobID string) string {
+	return filepath.Join("uploads", "fine_tuning", strconv.Itoa(userID), sanitizeFineTuningSegment(jobID))
+}
+
+func FineTuningStagedDirForUser(userID int, uploadID string) string {
+	return filepath.Join("uploads", "fine_tuning", strconv.Itoa(userID), "_staged", sanitizeFineTuningSegment(uploadID))
+}
+
+func FineTuningStorageDir(jobID string) string {
+	return filepath.Join("uploads", "fine_tuning", "0", sanitizeFineTuningSegment(jobID))
+}
+
+func CleanupFineTuningStorageForUser(userID int, jobID string) {
+	CancelFineTuningJobRunner(jobID)
+	_ = os.RemoveAll(FineTuningStorageDirForUser(userID, jobID))
+	// Clean legacy data/fine_tuning path if present from earlier versions
+	_ = os.RemoveAll(filepath.Join("data", "fine_tuning", sanitizeFineTuningSegment(jobID)))
 }
 
 func CleanupFineTuningStorage(jobID string) {
-	CancelFineTuningJobRunner(jobID)
-	dir := FineTuningStorageDir(jobID)
-	_ = os.RemoveAll(dir)
+	CleanupFineTuningStorageForUser(0, jobID)
 }
 
 func GenerateFineTuningJobID() string {

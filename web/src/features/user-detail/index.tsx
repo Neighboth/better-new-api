@@ -16,25 +16,39 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
   BadgeCheck,
   Coins,
+  Download,
   Headphones,
   MonitorSmartphone,
   RefreshCw,
   ShieldCheck,
+  Terminal,
+  Trash2,
   Users,
   UsersRound,
   Wallet,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from '@tanstack/react-router'
+import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import {
   Table,
@@ -46,6 +60,8 @@ import {
 } from '@/components/ui/table'
 import { LOG_TYPES, LOG_TYPE_ENUM } from '@/features/usage-logs/constants'
 import { USER_ROLES, USER_STATUS } from '@/features/users/constants'
+import { api } from '@/lib/api'
+import { formatCurrencyFromUSD } from '@/lib/currency'
 import {
   formatQuota,
   formatTimestamp,
@@ -55,6 +71,7 @@ import { cn } from '@/lib/utils'
 
 import {
   getUserDetail,
+  type UserDetailFineTuningJob,
   type UserDetailPayload,
   type UserDetailResponse,
 } from './api'
@@ -93,6 +110,11 @@ export function UserDetail() {
   const navigate = useNavigate()
   const { id: rawId } = useParams({ from: '/_authenticated/users/$id' })
   const userId = Number(rawId)
+  const [ftLogTarget, setFtLogTarget] = useState<UserDetailFineTuningJob | null>(
+    null
+  )
+  const [ftDeleteTarget, setFtDeleteTarget] =
+    useState<UserDetailFineTuningJob | null>(null)
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['user-detail', userId],
@@ -106,6 +128,57 @@ export function UserDetail() {
     enabled: Number.isFinite(userId) && userId > 0,
     staleTime: 15_000,
   })
+
+  const ftLogsQuery = useQuery({
+    queryKey: ['user-detail-ft-logs', ftLogTarget?.job_id],
+    queryFn: async () => {
+      if (!ftLogTarget) return null
+      const res = await api.get<{
+        success: boolean
+        data?: { logs: string; status: string; progress: number }
+      }>(`/api/user/fine_tuning/jobs/${ftLogTarget.job_id}/logs`)
+      return res.data?.data ?? null
+    },
+    enabled: Boolean(ftLogTarget),
+    refetchInterval: 2500,
+  })
+
+  const deleteFtMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await api.delete(`/api/fine_tuning/admin/jobs/${jobId}`)
+      if (!res.data?.success) {
+        throw new Error(
+          res.data?.message || t('Failed to delete fine-tuning job')
+        )
+      }
+    },
+    onSuccess: () => {
+      toast.success(t('Fine-tuning model deleted'))
+      setFtDeleteTarget(null)
+      void refetch()
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || t('Failed to delete fine-tuning job'))
+    },
+  })
+
+  const handleDownloadFtModel = async (jobId: string) => {
+    try {
+      const res = await api.get(`/api/user/fine_tuning/jobs/${jobId}/download`, {
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${jobId}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error(t('Failed to download model file'))
+    }
+  }
 
   if (isLoading) {
     return (
@@ -135,7 +208,7 @@ export function UserDetail() {
   const isDeleted = Boolean(user.DeletedAt)
   const requestsBalance = user.requests_balance
   const tokensBalance = user.tokens_balance
-  const totalReferral = (user.referral_quota ?? 0) + (user.referral_display ?? 0)
+  const fineTuningJobs = data.fine_tuning_jobs ?? []
 
   return (
     <div className='flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain'>
@@ -354,10 +427,6 @@ export function UserDetail() {
                   label={t('Invitation revenue (all time)')}
                   value={formatQuota(user.aff_history_quota ?? 0)}
                 />
-                <DetailRow
-                  label={t('Total referral balance')}
-                  value={formatQuota(totalReferral)}
-                />
                 {(user.inviter_id ?? 0) > 0 && (
                   <DetailRow
                     label={t('Invited by')}
@@ -534,6 +603,118 @@ export function UserDetail() {
           </Card>
         )}
 
+        {/* Fine-Tuned Models */}
+        <Card>
+          <CardHeader className='flex-row items-center justify-between gap-2 pb-3'>
+            <CardTitle className='text-sm'>
+              {t('Fine-Tuned Models')}
+            </CardTitle>
+            <span className='text-muted-foreground text-xs tabular-nums'>
+              {fineTuningJobs.length}
+            </span>
+          </CardHeader>
+          <CardContent className='pt-0'>
+            {fineTuningJobs.length === 0 ? (
+              <p className='text-muted-foreground text-sm'>
+                {t('No fine-tuning jobs yet.')}
+              </p>
+            ) : (
+              <div className='overflow-x-auto'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('Model')}</TableHead>
+                      <TableHead>{t('Base Model')}</TableHead>
+                      <TableHead>{t('Method')}</TableHead>
+                      <TableHead>{t('Accelerator')}</TableHead>
+                      <TableHead>{t('Status')}</TableHead>
+                      <TableHead className='text-right'>{t('Estimated Cost')}</TableHead>
+                      <TableHead className='text-right'>{t('Actions')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {fineTuningJobs.map((job) => (
+                      <TableRow key={job.job_id}>
+                        <TableCell className='font-mono text-xs font-medium'>
+                          <div className='max-w-[240px] truncate' title={job.fine_tuned_model}>
+                            {job.fine_tuned_model || job.job_id}
+                          </div>
+                          <div className='text-muted-foreground text-[11px]'>
+                            {job.job_id} · {formatTimestamp(job.created_at)}
+                          </div>
+                        </TableCell>
+                        <TableCell className='max-w-[180px] truncate text-xs' title={job.model}>
+                          {job.model}
+                        </TableCell>
+                        <TableCell className='text-xs uppercase'>
+                          {job.method || 'lora'}
+                          {job.task_type ? ` / ${job.task_type}` : ''}
+                        </TableCell>
+                        <TableCell className='text-xs'>
+                          {job.gpu || 'CPU'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              job.status === 'succeeded'
+                                ? 'default'
+                                : job.status === 'failed'
+                                  ? 'destructive'
+                                  : 'secondary'
+                            }
+                            className='text-[10px]'
+                          >
+                            {job.status === 'running' && job.progress
+                              ? `${t('Running')} (${job.progress}%)`
+                              : t(
+                                  job.status.charAt(0).toUpperCase() +
+                                    job.status.slice(1)
+                                )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className='text-right font-mono text-xs tabular-nums'>
+                          {formatCurrencyFromUSD(job.estimated_cost_usd)}
+                        </TableCell>
+                        <TableCell className='text-right'>
+                          <div className='flex items-center justify-end gap-1'>
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              title={t('View Console')}
+                              onClick={() => setFtLogTarget(job)}
+                            >
+                              <Terminal className='h-4 w-4' />
+                            </Button>
+                            {job.status === 'succeeded' && job.has_model_file && (
+                              <Button
+                                variant='ghost'
+                                size='icon'
+                                title={t('Download (.zip)')}
+                                onClick={() => void handleDownloadFtModel(job.job_id)}
+                              >
+                                <Download className='h-4 w-4' />
+                              </Button>
+                            )}
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='text-destructive hover:text-destructive'
+                              title={t('Delete')}
+                              onClick={() => setFtDeleteTarget(job)}
+                            >
+                              <Trash2 className='h-4 w-4' />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Recent usage logs */}
         <Card>
           <CardHeader className='flex-row items-center justify-between gap-2 pb-3'>
@@ -590,6 +771,61 @@ export function UserDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Fine-Tuning Logs Dialog */}
+      <Dialog
+        open={Boolean(ftLogTarget)}
+        onOpenChange={(open) => {
+          if (!open) setFtLogTarget(null)
+        }}
+      >
+        <DialogContent className='flex max-h-[85vh] flex-col sm:max-w-3xl'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <Terminal className='h-4 w-4' />
+              {t('Training Console')}
+            </DialogTitle>
+            <DialogDescription className='font-mono text-xs'>
+              {ftLogTarget?.fine_tuned_model || ftLogTarget?.job_id}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className='h-96 overflow-y-auto rounded-lg border bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-100'>
+            {ftLogsQuery.isLoading
+              ? t('Loading logs...')
+              : ftLogsQuery.data?.logs ||
+                t('Waiting for training worker output...')}
+          </pre>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setFtLogTarget(null)}>
+              {t('Close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Fine-Tuned Model Confirm Dialog */}
+      <ConfirmDialog
+        open={Boolean(ftDeleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setFtDeleteTarget(null)
+        }}
+        title={t('Delete fine-tuned model?')}
+        desc={t(
+          'Are you sure you want to delete "{{model}}"? Training logs, checkpoints, and saved model files will be permanently removed.',
+          {
+            model:
+              ftDeleteTarget?.fine_tuned_model || ftDeleteTarget?.job_id || '',
+          }
+        )}
+        destructive
+        isLoading={deleteFtMutation.isPending}
+        handleConfirm={() => {
+          if (ftDeleteTarget) {
+            deleteFtMutation.mutate(ftDeleteTarget.job_id)
+          }
+        }}
+        confirmText={t('Delete')}
+      />
     </div>
   )
 }

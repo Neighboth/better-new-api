@@ -256,6 +256,95 @@ func rewriteRequestModel(c *gin.Context, body []byte, chosen string) ([]byte, st
 	return buffer.Bytes(), writer.FormDataContentType(), nil
 }
 
+// injectAliasSystemPrompt prepends an Auto Model's optional system prompt into
+// a JSON relay request body across OpenAI Chat Completions, OpenAI Responses,
+// Claude Messages, and Gemini GenerateContent formats. Running this before
+// relay parsing ensures both upstream inference and gateway token billing
+// include the injected system prompt.
+func injectAliasSystemPrompt(requestPath string, body []byte, systemPrompt string) []byte {
+	prompt := strings.TrimSpace(systemPrompt)
+	if prompt == "" || !gjson.ValidBytes(body) {
+		return body
+	}
+	var payload map[string]any
+	if err := common.Unmarshal(body, &payload); err != nil || payload == nil {
+		return body
+	}
+	lowerPath := strings.ToLower(requestPath)
+
+	switch {
+	case strings.Contains(lowerPath, "/responses") || (payload["input"] != nil && payload["messages"] == nil):
+		if existing, ok := payload["instructions"].(string); ok && strings.TrimSpace(existing) != "" {
+			payload["instructions"] = prompt + "\n\n" + existing
+		} else {
+			payload["instructions"] = prompt
+		}
+	case strings.Contains(lowerPath, "/messages"):
+		switch existing := payload["system"].(type) {
+		case string:
+			if strings.TrimSpace(existing) != "" {
+				payload["system"] = prompt + "\n\n" + existing
+			} else {
+				payload["system"] = prompt
+			}
+		case []any:
+			payload["system"] = append([]any{map[string]any{"type": "text", "text": prompt}}, existing...)
+		default:
+			payload["system"] = prompt
+		}
+	case payload["contents"] != nil:
+		key := "systemInstruction"
+		if _, hasSnake := payload["system_instruction"]; hasSnake {
+			key = "system_instruction"
+		}
+		if si, ok := payload[key].(map[string]any); ok {
+			parts, _ := si["parts"].([]any)
+			si["parts"] = append([]any{map[string]any{"text": prompt}}, parts...)
+			payload[key] = si
+		} else {
+			payload[key] = map[string]any{
+				"parts": []any{map[string]any{"text": prompt}},
+			}
+		}
+	case payload["messages"] != nil:
+		if msgs, ok := payload["messages"].([]any); ok {
+			if len(msgs) > 0 {
+				if first, ok := msgs[0].(map[string]any); ok {
+					role, _ := first["role"].(string)
+					if role == "system" || role == "developer" {
+						switch c := first["content"].(type) {
+						case string:
+							if strings.TrimSpace(c) != "" {
+								first["content"] = prompt + "\n\n" + c
+							} else {
+								first["content"] = prompt
+							}
+						case []any:
+							first["content"] = append([]any{map[string]any{"type": "text", "text": prompt}}, c...)
+						default:
+							first["content"] = prompt
+						}
+						msgs[0] = first
+						payload["messages"] = msgs
+						if encoded, err := common.Marshal(payload); err == nil {
+							return encoded
+						}
+						return body
+					}
+				}
+			}
+			payload["messages"] = append([]any{map[string]any{"role": "system", "content": prompt}}, msgs...)
+		}
+	default:
+		return body
+	}
+
+	if encoded, err := common.Marshal(payload); err == nil {
+		return encoded
+	}
+	return body
+}
+
 // autoModelRequestProfile extracts the text of the request and the kinds of
 // content it carries, which is what the router needs to read.
 func autoModelRequestProfile(body []byte, path string) (string, bool, bool) {

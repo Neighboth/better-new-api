@@ -68,6 +68,7 @@ const emailTemplateTypes = [
   'ticket_replied',
   'channel_disabled',
   'video_expiry',
+  'fine_tuning_expiry',
 ] as const
 
 const emailLocaleKeys = [
@@ -185,6 +186,12 @@ export function EmailSettingsSection({
       .replaceAll('{{valid_minutes}}', '10')
       .replaceAll('{{reset_url}}', 'https://example.com/reset-password')
       .replaceAll('{{link}}', 'https://example.com/reset-password')
+      .replaceAll('{{username}}', 'alex')
+      .replaceAll('{{model}}', 'Qwen/Qwen2.5-7B-Instruct')
+      .replaceAll('{{job_id}}', 'ftjob-1234567890')
+      .replaceAll('{{days_left}}', '3')
+      .replaceAll('{{expires_at}}', '2026-12-31 23:59 UTC')
+      .replaceAll('{{download_url}}', 'https://example.com/custom-models')
   }
 
   const renderPreviewSubject = (
@@ -207,6 +214,11 @@ export function EmailSettingsSection({
       .replaceAll('{{ticket_title}}', 'Example support request')
       .replaceAll('{{channel_id}}', '7')
       .replaceAll('{{channel_name}}', 'Example channel')
+      .replaceAll('{{username}}', 'alex')
+      .replaceAll('{{model}}', 'Qwen/Qwen2.5-7B-Instruct')
+      .replaceAll('{{job_id}}', 'ftjob-1234567890')
+      .replaceAll('{{days_left}}', '3')
+      .replaceAll('{{expires_at}}', '2026-12-31 23:59 UTC')
   }
 
   const form = useForm<EmailFormValues>({
@@ -320,18 +332,8 @@ export function EmailSettingsSection({
       })
     }
 
-    const templateTypes = [
-      'verification',
-      'password_reset',
-      'system_error',
-      'quota_warning',
-      'ticket_created',
-      'ticket_replied',
-      'channel_disabled',
-      'video_expiry',
-    ] as const
     for (const lang of emailLangs) {
-      for (const tType of templateTypes) {
+      for (const tType of emailTemplateTypes) {
         const subjKey =
           `EmailSubject_${tType}_${lang.key}` as keyof EmailFormValues
         const bodyKey =
@@ -632,6 +634,7 @@ export function EmailSettingsSection({
                         ticket_replied: 'Ticket Reply Notification',
                         channel_disabled: 'Channel Disabled Alert',
                         video_expiry: 'Video Expiry Reminder',
+                        fine_tuning_expiry: 'Fine-Tuning Expiry Reminder',
                       }[type]
                     )}
                   </TabsTrigger>
@@ -730,6 +733,16 @@ export function EmailSettingsSection({
                           'video_url',
                           'expires_at',
                         ],
+                        fine_tuning_expiry: [
+                          'system_name',
+                          'year',
+                          'username',
+                          'model',
+                          'job_id',
+                          'days_left',
+                          'expires_at',
+                          'download_url',
+                        ],
                       }
                       const variables = templateVariables[type] || [
                         'system_name',
@@ -820,7 +833,7 @@ export function EmailSettingsSection({
                                 className='h-7 gap-1 text-xs'
                                 onClick={() => {
                                   setPreviewModal({
-                                    title: `${t('Preview')}: ${lang.label} - ${t({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert', video_expiry: 'Video Expiry Reminder' }[type])}`,
+                                    title: `${t('Preview')}: ${lang.label} - ${t({ verification: 'Verification Code Email', password_reset: 'Password Reset Email', system_error: 'System Error Alert', quota_warning: 'Quota Warning', ticket_created: 'New Ticket Notification', ticket_replied: 'Ticket Reply Notification', channel_disabled: 'Channel Disabled Alert', video_expiry: 'Video Expiry Reminder', fine_tuning_expiry: 'Fine-Tuning Expiry Reminder' }[type])}`,
                                     subject: renderPreviewSubject(
                                       currentSubject,
                                       lang.key,

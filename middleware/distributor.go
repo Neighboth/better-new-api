@@ -121,11 +121,16 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				// Resolve per-user private Auto Model alias (e.g. "auto-myapp" -> "opus-5.5")
-				if aliasTarget, ok := model.ResolveUserModelAlias(c.GetInt("id"), modelRequest.Model); ok && aliasTarget != "" {
-					modelRequest.Model = aliasTarget
-					common.SetContextKey(c, constant.ContextKeyOriginalModel, aliasTarget)
+				// and inject its optional system prompt BEFORE relay token counting & billing
+				// so the user is accurately billed for the injected prompt tokens.
+				if aliasRec, ok := model.ResolveUserModelAliasFull(c.GetInt("id"), modelRequest.Model); ok && aliasRec != nil {
+					modelRequest.Model = aliasRec.TargetModel
+					common.SetContextKey(c, constant.ContextKeyOriginalModel, aliasRec.TargetModel)
 					if rawBody, rErr := readReusableBody(c); rErr == nil && len(rawBody) > 0 {
-						if rewritten, contentType, rwErr := rewriteRequestModel(c, rawBody, aliasTarget); rwErr == nil {
+						if rewritten, contentType, rwErr := rewriteRequestModel(c, rawBody, aliasRec.TargetModel); rwErr == nil {
+							if strings.TrimSpace(aliasRec.SystemPrompt) != "" {
+								rewritten = injectAliasSystemPrompt(c.Request.URL.Path, rewritten, aliasRec.SystemPrompt)
+							}
 							if replaceReusableBody(c, rewritten) == nil && contentType != "" {
 								c.Request.Header.Set("Content-Type", contentType)
 							}

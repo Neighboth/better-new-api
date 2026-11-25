@@ -42,7 +42,7 @@ import {
   X,
   Timer,
 } from 'lucide-react'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import {
@@ -1241,13 +1241,17 @@ export function ProxyPool() {
                                       <Button
                                         size='icon'
                                         variant='ghost'
-                                        disabled={psiphonAssignMutation.isPending}
+                                        disabled={
+                                          psiphonAssignMutation.isPending &&
+                                          psiphonAssignMutation.variables === channel.id
+                                        }
                                         onClick={() =>
                                           psiphonAssignMutation.mutate(channel.id)
                                         }
                                         aria-label={t('Assign Psiphon')}
                                       >
-                                        {psiphonAssignMutation.isPending ? (
+                                        {psiphonAssignMutation.isPending &&
+                                        psiphonAssignMutation.variables === channel.id ? (
                                           <Loader2 className='h-4 w-4 animate-spin' />
                                         ) : (
                                           <Shield className='h-4 w-4' />
@@ -1269,13 +1273,17 @@ export function ProxyPool() {
                                       <Button
                                         size='icon'
                                         variant='ghost'
-                                        disabled={psiphonRotateMutation.isPending}
+                                        disabled={
+                                          psiphonRotateMutation.isPending &&
+                                          psiphonRotateMutation.variables === channel.id
+                                        }
                                         onClick={() =>
                                           psiphonRotateMutation.mutate(channel.id)
                                         }
                                         aria-label={t('Rotate Psiphon IP')}
                                       >
-                                        {psiphonRotateMutation.isPending ? (
+                                        {psiphonRotateMutation.isPending &&
+                                        psiphonRotateMutation.variables === channel.id ? (
                                           <Loader2 className='h-4 w-4 animate-spin' />
                                         ) : (
                                           <RefreshCw className='h-4 w-4' />
@@ -1315,12 +1323,15 @@ export function ProxyPool() {
                                           size='icon'
                                           variant='ghost'
                                           disabled={
-                                            assignMutation.isPending || enabledCount === 0
+                                            (assignMutation.isPending &&
+                                              assignMutation.variables === channel.id) ||
+                                            enabledCount === 0
                                           }
                                           onClick={() => assignMutation.mutate(channel.id)}
                                           aria-label={t('Assign evenly')}
                                         >
-                                          {assignMutation.isPending ? (
+                                          {assignMutation.isPending &&
+                                          assignMutation.variables === channel.id ? (
                                             <Loader2 className='h-4 w-4 animate-spin' />
                                           ) : isComplete ? (
                                             <CheckCircle2 className='h-4 w-4 text-emerald-600' />

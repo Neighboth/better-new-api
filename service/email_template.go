@@ -1621,3 +1621,138 @@ func GetDefaultEmailTemplate(templateType, lang string) EmailTemplate {
 func GetAllDefaultEmailTemplates() map[string]map[string]EmailTemplate {
 	return defaultEmailTemplates
 }
+
+func init() {
+	ftExpiryTemplates := map[string]EmailTemplate{
+		"tr": {
+			Subject: "{{system_name}} - İnce ayarlı modeliniz {{expires_at}} tarihinde silinecek",
+			Body: `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>{{system_name}} Model Süre Hatırlatması</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">İnce ayarlı modeliniz silinmek üzere</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Merhaba <strong>{{username}}</strong>,<br><strong>{{model}}</strong> (<code>{{job_id}}</code>) adlı ince ayarlı model dosyalarınız <strong>{{days_left}} gün</strong> içinde (<strong>{{expires_at}}</strong> tarihinde) sunucudan kalıcı olarak silinecektir.</p>
+<p style="margin:0 0 22px 0;font-size:14px;line-height:22px;color:#64748b;">Modelinizi kaybetmemek için lütfen süre dolmadan indirin:</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Modeli İndir</a></div>
+<p style="margin:0;font-size:12px;color:#94a3b8;">Bu e-posta otomatik olarak gönderilmiştir.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tüm hakları saklıdır.</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"en": {
+			Subject: "{{system_name}} - Your fine-tuned model will be deleted on {{expires_at}}",
+			Body: `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>{{system_name}} Fine-Tuned Model Expiry</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Your fine-tuned model is expiring soon</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Hello <strong>{{username}}</strong>,<br>Your fine-tuned model <strong>{{model}}</strong> (<code>{{job_id}}</code>) will be permanently deleted from our storage in <strong>{{days_left}} day(s)</strong> on <strong>{{expires_at}}</strong>.</p>
+<p style="margin:0 0 22px 0;font-size:14px;line-height:22px;color:#64748b;">Please download your model archive (.zip) before the retention deadline:</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Download Model</a></div>
+<p style="margin:0;font-size:12px;color:#94a3b8;">This is an automated retention reminder.</p>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"zh_CN": {
+			Subject: "{{system_name}} - 您的微调模型将于 {{expires_at}} 删除",
+			Body: `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{{system_name}} 模型过期提醒</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">您的微调模型即将过期</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">您好 <strong>{{username}}</strong>，<br>您的微调模型 <strong>{{model}}</strong>（<code>{{job_id}}</code>）将在 <strong>{{days_left}} 天</strong>后（<strong>{{expires_at}}</strong>）从服务器永久删除。</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">立即下载模型</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"zh_TW": {
+			Subject: "{{system_name}} - 您的微調模型將於 {{expires_at}} 刪除",
+			Body: `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><title>{{system_name}} 模型過期提醒</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">您的微調模型即將過期</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">您好 <strong>{{username}}</strong>，<br>您的微調模型 <strong>{{model}}</strong>（<code>{{job_id}}</code>）將在 <strong>{{days_left}} 天</strong>後（<strong>{{expires_at}}</strong>）從伺服器永久刪除。</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">立即下載模型</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"fr": {
+			Subject: "{{system_name}} - Votre modèle affiné sera supprimé le {{expires_at}}",
+			Body: `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>{{system_name}} Expiration du modèle</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Votre modèle affiné va bientôt expirer</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Bonjour <strong>{{username}}</strong>,<br>Votre modèle affiné <strong>{{model}}</strong> (<code>{{job_id}}</code>) sera définitivement supprimé dans <strong>{{days_left}} jour(s)</strong>, le <strong>{{expires_at}}</strong>.</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Télécharger le modèle</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"ru": {
+			Subject: "{{system_name}} - Ваша дообученная модель будет удалена {{expires_at}}",
+			Body: `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>{{system_name}} Срок хранения модели</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Срок хранения модели истекает</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Здравствуйте, <strong>{{username}}</strong>!<br>Ваша дообученная модель <strong>{{model}}</strong> (<code>{{job_id}}</code>) будет удалена с сервера через <strong>{{days_left}} дн.</strong> (<strong>{{expires_at}}</strong>).</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Скачать модель</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"ja": {
+			Subject: "{{system_name}} - ファインチューニング済みモデルは {{expires_at}} に削除されます",
+			Body: `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>{{system_name}} モデル保管期限のお知らせ</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">モデルの保管期限が近づいています</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;"><strong>{{username}}</strong> 様<br>ファインチューニング済みモデル <strong>{{model}}</strong>（<code>{{job_id}}</code>）は <strong>{{days_left}} 日後</strong>（<strong>{{expires_at}}</strong>）にサーバーから完全に削除されます。</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">モデルをダウンロード</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+		"vi": {
+			Subject: "{{system_name}} - Mô hình tinh chỉnh của bạn sẽ bị xóa vào {{expires_at}}",
+			Body: `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>{{system_name}} Nhắc nhở hết hạn mô hình</title></head>
+<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
+<tr><td style="padding:36px 40px;">
+<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Mô hình tinh chỉnh sắp hết hạn lưu trữ</h2>
+<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Xin chào <strong>{{username}}</strong>,<br>Mô hình tinh chỉnh <strong>{{model}}</strong> (<code>{{job_id}}</code>) sẽ bị xóa vĩnh viễn sau <strong>{{days_left}} ngày</strong> vào ngày <strong>{{expires_at}}</strong>.</p>
+<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Tải mô hình xuống</a></div>
+</td></tr>
+<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
+</table></td></tr></table></body></html>`,
+		},
+	}
+	for lang, tpl := range ftExpiryTemplates {
+		if _, ok := defaultEmailTemplates[lang]; !ok {
+			defaultEmailTemplates[lang] = map[string]EmailTemplate{}
+		}
+		defaultEmailTemplates[lang]["fine_tuning_expiry"] = tpl
+	}
+}

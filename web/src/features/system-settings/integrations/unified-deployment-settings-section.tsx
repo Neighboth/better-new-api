@@ -1,11 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -33,184 +32,20 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   getDeploymentAccounts,
   type DeploymentAccountSummary,
 } from '@/features/models/api'
-import {
-  getHardwareForTier,
-  PROVIDER_LABELS,
-  type DeploymentProviderId,
-} from '@/features/models/lib/hardware-catalog'
+import { type DeploymentProviderId } from '@/features/models/lib/hardware-catalog'
 
-import {
-  SettingsForm,
-  SettingsSwitchContent,
-  SettingsSwitchItem,
-} from '../components/settings-form-layout'
+import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { ProviderAccountsManager } from './provider-accounts-manager'
 
-export interface FineTuningGPURow {
-  id: string
-  label: string
-  kind?: 'cpu' | 'gpu' | 'tpu'
-  providers?: DeploymentProviderId[]
-  price_per_second: number
-  enabled: boolean
-}
-
-const DEFAULT_PRICE_BY_HW_ID: Record<string, number> = {
-  CPU: 0.0005,
-  'cpu-basic': 0.0004,
-  'cpu-upgrade': 0.0008,
-  T4: 0.0015,
-  't4-small': 0.0015,
-  't4-medium': 0.002,
-  NVIDIA_TESLA_T4: 0.0015,
-  NvidiaTeslaT4: 0.002,
-  L4: 0.0025,
-  l4x1: 0.0025,
-  NVIDIA_L4: 0.0025,
-  NvidiaL4: 0.0025,
-  A10G: 0.003,
-  'a10g-small': 0.003,
-  'a10g-large': 0.004,
-  TPU_V5E_1: 0.0025,
-  TPU_V2_8: 0.003,
-  TPU_V6E_1: 0.004,
-  TpuV5E8: 0.0035,
-  TpuV6E8: 0.005,
-  'RTX-3090': 0.0018,
-  'RTX-4090': 0.0025,
-  L40S: 0.004,
-  l40sx1: 0.0045,
-  'A100-40GB': 0.0045,
-  NVIDIA_TESLA_A100: 0.005,
-  'A100-80GB': 0.006,
-  NVIDIA_TESLA_A100_80GB: 0.006,
-  A100: 0.006,
-  'a100-large': 0.006,
-  'RTX-PRO-6000': 0.008,
-  NVIDIA_RTX_PRO_6000: 0.008,
-  H100: 0.01,
-  'H100-SXM': 0.01,
-  'H100-80GB': 0.01,
-  NVIDIA_H100_80GB: 0.01,
-  h100x1: 0.01,
-  H200: 0.012,
-  h200x1: 0.012,
-  B200: 0.015,
-  B300: 0.018,
-}
-
-const DEFAULT_FT_GPU_ROWS: FineTuningGPURow[] = [
-  { id: 'CPU', label: 'CPU (Standard)', kind: 'cpu', price_per_second: 0.0005, enabled: true },
-  {
-    id: 'NVIDIA_TESLA_T4',
-    label: 'GPU: NVIDIA Tesla T4 (16GB)',
-    kind: 'gpu',
-    price_per_second: 0.0015,
-    enabled: true,
-  },
-  {
-    id: 'NVIDIA_L4',
-    label: 'GPU: NVIDIA L4 (24GB)',
-    kind: 'gpu',
-    price_per_second: 0.0025,
-    enabled: true,
-  },
-  {
-    id: 'NVIDIA_A10G',
-    label: 'GPU: NVIDIA A10G (24GB)',
-    kind: 'gpu',
-    price_per_second: 0.003,
-    enabled: true,
-  },
-  {
-    id: 'NVIDIA_TESLA_A100',
-    label: 'GPU: NVIDIA A100 (40GB)',
-    kind: 'gpu',
-    price_per_second: 0.006,
-    enabled: true,
-  },
-  {
-    id: 'NVIDIA_H100_80GB',
-    label: 'GPU: NVIDIA H100 (80GB)',
-    kind: 'gpu',
-    price_per_second: 0.01,
-    enabled: true,
-  },
-]
-
-function parseFineTuningGPURows(
-  raw?: string,
-  legacyBasePrice = 0.002
-): FineTuningGPURow[] {
-  const trimmed = (raw ?? '').trim()
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((item) => ({
-          id: String(item.id ?? ''),
-          label: String(item.label ?? item.id ?? ''),
-          kind: item.kind,
-          price_per_second: Number(item.price_per_second) || 0,
-          enabled: item.enabled !== false,
-        }))
-      }
-    } catch {
-      // fall through
-    }
-  }
-  if (trimmed.startsWith('{')) {
-    try {
-      const legacy = JSON.parse(trimmed) as Record<string, number>
-      return DEFAULT_FT_GPU_ROWS.map((row) =>
-        row.id in legacy
-          ? {
-              ...row,
-              price_per_second: Number(
-                ((legacy[row.id] ?? 1) * legacyBasePrice).toFixed(6)
-              ),
-              enabled: (legacy[row.id] ?? 1) >= 0,
-            }
-          : row
-      )
-    } catch {
-      // fall through
-    }
-  }
-  return DEFAULT_FT_GPU_ROWS.map((r) => ({ ...r }))
-}
-
 const schema = z.object({
-  // Global dispatch priority & fine-tuning
+  // Global dispatch priority
   priority: z.string().optional(),
-  fineTuningEnabled: z.boolean().optional(),
-  fineTuningGpuRows: z
-    .array(
-      z.object({
-        id: z.string(),
-        label: z.string(),
-        kind: z.enum(['cpu', 'gpu', 'tpu']).optional(),
-        price_per_second: z.coerce.number().min(0),
-        enabled: z.boolean(),
-      })
-    )
-    .optional(),
-  colabNormalRamMultiplier: z.coerce.number().min(0.1).max(20).optional(),
-  colabHighRamMultiplier: z.coerce.number().min(0.1).max(20).optional(),
 
   // io.net
   ionetEnabled: z.boolean(),
@@ -318,11 +153,6 @@ export function UnifiedDeploymentSettingsSection({
 }: {
   defaultValues: {
     priority?: string
-    fineTuningEnabled?: boolean
-    fineTuningPricePerSecond?: number
-    fineTuningGpuMultipliers?: string
-    colabNormalRamMultiplier?: number
-    colabHighRamMultiplier?: number
     ionet?: {
       enabled?: boolean
       apiKey?: string
@@ -375,13 +205,6 @@ export function UnifiedDeploymentSettingsSection({
     resolver: zodResolver(schema),
     defaultValues: {
       priority: defaultValues.priority || 'deployments_first',
-      fineTuningEnabled: defaultValues.fineTuningEnabled ?? false,
-      fineTuningGpuRows: parseFineTuningGPURows(
-        defaultValues.fineTuningGpuMultipliers,
-        defaultValues.fineTuningPricePerSecond ?? 0.002
-      ),
-      colabNormalRamMultiplier: defaultValues.colabNormalRamMultiplier ?? 1,
-      colabHighRamMultiplier: defaultValues.colabHighRamMultiplier ?? 1.5,
 
       ionetEnabled: defaultValues.ionet?.enabled ?? false,
       ionetIdleTimeoutSeconds: defaultValues.ionet?.idleTimeoutSeconds ?? 300,
@@ -415,11 +238,6 @@ export function UnifiedDeploymentSettingsSection({
   const ionetEnabled = form.watch('ionetEnabled')
   const modalEnabled = form.watch('modalEnabled')
   const hfEnabled = form.watch('hfEnabled')
-  const hostingerEnabled = form.watch('hostingerEnabled')
-  const runpodEnabled = form.watch('runpodEnabled')
-  const colabEnabled = form.watch('colabEnabled')
-  const kaggleEnabled = form.watch('kaggleEnabled')
-  const savedGpuRows = form.watch('fineTuningGpuRows') ?? DEFAULT_FT_GPU_ROWS
 
   const [accountsByProvider, setAccountsByProvider] = useState<
     Record<string, DeploymentAccountSummary[]>
@@ -435,105 +253,6 @@ export function UnifiedDeploymentSettingsSection({
       .catch(() => {})
   }, [])
 
-  // Build dynamic hardware pricing rows from ALL currently enabled deployment
-  // providers and the tiers of their active accounts (CPU, GPU, TPU).
-  const gpuRows = useMemo<FineTuningGPURow[]>(() => {
-    const providerEnabledMap: Record<DeploymentProviderId, boolean> = {
-      colab: Boolean(colabEnabled),
-      kaggle: Boolean(kaggleEnabled),
-      modal: Boolean(modalEnabled),
-      huggingface: Boolean(hfEnabled),
-      runpod: Boolean(runpodEnabled),
-      hostinger: Boolean(hostingerEnabled),
-      ionet: Boolean(ionetEnabled),
-    }
-    const orderedProviders: DeploymentProviderId[] = [
-      'colab',
-      'kaggle',
-      'modal',
-      'huggingface',
-      'runpod',
-      'hostinger',
-      'ionet',
-    ]
-    const savedById = new Map(savedGpuRows.map((r) => [r.id, r]))
-    const byId = new Map<string, FineTuningGPURow>()
-
-    for (const provider of orderedProviders) {
-      if (!providerEnabledMap[provider]) continue
-      const accounts = accountsByProvider[provider] ?? []
-      const activeAccounts = accounts.filter((a) => a.enabled)
-      const tiers =
-        activeAccounts.length > 0
-          ? activeAccounts.map((a) => a.tier)
-          : accounts.length === 0
-            ? [undefined]
-            : []
-      for (const tier of tiers) {
-        for (const hw of getHardwareForTier(provider, tier)) {
-          const existing = byId.get(hw.id)
-          if (existing) {
-            if (!existing.providers?.includes(provider)) {
-              existing.providers = [...(existing.providers ?? []), provider]
-            }
-            continue
-          }
-          const saved = savedById.get(hw.id)
-          byId.set(hw.id, {
-            id: hw.id,
-            label: hw.label,
-            kind: hw.kind,
-            providers: [provider],
-            price_per_second:
-              saved?.price_per_second ??
-              DEFAULT_PRICE_BY_HW_ID[hw.id] ??
-              0.002,
-            enabled: saved ? saved.enabled : true,
-          })
-        }
-      }
-    }
-
-    if (byId.size > 0) {
-      return Array.from(byId.values())
-    }
-    return savedGpuRows
-  }, [
-    colabEnabled,
-    kaggleEnabled,
-    modalEnabled,
-    hfEnabled,
-    runpodEnabled,
-    hostingerEnabled,
-    ionetEnabled,
-    accountsByProvider,
-    savedGpuRows,
-  ])
-
-  const updateGpuRow = (
-    rowId: string,
-    patch: Partial<Pick<FineTuningGPURow, 'price_per_second' | 'enabled'>>
-  ) => {
-    const next = gpuRows.map((r) =>
-      r.id === rowId
-        ? {
-            id: r.id,
-            label: r.label,
-            kind: r.kind,
-            price_per_second: patch.price_per_second ?? r.price_per_second,
-            enabled: patch.enabled ?? r.enabled,
-          }
-        : {
-            id: r.id,
-            label: r.label,
-            kind: r.kind,
-            price_per_second: r.price_per_second,
-            enabled: r.enabled,
-          }
-    )
-    form.setValue('fineTuningGpuRows', next, { shouldDirty: true })
-  }
-
   const handleAccountsUpdated = (
     p: DeploymentProviderId,
     next: DeploymentAccountSummary[]
@@ -546,29 +265,6 @@ export function UnifiedDeploymentSettingsSection({
       await updateOption.mutateAsync({
         key: 'model_deployment.priority',
         value: String(values.priority || 'deployments_first'),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.fine_tuning.enabled',
-        value: String(Boolean(values.fineTuningEnabled)),
-      })
-      const persistedRows = gpuRows.map((r) => ({
-        id: r.id,
-        label: r.label,
-        kind: r.kind,
-        price_per_second: r.price_per_second,
-        enabled: r.enabled,
-      }))
-      await updateOption.mutateAsync({
-        key: 'model_deployment.fine_tuning.gpu_multipliers',
-        value: JSON.stringify(persistedRows),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.fine_tuning.colab_normal_ram_multiplier',
-        value: String(values.colabNormalRamMultiplier ?? 1),
-      })
-      await updateOption.mutateAsync({
-        key: 'model_deployment.fine_tuning.colab_high_ram_multiplier',
-        value: String(values.colabHighRamMultiplier ?? 1.5),
       })
 
       await updateOption.mutateAsync({
@@ -695,179 +391,6 @@ export function UnifiedDeploymentSettingsSection({
               </FormItem>
             )}
           />
-
-          <FormField
-            control={form.control}
-            name='fineTuningEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Fine-tuning')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Enable OpenAI-compatible /v1/fine_tuning/jobs endpoints and user Fine-tuning UI.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={Boolean(field.value)}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-              </SettingsSwitchItem>
-            )}
-          />
-
-          {form.watch('fineTuningEnabled') && (
-            <FormItem data-settings-form-span='full' className='space-y-3'>
-              <FormLabel>{t('Fine-Tuning Hardware Pricing')}</FormLabel>
-              <FormDescription>
-                {t(
-                  'Configure per-second USD pricing and toggle availability for CPU, GPU, and TPU options unlocked by your enabled deployment accounts.'
-                )}
-              </FormDescription>
-              <div className='overflow-x-auto rounded-lg border'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('Accelerator')}</TableHead>
-                      <TableHead className='w-[200px]'>
-                        {t('Price per Second (USD/s)')}
-                      </TableHead>
-                      <TableHead className='w-[100px] text-right'>
-                        {t('Enabled')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {gpuRows.map((row) => (
-                      <TableRow
-                        key={row.id}
-                        className={!row.enabled ? 'opacity-55' : undefined}
-                      >
-                        <TableCell>
-                          <div className='flex flex-wrap items-center gap-1.5'>
-                            <span className='text-sm font-medium'>
-                              {row.label}
-                            </span>
-                            {row.providers?.map((p) => (
-                              <Badge
-                                key={p}
-                                variant='secondary'
-                                className='px-1.5 py-0 text-[10px] font-normal'
-                              >
-                                {PROVIDER_LABELS[p] ?? p}
-                              </Badge>
-                            ))}
-                          </div>
-                          <div className='text-muted-foreground font-mono text-[11px]'>
-                            {row.id}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className='relative flex items-center'>
-                            <span className='text-muted-foreground pointer-events-none absolute left-2.5 text-xs'>
-                              $
-                            </span>
-                            <Input
-                              type='number'
-                              step='0.0001'
-                              min='0'
-                              disabled={!row.enabled}
-                              value={row.price_per_second}
-                              onChange={(e) => {
-                                updateGpuRow(row.id, {
-                                  price_per_second:
-                                    e.target.value === ''
-                                      ? 0
-                                      : Math.max(0, Number(e.target.value)),
-                                })
-                              }}
-                              className='h-8 pl-6 font-mono text-xs'
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell className='text-right'>
-                          <Switch
-                            checked={row.enabled}
-                            onCheckedChange={(checked) => {
-                              updateGpuRow(row.id, { enabled: checked })
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {colabEnabled && (
-                <div className='bg-muted/20 grid grid-cols-1 gap-4 rounded-lg border p-3.5 sm:grid-cols-2'>
-                  <FormField
-                    control={form.control}
-                    name='colabNormalRamMultiplier'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Colab Normal RAM Multiplier')}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            step='0.05'
-                            min='0.1'
-                            max='20'
-                            value={field.value ?? 1}
-                            onChange={(e) =>
-                              field.onChange(
-                                e.target.value === ''
-                                  ? 1
-                                  : Math.max(0.1, Number(e.target.value))
-                              )
-                            }
-                            className='h-8 font-mono text-xs'
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Pricing multiplier applied to standard Colab RAM runtimes (default 1.0x).')}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name='colabHighRamMultiplier'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Colab High RAM Multiplier')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            step='0.05'
-                            min='0.1'
-                            max='20'
-                            value={field.value ?? 1.5}
-                            onChange={(e) =>
-                              field.onChange(
-                                e.target.value === ''
-                                  ? 1.5
-                                  : Math.max(0.1, Number(e.target.value))
-                              )
-                            }
-                            className='h-8 font-mono text-xs'
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t('Pricing multiplier applied when High-RAM is selected on Colab (default 1.5x).')}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-            </FormItem>
-          )}
 
           <Separator data-settings-form-span='full' />
 

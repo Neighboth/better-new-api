@@ -75,6 +75,7 @@ export function HfModelPickerDialog({
   onSelectMultiple,
   initialQuery = 'qwen2.5',
   apiBasePath = '/api/deployments/hf',
+  excludeGguf = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -83,6 +84,7 @@ export function HfModelPickerDialog({
   onSelectMultiple?: (picked: HfPickedModel[]) => void
   initialQuery?: string
   apiBasePath?: string
+  excludeGguf?: boolean
 }) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState(initialQuery)
@@ -187,6 +189,14 @@ export function HfModelPickerDialog({
 
   function handleSelectFile(file: HfFileResult) {
     if (!selectedRepo) return
+    if (excludeGguf && file.filename.toLowerCase().endsWith('.gguf')) {
+      toast.error(
+        t(
+          'GGUF files are inference-only and cannot be fine-tuned. Select a .safetensors file or use the full repository.'
+        )
+      )
+      return
+    }
     if (selectedRepo.gated && !hfToken.trim()) {
       toast.error(
         t('This model is gated. Please enter a Hugging Face Access Token above.')
@@ -208,6 +218,13 @@ export function HfModelPickerDialog({
     onSelect(picked)
     onOpenChange(false)
   }
+
+  const visibleFiles = excludeGguf
+    ? files.filter((f) => !f.filename.toLowerCase().endsWith('.gguf'))
+    : files
+  const filteredOutGgufCount = excludeGguf
+    ? files.length - visibleFiles.length
+    : 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -392,13 +409,22 @@ export function HfModelPickerDialog({
                   <span className='text-foreground font-bold'>
                     {selectedRepo.id}{' '}
                     <span className='font-normal text-muted-foreground'>
-                      ({files.length} {t('files')})
+                      ({visibleFiles.length} {t('files')})
                     </span>
                   </span>
                 ) : (
                   t('Model Weight Files')
                 )}
               </div>
+
+              {excludeGguf && filteredOutGgufCount > 0 && (
+                <div className='mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-600 dark:text-amber-400'>
+                  {t(
+                    '{{count}} GGUF file(s) hidden because GGUF is quantized for inference only and cannot be fine-tuned. Choose a .safetensors file or click "Use Repo".',
+                    { count: filteredOutGgufCount }
+                  )}
+                </div>
+              )}
 
               <div className='flex-1 overflow-y-auto space-y-2 pr-1'>
                 {loadingFiles ? (
@@ -418,30 +444,38 @@ export function HfModelPickerDialog({
                       )}
                     </p>
                   </div>
-                ) : files.length === 0 ? (
+                ) : visibleFiles.length === 0 ? (
                   <div className='flex flex-col items-center justify-center h-56 text-muted-foreground text-xs text-center px-4 gap-3'>
                     <AlertCircle className='h-8 w-8 text-amber-500/60' />
                     <div>
                       <p className='font-medium text-foreground'>
-                        {t('No standalone weight files listed')}
+                        {excludeGguf && filteredOutGgufCount > 0
+                          ? t('No fine-tunable weight files in this repository')
+                          : t('No standalone weight files listed')}
                       </p>
                       <p className='text-[11px] mt-1'>
-                        {t(
-                          'Diffusers, video, and full-repo models can be deployed directly by repository ID.'
-                        )}
+                        {excludeGguf && filteredOutGgufCount > 0
+                          ? t(
+                              'This repository only contains GGUF inference files. Pick a base repository with .safetensors weights.'
+                            )
+                          : t(
+                              'Diffusers, video, and full-repo models can be deployed directly by repository ID.'
+                            )}
                       </p>
                     </div>
-                    <Button
-                      type='button'
-                      size='sm'
-                      onClick={() => handleSelectRepoDirectly(selectedRepo)}
-                    >
-                      <Check className='h-3.5 w-3.5 mr-1.5' />
-                      {t('Use Repository')} ({selectedRepo.id})
-                    </Button>
+                    {!(excludeGguf && filteredOutGgufCount > 0) && (
+                      <Button
+                        type='button'
+                        size='sm'
+                        onClick={() => handleSelectRepoDirectly(selectedRepo)}
+                      >
+                        <Check className='h-3.5 w-3.5 mr-1.5' />
+                        {t('Use Repository')} ({selectedRepo.id})
+                      </Button>
+                    )}
                   </div>
                 ) : (
-                  files.map((file, idx) => (
+                  visibleFiles.map((file, idx) => (
                     <div
                       key={idx}
                       className='p-3.5 rounded-xl border bg-card hover:border-primary/60 transition-all space-y-2.5 shadow-xs'

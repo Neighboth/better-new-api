@@ -71,6 +71,32 @@ export interface UserDetailSubscriptionSummary {
   subscription: UserDetailSubscription
 }
 
+export interface UserDetailFineTuningJob {
+  id: number
+  job_id: string
+  user_id: number
+  model: string
+  fine_tuned_model: string
+  training_file: string
+  status: string
+  progress?: number
+  trained_tokens: number
+  error?: string
+  gpu?: string
+  method?: string
+  task_type?: string
+  ram_tier?: string
+  duration_seconds: number
+  dataset_bytes?: number
+  estimated_cost_usd: number
+  billed_quota?: number
+  has_model_file?: boolean
+  created_at: number
+  finished_at: number
+  expires_at?: number
+  files_purged_at?: number
+}
+
 export interface UserDetailPayload {
   user: Record<string, unknown> & {
     id: number
@@ -113,6 +139,7 @@ export interface UserDetailPayload {
   oauth_bindings: UserDetailOAuthBinding[]
   subscriptions: UserDetailSubscriptionSummary[]
   tickets_count: number
+  fine_tuning_jobs?: UserDetailFineTuningJob[]
   server_time: number
 }
 

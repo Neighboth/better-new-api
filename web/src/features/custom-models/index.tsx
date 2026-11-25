@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
   Download,
+  FolderOpen,
   Loader2,
   Pencil,
   Plus,
@@ -27,6 +28,7 @@ import {
   Square,
   Terminal,
   Trash2,
+  X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -73,8 +75,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { formatCurrencyFromUSD } from '@/lib/currency'
+import { formatTimestamp } from '@/lib/format'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 interface FineTuningGPUOption {
@@ -104,10 +108,13 @@ interface FineTuningJobItem {
   ram_tier?: string
   model_source?: string
   duration_seconds: number
+  dataset_bytes?: number
   estimated_cost_usd: number
   has_model_file?: boolean
   created_at: number
   finished_at: number
+  expires_at?: number
+  files_purged_at?: number
 }
 
 interface FineTuningListResponse {
@@ -118,6 +125,8 @@ interface FineTuningListResponse {
   colab_enabled?: boolean
   colab_normal_ram_multiplier?: number
   colab_high_ram_multiplier?: number
+  retention_days?: number
+  expiry_warning_days?: number
   jobs: FineTuningJobItem[]
 }
 
@@ -136,8 +145,15 @@ interface UserModelAlias {
   alias: string
   target_model: string
   description?: string
+  system_prompt?: string
   created_at: number
   updated_at: number
+}
+
+interface StagedModelUpload {
+  upload_id: string
+  filename: string
+  size: number
 }
 
 type FineTuningTaskType = 'text' | 'image' | 'audio' | 'vision'
@@ -161,10 +177,10 @@ const TASK_TYPE_CONFIG: Record<
       { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
       { id: 'full', label: 'Full Fine-Tuning' },
     ],
-    datasetAccept: '.jsonl,.json,.parquet,.csv',
+    datasetAccept: '.jsonl,.json,.parquet,.csv,.txt',
     datasetHintKey:
       'Supported: JSONL (OpenAI chat/messages), JSON, Parquet, or CSV',
-    modelAccept: '.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz',
+    modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
   },
   image: {
     labelKey: 'Image / Diffusion',
@@ -201,7 +217,7 @@ const TASK_TYPE_CONFIG: Record<
     datasetAccept: '.jsonl,.json,.zip,.parquet',
     datasetHintKey:
       'Supported: JSONL/JSON multimodal conversations, ZIP (images + metadata.jsonl), or Parquet',
-    modelAccept: '.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz',
+    modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
   },
 }
 
@@ -236,10 +252,67 @@ const KNOWN_HW_LABELS: Record<string, string> = {
   TpuV6E8: 'TPU: v6e-8',
 }
 
+function getAcceleratorSpeedFactor(gpuId: string): number {
+  const upper = gpuId.trim().toUpperCase()
+  if (
+    upper.includes('B300') ||
+    upper.includes('B200') ||
+    upper.includes('H200') ||
+    upper.includes('H100')
+  ) {
+    return 5.5
+  }
+  if (
+    upper.includes('A100') ||
+    upper.includes('RTX-PRO-6000') ||
+    upper.includes('RTX_PRO_6000')
+  ) {
+    return 3.5
+  }
+  if (upper.includes('L40S') || upper.includes('4090')) return 2.6
+  if (upper.includes('TPU')) return 2.4
+  if (upper.includes('A10G') || upper.includes('3090')) return 2.0
+  if (upper.includes('L4')) return 1.6
+  if (upper.includes('T4')) return 1.0
+  if (upper.includes('CPU')) return 0.35
+  return 1.0
+}
+
+function estimateDurationSeconds(
+  gpuId: string,
+  taskType: FineTuningTaskType,
+  epochs: number,
+  datasetBytes: number
+): number {
+  const safeEpochs = Math.max(1, epochs)
+  const datasetMB = Math.max(0, datasetBytes) / (1024 * 1024)
+  const taskFactor =
+    taskType === 'image'
+      ? 1.8
+      : taskType === 'vision'
+        ? 1.6
+        : taskType === 'audio'
+          ? 1.3
+          : 1.0
+  const speed = getAcceleratorSpeedFactor(gpuId)
+  const basePerEpochSec = 45 + datasetMB * 90
+  const est = Math.round(((basePerEpochSec * taskFactor) / speed) * safeEpochs)
+  return Math.min(7 * 86400, Math.max(30, est))
+}
+
+function formatBytesHuman(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
 export function CustomModelsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  // Subscribe to currency store so switching currency updates all cost displays instantly
   const currencyConfig = useSystemConfigStore((s) => s.config.currency)
   void currencyConfig
 
@@ -247,12 +320,12 @@ export function CustomModelsPage() {
   const [ftCreateOpen, setFtCreateOpen] = useState(false)
   const [hfPickerOpen, setHfPickerOpen] = useState(false)
   const [ftTaskType, setFtTaskType] = useState<FineTuningTaskType>('text')
-  const [ftModelSource, setFtModelSource] = useState<
-    'huggingface' | 'url' | 'upload'
-  >('huggingface')
   const [ftBaseModel, setFtBaseModel] = useState('')
-  const [ftModelUrl, setFtModelUrl] = useState('')
-  const [ftModelFile, setFtModelFile] = useState<File | null>(null)
+  const [stagedUpload, setStagedUpload] = useState<StagedModelUpload | null>(
+    null
+  )
+  const [uploadingModel, setUploadingModel] = useState(false)
+  const [uploadPercent, setUploadPercent] = useState(0)
   const [ftMethod, setFtMethod] = useState<string>('lora')
   const [ftSuffix, setFtSuffix] = useState('')
   const [ftGpu, setFtGpu] = useState('')
@@ -262,6 +335,8 @@ export function CustomModelsPage() {
   const [deleteFtTarget, setDeleteFtTarget] =
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
+  const modelFileInputRef = useRef<HTMLInputElement | null>(null)
+  const stagedUploadRef = useRef<StagedModelUpload | null>(null)
   const consoleEndRef = useRef<HTMLDivElement | null>(null)
   const consoleViewportRef = useRef<HTMLPreElement | null>(null)
   const stickToBottomRef = useRef(true)
@@ -272,8 +347,36 @@ export function CustomModelsPage() {
   const [aliasName, setAliasName] = useState('')
   const [targetModel, setTargetModel] = useState('')
   const [aliasDesc, setAliasDesc] = useState('')
+  const [aliasSystemPrompt, setAliasSystemPrompt] = useState('')
   const [deleteAliasTarget, setDeleteAliasTarget] =
     useState<UserModelAlias | null>(null)
+
+  useEffect(() => {
+    stagedUploadRef.current = stagedUpload
+  }, [stagedUpload])
+
+  const cleanupStagedUpload = async (uploadId?: string) => {
+    const id = uploadId ?? stagedUploadRef.current?.upload_id
+    if (!id) return
+    try {
+      await api.delete(`/api/user/fine_tuning/staged_model/${id}`)
+    } catch {
+      // ignore cleanup error
+    }
+  }
+
+  // Clean up any abandoned staged model upload on unmount
+  useEffect(() => {
+    return () => {
+      if (stagedUploadRef.current?.upload_id) {
+        void api
+          .delete(
+            `/api/user/fine_tuning/staged_model/${stagedUploadRef.current.upload_id}`
+          )
+          .catch(() => {})
+      }
+    }
+  }, [])
 
   const ftQuery = useQuery({
     queryKey: ['user-fine-tuning-jobs'],
@@ -291,6 +394,8 @@ export function CustomModelsPage() {
           colab_enabled: false,
           colab_normal_ram_multiplier: 1,
           colab_high_ram_multiplier: 1.5,
+          retention_days: 30,
+          expiry_warning_days: 3,
           jobs: [],
         }
       )
@@ -348,7 +453,6 @@ export function CustomModelsPage() {
     }
   }, [enabledGpuOptions, ftGpu])
 
-  // Keep method valid when task type switches
   useEffect(() => {
     const allowed = TASK_TYPE_CONFIG[ftTaskType].methods
     if (!allowed.some((m) => m.id === ftMethod)) {
@@ -386,37 +490,111 @@ export function CustomModelsPage() {
       ? colabHighMult
       : colabNormalMult
     : 1
-  const estimatedDurationSeconds = Math.max(60, ftEpochs * 120)
+  const datasetBytes = ftFile?.size ?? 0
+  const estimatedDurationSeconds = estimateDurationSeconds(
+    ftGpu || 'CPU',
+    ftTaskType,
+    ftEpochs,
+    datasetBytes
+  )
   const effectivePricePerSecond =
     (selectedGpuObj?.price_per_second ?? 0.0015) * activeRamMultiplier
   const estimatedRatePerMin = effectivePricePerSecond * 60
   const estimatedTotalCostUSD =
     effectivePricePerSecond * estimatedDurationSeconds
 
+  const handleLocalModelSelected = async (file: File | null) => {
+    if (!file) return
+    if (file.name.toLowerCase().endsWith('.gguf')) {
+      toast.error(
+        t(
+          'GGUF files are inference-only and cannot be fine-tuned. Please select a .safetensors, .pt, or .bin file.'
+        )
+      )
+      return
+    }
+    // Clear any previously entered/selected model and delete any earlier staged upload
+    const prevUploadId = stagedUpload?.upload_id
+    setFtBaseModel('')
+    setStagedUpload(null)
+    if (prevUploadId) {
+      void cleanupStagedUpload(prevUploadId)
+    }
+
+    setUploadingModel(true)
+    setUploadPercent(0)
+    try {
+      const fd = new FormData()
+      fd.append('model_file', file)
+      const res = await api.post<{
+        success: boolean
+        message?: string
+        data?: StagedModelUpload
+      }>('/api/user/fine_tuning/upload_model', fd, {
+        headers: { 'Content-Type': undefined },
+        onUploadProgress: (evt) => {
+          if (evt.total && evt.total > 0) {
+            setUploadPercent(Math.min(100, Math.round((evt.loaded / evt.total) * 100)))
+          }
+        },
+      })
+      if (!res.data?.success || !res.data.data) {
+        throw new Error(res.data?.message || t('Model upload failed'))
+      }
+      setUploadPercent(100)
+      setStagedUpload(res.data.data)
+      toast.success(t('Model uploaded and ready for training'))
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || t('Model upload failed'))
+    } finally {
+      setUploadingModel(false)
+      if (modelFileInputRef.current) {
+        modelFileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleCloseFtDialog = (open: boolean) => {
+    if (!open) {
+      // Lock dialog while uploading
+      if (uploadingModel) return
+      if (stagedUpload?.upload_id) {
+        void cleanupStagedUpload(stagedUpload.upload_id)
+        setStagedUpload(null)
+      }
+      setFtCreateOpen(false)
+    } else {
+      setFtCreateOpen(true)
+    }
+  }
+
   const createFtMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData()
       formData.append('task_type', ftTaskType)
-      formData.append('model_source', ftModelSource)
       formData.append('method', ftMethod)
       formData.append('suffix', ftSuffix.trim())
       formData.append('gpu', ftGpu)
       formData.append('ram_tier', showColabRamSelector ? ftRamTier : 'normal')
       formData.append('epochs', String(ftEpochs))
-      formData.append('estimated_seconds', String(estimatedDurationSeconds))
-      if (ftModelSource === 'huggingface') {
-        formData.append('model', ftBaseModel.trim())
-      } else if (ftModelSource === 'url') {
-        formData.append('model_url', ftModelUrl.trim())
-        formData.append('model', ftBaseModel.trim() || ftModelUrl.trim())
-      } else if (ftModelSource === 'upload' && ftModelFile) {
-        formData.append('model_file', ftModelFile)
-        formData.append('model', ftBaseModel.trim() || ftModelFile.name)
+
+      if (stagedUpload) {
+        formData.append('model_source', 'upload')
+        formData.append('staged_upload_id', stagedUpload.upload_id)
+        formData.append('model', stagedUpload.filename)
+      } else {
+        const trimmed = ftBaseModel.trim()
+        const isUrl =
+          trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        formData.append('model_source', isUrl ? 'url' : 'huggingface')
+        if (isUrl) {
+          formData.append('model_url', trimmed)
+        }
+        formData.append('model', trimmed)
       }
       if (ftFile) {
         formData.append('file', ftFile)
       }
-      // Do NOT set manual Content-Type; let the browser set multipart/form-data with its boundary!
       const res = await api.post('/api/user/fine_tuning/jobs', formData, {
         headers: { 'Content-Type': undefined },
       })
@@ -429,10 +607,9 @@ export function CustomModelsPage() {
     },
     onSuccess: () => {
       toast.success(t('Fine-tuning job created'))
+      setStagedUpload(null)
       setFtCreateOpen(false)
       setFtBaseModel('')
-      setFtModelUrl('')
-      setFtModelFile(null)
       setFtSuffix('')
       setFtFile(null)
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
@@ -485,6 +662,7 @@ export function CustomModelsPage() {
         alias: aliasName.trim(),
         target_model: targetModel.trim(),
         description: aliasDesc.trim(),
+        system_prompt: aliasSystemPrompt.trim(),
       }
       const res = editingAlias
         ? await api.put(`/api/user/model_aliases/${editingAlias.id}`, payload)
@@ -502,6 +680,7 @@ export function CustomModelsPage() {
       setAliasName('')
       setTargetModel('')
       setAliasDesc('')
+      setAliasSystemPrompt('')
       void queryClient.invalidateQueries({ queryKey: ['user-model-aliases'] })
       void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
     },
@@ -533,6 +712,7 @@ export function CustomModelsPage() {
     setAliasName('')
     setTargetModel('')
     setAliasDesc('')
+    setAliasSystemPrompt('')
     setAliasDialogOpen(true)
   }
 
@@ -541,6 +721,7 @@ export function CustomModelsPage() {
     setAliasName(item.alias)
     setTargetModel(item.target_model)
     setAliasDesc(item.description ?? '')
+    setAliasSystemPrompt(item.system_prompt ?? '')
     setAliasDialogOpen(true)
   }
 
@@ -552,13 +733,10 @@ export function CustomModelsPage() {
           responseType: 'blob',
         }
       )
-      const disposition = String(res.headers?.['content-disposition'] ?? '')
-      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
-      const filename = filenameMatch?.[1] || `${jobId}-model.tar.gz`
       const url = window.URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
-      a.download = filename
+      a.download = `${jobId}.zip`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -569,6 +747,10 @@ export function CustomModelsPage() {
   }
 
   const handleHfPicked = (picked: HfPickedModel) => {
+    if (stagedUpload?.upload_id) {
+      void cleanupStagedUpload(stagedUpload.upload_id)
+      setStagedUpload(null)
+    }
     setFtBaseModel(
       picked.filename ? `${picked.repoId}/${picked.filename}` : picked.repoId
     )
@@ -585,13 +767,7 @@ export function CustomModelsPage() {
   const ftData = ftQuery.data
   const fineTuningEnabled = Boolean(ftData?.enabled)
   const taskCfg = TASK_TYPE_CONFIG[ftTaskType]
-
-  const hasValidModelInput =
-    ftModelSource === 'huggingface'
-      ? Boolean(ftBaseModel.trim())
-      : ftModelSource === 'url'
-        ? Boolean(ftModelUrl.trim())
-        : Boolean(ftModelFile)
+  const hasValidModelInput = Boolean(stagedUpload || ftBaseModel.trim())
 
   const renderStatusBadge = (status: string, progress?: number) => {
     switch (status) {
@@ -667,7 +843,18 @@ export function CustomModelsPage() {
                 (aliasesQuery.data ?? []).map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className='font-mono text-sm font-medium'>
-                      {item.alias}
+                      <div className='flex flex-wrap items-center gap-1.5'>
+                        <span>{item.alias}</span>
+                        {item.system_prompt?.trim() && (
+                          <Badge
+                            variant='secondary'
+                            className='font-sans text-[10px] font-normal'
+                            title={item.system_prompt}
+                          >
+                            {t('System Prompt')}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <span className='inline-flex items-center gap-1.5 font-mono text-sm'>
@@ -718,7 +905,8 @@ export function CustomModelsPage() {
           </CardTitle>
           <CardDescription>
             {t(
-              'Create and manage fine-tuning jobs from here or directly via the OpenAI-compatible API endpoint POST /v1/fine_tuning/jobs. Trained model artifacts are hosted on this server.'
+              'Create and manage fine-tuning jobs from here or directly via the OpenAI-compatible API endpoint POST /v1/fine_tuning/jobs. Trained model archives (.zip) are retained for {{days}} days.',
+              { days: ftData?.retention_days ?? 30 }
             )}
           </CardDescription>
         </div>
@@ -768,6 +956,9 @@ export function CustomModelsPage() {
                       <div>{job.fine_tuned_model || job.job_id}</div>
                       <div className='text-muted-foreground text-[11px]'>
                         {job.job_id}
+                        {job.expires_at && !job.files_purged_at
+                          ? ` · ${t('Expires')} ${formatTimestamp(job.expires_at)}`
+                          : ''}
                       </div>
                     </TableCell>
                     <TableCell className='text-sm'>{job.model}</TableCell>
@@ -821,7 +1012,7 @@ export function CustomModelsPage() {
                           <Button
                             variant='ghost'
                             size='icon'
-                            title={t('Download')}
+                            title={t('Download (.zip)')}
                             onClick={() =>
                               void handleDownloadModel(job.job_id)
                             }
@@ -885,8 +1076,15 @@ export function CustomModelsPage() {
       </SectionPageLayout>
 
       {/* Create Fine-Tuning Job Dialog */}
-      <Dialog open={ftCreateOpen} onOpenChange={setFtCreateOpen}>
-        <DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
+      <Dialog
+        open={ftCreateOpen}
+        onOpenChange={handleCloseFtDialog}
+        disablePointerDismissal={uploadingModel}
+      >
+        <DialogContent
+          className='max-h-[90vh] overflow-y-auto sm:max-w-xl'
+          showCloseButton={!uploadingModel}
+        >
           <DialogHeader>
             <DialogTitle>{t('New Fine-Tuning Job')}</DialogTitle>
             <DialogDescription>
@@ -896,116 +1094,140 @@ export function CustomModelsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4 py-2'>
-            {/* Task Type & Model Source */}
-            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
-              <div className='space-y-1.5'>
-                <Label>{t('Task Type')}</Label>
-                <Select
-                  value={ftTaskType}
-                  onValueChange={(v) => setFtTaskType(v as FineTuningTaskType)}
-                >
-                  <SelectTrigger>
-                    <SelectValue>{t(taskCfg.labelKey)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(
-                      Object.keys(TASK_TYPE_CONFIG) as FineTuningTaskType[]
-                    ).map((key) => (
-                      <SelectItem key={key} value={key}>
-                        {t(TASK_TYPE_CONFIG[key].labelKey)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1.5'>
-                <Label>{t('Model Source')}</Label>
-                <Select
-                  value={ftModelSource}
-                  onValueChange={(v) =>
-                    setFtModelSource(v as 'huggingface' | 'url' | 'upload')
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue>
-                      {ftModelSource === 'huggingface'
-                        ? 'Hugging Face'
-                        : ftModelSource === 'url'
-                          ? t('Download from URL')
-                          : t('Upload Model File')}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='huggingface'>Hugging Face</SelectItem>
-                    <SelectItem value='url'>
-                      {t('Download from URL')}
+            {/* Task Type */}
+            <div className='space-y-1.5'>
+              <Label>{t('Task Type')}</Label>
+              <Select
+                value={ftTaskType}
+                disabled={uploadingModel}
+                onValueChange={(v) => setFtTaskType(v as FineTuningTaskType)}
+              >
+                <SelectTrigger>
+                  <SelectValue>{t(taskCfg.labelKey)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(
+                    Object.keys(TASK_TYPE_CONFIG) as FineTuningTaskType[]
+                  ).map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {t(TASK_TYPE_CONFIG[key].labelKey)}
                     </SelectItem>
-                    <SelectItem value='upload'>
-                      {t('Upload Model File')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {ftModelSource === 'huggingface' && (
-              <div className='space-y-1.5'>
-                <Label>{t('Base Model')}</Label>
-                <div className='flex items-center gap-2'>
-                  <Input
-                    placeholder='Qwen/Qwen2.5-7B-Instruct'
-                    value={ftBaseModel}
-                    onChange={(e) => setFtBaseModel(e.target.value)}
-                  />
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    className='shrink-0'
-                    onClick={() => setHfPickerOpen(true)}
-                  >
-                    <Search className='mr-1.5 h-3.5 w-3.5' />
-                    {t('Browse')}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {ftModelSource === 'url' && (
-              <div className='space-y-1.5'>
-                <Label>{t('Model Download URL')}</Label>
+            {/* Base Model (Hugging Face ID / URL + Browse + Local Upload Folder button) */}
+            <div className='space-y-1.5'>
+              <Label>{t('Base Model')}</Label>
+              <div className='flex items-center gap-2'>
                 <Input
-                  placeholder='https://huggingface.co/.../model.safetensors'
-                  value={ftModelUrl}
-                  onChange={(e) => setFtModelUrl(e.target.value)}
+                  placeholder={t(
+                    'Hugging Face repo ID or direct download URL (e.g. Qwen/Qwen2.5-7B-Instruct)'
+                  )}
+                  disabled={uploadingModel}
+                  value={stagedUpload ? '' : ftBaseModel}
+                  onChange={(e) => {
+                    if (stagedUpload?.upload_id) {
+                      void cleanupStagedUpload(stagedUpload.upload_id)
+                      setStagedUpload(null)
+                    }
+                    setFtBaseModel(e.target.value)
+                  }}
                 />
-              </div>
-            )}
-
-            {ftModelSource === 'upload' && (
-              <div className='space-y-1.5'>
-                <Label>{t('Model File')}</Label>
-                <Input
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={uploadingModel}
+                  className='shrink-0'
+                  onClick={() => setHfPickerOpen(true)}
+                >
+                  <Search className='mr-1.5 h-3.5 w-3.5' />
+                  {t('Browse')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='icon'
+                  disabled={uploadingModel}
+                  title={t('Upload model file from device (.safetensors, .pt, .bin)')}
+                  className='shrink-0'
+                  onClick={() => modelFileInputRef.current?.click()}
+                >
+                  {uploadingModel ? (
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                  ) : (
+                    <FolderOpen className='h-4 w-4' />
+                  )}
+                </Button>
+                <input
+                  ref={modelFileInputRef}
                   type='file'
                   accept={taskCfg.modelAccept}
+                  className='hidden'
                   onChange={(e) =>
-                    setFtModelFile(e.target.files?.[0] ?? null)
+                    void handleLocalModelSelected(e.target.files?.[0] ?? null)
                   }
                 />
-                {ftModelFile && (
-                  <p className='text-muted-foreground text-xs'>
-                    {ftModelFile.name} (
-                    {(ftModelFile.size / (1024 * 1024)).toFixed(2)} MB)
-                  </p>
-                )}
               </div>
-            )}
+
+              {uploadingModel && (
+                <div className='bg-muted/40 space-y-1.5 rounded-lg border p-2.5'>
+                  <div className='flex items-center justify-between text-xs'>
+                    <span className='flex items-center gap-1.5 font-medium'>
+                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                      {t('Uploading model file to server...')}
+                    </span>
+                    <span className='font-mono font-semibold tabular-nums'>
+                      {uploadPercent}%
+                    </span>
+                  </div>
+                  <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
+                    <div
+                      className='bg-primary h-full transition-all duration-150'
+                      style={{ width: `${uploadPercent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {stagedUpload && !uploadingModel && (
+                <div className='bg-muted/40 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs'>
+                  <div className='min-w-0 truncate'>
+                    <span className='font-medium'>{stagedUpload.filename}</span>{' '}
+                    <span className='text-muted-foreground'>
+                      ({formatBytesHuman(stagedUpload.size)})
+                    </span>
+                  </div>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='h-6 w-6 shrink-0'
+                    title={t('Remove uploaded model')}
+                    onClick={() => {
+                      void cleanupStagedUpload(stagedUpload.upload_id)
+                      setStagedUpload(null)
+                    }}
+                  >
+                    <X className='h-3.5 w-3.5' />
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {/* Method + Accelerator */}
             <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
               <div className='space-y-1.5'>
                 <Label>{t('Fine-Tuning Method')}</Label>
-                <Select value={ftMethod} onValueChange={setFtMethod}>
+                <Select
+                  value={ftMethod}
+                  disabled={uploadingModel}
+                  onValueChange={(v) => {
+                    if (v) setFtMethod(v)
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue>
                       {taskCfg.methods.find((m) => m.id === ftMethod)?.label ??
@@ -1023,7 +1245,13 @@ export function CustomModelsPage() {
               </div>
               <div className='space-y-1.5'>
                 <Label>{t('Accelerator')}</Label>
-                <Select value={ftGpu} onValueChange={setFtGpu}>
+                <Select
+                  value={ftGpu}
+                  disabled={uploadingModel}
+                  onValueChange={(v) => {
+                    if (v) setFtGpu(v)
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue>
                       {selectedGpuObj
@@ -1048,6 +1276,7 @@ export function CustomModelsPage() {
                 <Label>{t('RAM Tier')}</Label>
                 <Select
                   value={ftRamTier}
+                  disabled={uploadingModel}
                   onValueChange={(v) => setFtRamTier(v as 'normal' | 'high')}
                 >
                   <SelectTrigger>
@@ -1076,6 +1305,7 @@ export function CustomModelsPage() {
                   type='number'
                   min={1}
                   max={50}
+                  disabled={uploadingModel}
                   value={ftEpochs}
                   onChange={(e) =>
                     setFtEpochs(
@@ -1088,37 +1318,46 @@ export function CustomModelsPage() {
                 <Label>{t('Model Suffix (Optional)')}</Label>
                 <Input
                   placeholder='my-assistant-v1'
+                  disabled={uploadingModel}
                   value={ftSuffix}
                   onChange={(e) => setFtSuffix(e.target.value)}
                 />
               </div>
             </div>
 
-            {/* Dataset file upload ONLY (no inline paste to prevent browser freeze on large datasets) */}
+            {/* Dataset file upload */}
             <div className='space-y-1.5'>
               <Label>{t('Training Dataset File')}</Label>
               <Input
                 type='file'
+                disabled={uploadingModel}
                 accept={taskCfg.datasetAccept}
                 onChange={(e) => setFtFile(e.target.files?.[0] ?? null)}
               />
               <p className='text-muted-foreground text-xs'>
                 {t(taskCfg.datasetHintKey)}
+                {ftFile ? ` · ${formatBytesHuman(ftFile.size)}` : ''}
               </p>
             </div>
 
-            {/* Live Estimated Total Cost */}
+            {/* Dataset-Size-Aware Live Estimated Total Cost */}
             <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>
               <div className='space-y-0.5'>
                 <div className='text-xs font-medium'>
                   {t('Estimated Total Cost')}
                 </div>
                 <div className='text-muted-foreground text-[11px]'>
-                  {t('{{rate}} / min · ~{{mins}} min ({{epochs}} epochs)', {
-                    rate: formatCurrencyFromUSD(estimatedRatePerMin),
-                    mins: Math.round(estimatedDurationSeconds / 60),
-                    epochs: ftEpochs,
-                  })}
+                  {t(
+                    '{{rate}} / min · ~{{mins}} min ({{epochs}} epochs, {{dataset}})',
+                    {
+                      rate: formatCurrencyFromUSD(estimatedRatePerMin),
+                      mins: Math.max(1, Math.round(estimatedDurationSeconds / 60)),
+                      epochs: ftEpochs,
+                      dataset: ftFile
+                        ? formatBytesHuman(ftFile.size)
+                        : t('no dataset selected'),
+                    }
+                  )}
                 </div>
               </div>
               <div className='text-base font-semibold tabular-nums'>
@@ -1129,13 +1368,17 @@ export function CustomModelsPage() {
           <DialogFooter>
             <Button
               variant='outline'
-              onClick={() => setFtCreateOpen(false)}
+              disabled={uploadingModel}
+              onClick={() => handleCloseFtDialog(false)}
             >
               {t('Cancel')}
             </Button>
             <Button
               disabled={
-                createFtMutation.isPending || !hasValidModelInput || !ftFile
+                uploadingModel ||
+                createFtMutation.isPending ||
+                !hasValidModelInput ||
+                !ftFile
               }
               onClick={() => createFtMutation.mutate()}
             >
@@ -1155,7 +1398,7 @@ export function CustomModelsPage() {
           if (!open) setConsoleJob(null)
         }}
       >
-        <DialogContent className='sm:max-w-3xl max-h-[85vh] flex flex-col'>
+        <DialogContent className='flex max-h-[85vh] flex-col sm:max-w-3xl'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <Terminal className='h-4 w-4' />
@@ -1178,7 +1421,7 @@ export function CustomModelsPage() {
                 el.scrollHeight - el.scrollTop - el.clientHeight < 40
               stickToBottomRef.current = atBottom
             }}
-            className='bg-zinc-950 text-zinc-100 h-96 overflow-y-auto rounded-lg border p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words'
+            className='h-96 overflow-y-auto rounded-lg border bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-100'
           >
             {consoleLogsQuery.isLoading
               ? t('Loading logs...')
@@ -1238,17 +1481,18 @@ export function CustomModelsPage() {
         confirmText={t('Delete')}
       />
 
-      {/* Hugging Face Picker for Fine-Tuning */}
+      {/* Hugging Face Picker for Fine-Tuning (excludes inference-only GGUF) */}
       <HfModelPickerDialog
         open={hfPickerOpen}
         onOpenChange={setHfPickerOpen}
         onSelect={handleHfPicked}
         apiBasePath='/api/user/fine_tuning/hf'
+        excludeGguf
       />
 
-      {/* Auto Model Alias Create / Edit Dialog */}
+      {/* Auto Model Alias Create / Edit Dialog (with optional System Prompt) */}
       <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
-        <DialogContent className='sm:max-w-md'>
+        <DialogContent className='sm:max-w-lg'>
           <DialogHeader>
             <DialogTitle>
               {editingAlias ? t('Edit Auto Model') : t('Add Auto Model')}
@@ -1289,6 +1533,22 @@ export function CustomModelsPage() {
                 value={aliasDesc}
                 onChange={(e) => setAliasDesc(e.target.value)}
               />
+            </div>
+            <div className='space-y-1.5'>
+              <Label>{t('System Prompt (Optional)')}</Label>
+              <Textarea
+                rows={4}
+                placeholder={t(
+                  'Automatically injected as the system prompt on every request using this auto model (standard input token pricing applies).'
+                )}
+                value={aliasSystemPrompt}
+                onChange={(e) => setAliasSystemPrompt(e.target.value)}
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Injected prompt tokens are included in standard prompt token billing on each request.'
+                )}
+              </p>
             </div>
           </div>
           <DialogFooter>

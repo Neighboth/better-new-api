@@ -206,6 +206,8 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/model_aliases/:id", controller.DeleteUserModelAlias)
 				selfRoute.GET("/fine_tuning/jobs", controller.UserListFineTuningJobs)
 				selfRoute.POST("/fine_tuning/jobs", controller.UserCreateFineTuningJob)
+				selfRoute.POST("/fine_tuning/upload_model", controller.UserUploadStagedFineTuningModel)
+				selfRoute.DELETE("/fine_tuning/staged_model/:upload_id", controller.UserDeleteStagedFineTuningModel)
 				selfRoute.POST("/fine_tuning/jobs/:job_id/cancel", controller.UserCancelFineTuningJob)
 				selfRoute.GET("/fine_tuning/jobs/:job_id/logs", controller.UserGetFineTuningJobLogs)
 				selfRoute.GET("/fine_tuning/jobs/:job_id/download", controller.UserDownloadFineTuningModel)
@@ -586,6 +588,15 @@ func SetApiRouter(router *gin.Engine) {
 		// Public deployment callback (authenticated via per-deployment callback token)
 		apiRouter.POST("/deployments/notebooks/:id/callback", controller.NotebookDeploymentCallback)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/callback", controller.FineTuningWorkerCallback)
+
+		// Fine-tuning admin management & statistics
+		fineTuningAdminRoute := apiRouter.Group("/fine_tuning/admin")
+		fineTuningAdminRoute.Use(middleware.AdminAuth())
+		{
+			fineTuningAdminRoute.GET("/jobs", controller.AdminListFineTuningJobs)
+			fineTuningAdminRoute.GET("/stats", controller.AdminGetFineTuningStats)
+			fineTuningAdminRoute.DELETE("/jobs/:job_id", controller.AdminDeleteFineTuningJob)
+		}
 
 		// Deployments (model deployment management)
 		deploymentsRoute := apiRouter.Group("/deployments")

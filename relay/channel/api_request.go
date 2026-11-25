@@ -630,15 +630,21 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, errors.New("resp is nil")
 	}
 
-	// Automatic Psiphon IP rotation on 429 for OpenCode channels bound to psiphon-tunnel-core
+	// Automatic Psiphon IP rotation on 429 for anonymous channels bound to psiphon-tunnel-core
 	if usingPsiphon && resp.StatusCode == http.StatusTooManyRequests && req.GetBody != nil {
 		for retry := 0; retry < 3; retry++ {
-			nextProxy, rotErr := service.RotatePsiphonForChannel(info.ChannelId)
+			nextProxy, rotErr := service.RotatePsiphonForChannel(info.ChannelId, rawProxyURL)
 			if rotErr != nil || nextProxy == "" {
-				break
+				errDetail := "rotation unavailable"
+				if rotErr != nil {
+					errDetail = rotErr.Error()
+				}
+				model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "psiphon_error", fmt.Sprintf("Psiphon IP rotation failed after 429 (attempt %d/3): %s", retry+1, errDetail))
+				continue
 			}
 			rawProxyURL = nextProxy
-			model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "psiphon_rotate_429", fmt.Sprintf("Rotated Psiphon IP after upstream 429 (attempt %d/3)", retry+1))
+			st := service.GetPsiphonStatus(info.ChannelId)
+			model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "psiphon_rotate_429", fmt.Sprintf("Rotated Psiphon IP after upstream 429 (attempt %d/3, region=%s, ip=%s)", retry+1, st.Region, st.EgressIP))
 			_ = resp.Body.Close()
 
 			newBody, getBodyErr := req.GetBody()
@@ -660,13 +666,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 			retryClient, clientErr := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
 			if clientErr != nil {
-				break
+				continue
 			}
 			rClient := *retryClient
 			rClient.CheckRedirect = keepUpstreamRedirectResponse
 			newResp, doErr := rClient.Do(req)
 			if doErr != nil {
-				break
+				model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "psiphon_error", fmt.Sprintf("Retry request failed over rotated Psiphon IP (attempt %d/3): %s", retry+1, doErr.Error()))
+				continue
 			}
 			resp = newResp
 			if resp.StatusCode != http.StatusTooManyRequests {

@@ -17,13 +17,13 @@
       "file": "ja.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 411
+      "untranslatedCount": 412
     },
     "ru": {
       "file": "ru.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 409
+      "untranslatedCount": 410
     },
     "tr": {
       "file": "tr.json",
@@ -47,7 +47,7 @@
       "file": "zh.json",
       "missingCount": 0,
       "extrasCount": 0,
-      "untranslatedCount": 199
+      "untranslatedCount": 200
     }
   }
 }

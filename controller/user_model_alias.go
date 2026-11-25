@@ -10,9 +10,10 @@ import (
 )
 
 type userModelAliasRequest struct {
-	Alias       string `json:"alias"`
-	TargetModel string `json:"target_model"`
-	Description string `json:"description"`
+	Alias        string `json:"alias"`
+	TargetModel  string `json:"target_model"`
+	Description  string `json:"description"`
+	SystemPrompt string `json:"system_prompt"`
 }
 
 func ListUserModelAliases(c *gin.Context) {
@@ -35,7 +36,7 @@ func CreateUserModelAlias(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
 		return
 	}
-	item, err := model.CreateUserModelAlias(userId, req.Alias, req.TargetModel, req.Description)
+	item, err := model.CreateUserModelAlias(userId, req.Alias, req.TargetModel, req.Description, req.SystemPrompt)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -55,7 +56,7 @@ func UpdateUserModelAlias(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
 		return
 	}
-	item, err := model.UpdateUserModelAlias(userId, id, req.Alias, req.TargetModel, req.Description)
+	item, err := model.UpdateUserModelAlias(userId, id, req.Alias, req.TargetModel, req.Description, req.SystemPrompt)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return

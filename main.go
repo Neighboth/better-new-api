@@ -141,6 +141,10 @@ func main() {
 	// delete the ones past retention (default 30 days)
 	service.StartVideoExpirySweeper()
 
+	// Fine-tuning storage: warn users before model retention expires and purge
+	// expired fine-tuning artifacts + orphaned staged uploads
+	service.StartFineTuningRetentionWorker()
+
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
 	service.StartSystemInstanceReporter()

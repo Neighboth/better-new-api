@@ -197,5 +197,6 @@
   "mistral, codestral, pixtral": "mistral, codestral, pixtral",
   "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile": "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile",
   "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free": "opencode/grok-code,big-pickle,deepseek-v4.1-flash-free",
-  "shpat_xxx": "shpat_xxx"
+  "shpat_xxx": "shpat_xxx",
+  "Linux.do": "Linux.do"
 }
