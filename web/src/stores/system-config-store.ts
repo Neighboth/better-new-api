@@ -26,6 +26,7 @@ export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 export interface DisplayCurrencyOption {
   code: string
   symbol: string
+  icon?: string
   name?: string
   exchange_rate: number
   auto_rate?: boolean

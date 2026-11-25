@@ -212,12 +212,14 @@ func UserListFineTuningJobs(c *gin.Context) {
 		}
 	}
 	pricePerSec, gpuMultipliers := service.GetFineTuningPricing()
+	gpuOptions := service.GetFineTuningGPUOptions()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
 			"enabled":          service.IsFineTuningEnabled(),
 			"price_per_second": pricePerSec,
 			"gpu_multipliers":  gpuMultipliers,
+			"gpu_options":      gpuOptions,
 			"jobs":             jobs,
 		},
 	})
@@ -229,7 +231,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	var baseModel, trainingFile, trainingData, gpu, provider, suffix string
+	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, modelSource, modelSourceURL string
 	epochs := 3
 	estimatedSec := int64(300)
 
@@ -241,6 +243,9 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		gpu = strings.TrimSpace(c.PostForm("gpu"))
 		provider = strings.TrimSpace(c.PostForm("provider"))
 		suffix = strings.TrimSpace(c.PostForm("suffix"))
+		method = strings.ToLower(strings.TrimSpace(c.PostForm("method")))
+		modelSource = strings.ToLower(strings.TrimSpace(c.PostForm("model_source")))
+		modelSourceURL = strings.TrimSpace(c.PostForm("model_url"))
 		if ep, err := strconv.Atoi(c.PostForm("epochs")); err == nil && ep > 0 && ep <= 50 {
 			epochs = ep
 		}
@@ -255,6 +260,9 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			GPU              string `json:"gpu"`
 			Provider         string `json:"provider"`
 			Suffix           string `json:"suffix"`
+			Method           string `json:"method"`
+			ModelSource      string `json:"model_source"`
+			ModelURL         string `json:"model_url"`
 			Epochs           int    `json:"epochs"`
 			EstimatedSeconds int64  `json:"estimated_seconds"`
 		}
@@ -268,6 +276,9 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		gpu = strings.TrimSpace(req.GPU)
 		provider = strings.TrimSpace(req.Provider)
 		suffix = strings.TrimSpace(req.Suffix)
+		method = strings.ToLower(strings.TrimSpace(req.Method))
+		modelSource = strings.ToLower(strings.TrimSpace(req.ModelSource))
+		modelSourceURL = strings.TrimSpace(req.ModelURL)
 		if req.Epochs > 0 && req.Epochs <= 50 {
 			epochs = req.Epochs
 		}
@@ -276,25 +287,50 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		}
 	}
 
-	if baseModel == "" {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Base model is required"})
-		return
+	switch method {
+	case "lora", "qlora", "sft", "dpo", "full":
+	default:
+		method = "lora"
 	}
-	if gpu == "" {
-		gpu = "NVIDIA_TESLA_T4"
+	switch modelSource {
+	case "huggingface", "url", "upload":
+	default:
+		modelSource = "huggingface"
 	}
 
 	jobID := service.GenerateFineTuningJobID()
 	storageDir := service.FineTuningStorageDir(jobID)
 	var trainingFilePath string
+	var baseModelFilePath string
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
+		if mf, mErr := c.FormFile("model_file"); mErr == nil && mf != nil {
+			if err := os.MkdirAll(storageDir, 0o755); err == nil {
+				safeName := filepath.Base(mf.Filename)
+				if safeName == "" || safeName == "." || safeName == ".." {
+					safeName = "base-model.bin"
+				}
+				dst := filepath.Join(storageDir, "base_"+safeName)
+				if src, oErr := mf.Open(); oErr == nil {
+					if out, cErr := os.Create(dst); cErr == nil {
+						_, _ = io.Copy(out, src)
+						_ = out.Close()
+						baseModelFilePath = dst
+						if baseModel == "" {
+							baseModel = safeName
+						}
+					}
+					_ = src.Close()
+				}
+			}
+		}
 		if fh, fErr := c.FormFile("file"); fErr == nil && fh != nil {
 			if err := os.MkdirAll(storageDir, 0o755); err == nil {
 				dst := filepath.Join(storageDir, "train.jsonl")
 				if src, oErr := fh.Open(); oErr == nil {
 					if out, cErr := os.Create(dst); cErr == nil {
-						_, _ = io.Copy(out, io.LimitReader(src, 50<<20))
+						// Stream directly to disk so large multi-million-row datasets never exhaust memory
+						_, _ = io.Copy(out, io.LimitReader(src, 512<<20))
 						_ = out.Close()
 						trainingFilePath = dst
 						if trainingFile == "" {
@@ -306,6 +342,29 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			}
 		}
 	}
+
+	if modelSource == "url" && baseModel == "" && modelSourceURL != "" {
+		baseModel = modelSourceURL
+	}
+	if baseModel == "" {
+		service.CleanupFineTuningStorage(jobID)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Base model is required"})
+		return
+	}
+	if gpu == "" {
+		for _, opt := range service.GetFineTuningGPUOptions() {
+			if opt.Enabled {
+				gpu = opt.ID
+				break
+			}
+		}
+	}
+	if _, ok := service.FindEnabledFineTuningGPU(gpu); !ok {
+		service.CleanupFineTuningStorage(jobID)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Selected GPU option is disabled or invalid"})
+		return
+	}
+
 	if trainingFilePath == "" && trainingData != "" {
 		if err := os.MkdirAll(storageDir, 0o755); err == nil {
 			dst := filepath.Join(storageDir, "train.jsonl")
@@ -318,13 +377,17 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		}
 	}
 	if trainingFile == "" {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Training dataset file or content is required"})
+		service.CleanupFineTuningStorage(jobID)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Training dataset file is required"})
 		return
 	}
 
 	hyperBytes, _ := common.Marshal(map[string]any{
-		"n_epochs": epochs,
-		"suffix":   suffix,
+		"n_epochs":     epochs,
+		"suffix":       suffix,
+		"method":       method,
+		"model_source": modelSource,
+		"model_url":    modelSourceURL,
 	})
 	now := time.Now().Unix()
 	estCost := service.EstimateFineTuningCostUSD(gpu, estimatedSec)
@@ -336,21 +399,25 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	}
 
 	job := &model.FineTuningJob{
-		JobID:            jobID,
-		UserId:           userId,
-		Model:            baseModel,
-		FineTunedModel:   ftName,
-		TrainingFile:     trainingFile,
-		TrainingFilePath: trainingFilePath,
-		Hyperparameters:  string(hyperBytes),
-		Status:           "queued",
-		Provider:         provider,
-		GPU:              gpu,
-		DurationSeconds:  estimatedSec,
-		EstimatedCostUSD: estCost,
-		CallbackToken:    common.GetUUID(),
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		JobID:             jobID,
+		UserId:            userId,
+		Model:             baseModel,
+		FineTunedModel:    ftName,
+		TrainingFile:      trainingFile,
+		TrainingFilePath:  trainingFilePath,
+		BaseModelFilePath: baseModelFilePath,
+		Hyperparameters:   string(hyperBytes),
+		Status:            "queued",
+		Provider:          provider,
+		GPU:               gpu,
+		Method:            method,
+		ModelSource:       modelSource,
+		ModelSourceURL:    modelSourceURL,
+		DurationSeconds:   estimatedSec,
+		EstimatedCostUSD:  estCost,
+		CallbackToken:     common.GetUUID(),
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	if err := model.CreateFineTuningJob(job); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})

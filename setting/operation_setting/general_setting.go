@@ -13,6 +13,7 @@ const (
 type DisplayCurrencyOption struct {
 	Code         string  `json:"code"`
 	Symbol       string  `json:"symbol"`
+	Icon         string  `json:"icon,omitempty"`
 	Name         string  `json:"name"`
 	ExchangeRate float64 `json:"exchange_rate"`
 	AutoRate     bool    `json:"auto_rate"`

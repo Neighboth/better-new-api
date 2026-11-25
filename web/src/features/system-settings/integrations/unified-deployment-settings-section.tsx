@@ -32,6 +32,14 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
   getDeploymentAccounts,
   type DeploymentAccountSummary,
 } from '@/features/models/api'
@@ -39,7 +47,6 @@ import type { DeploymentProviderId } from '@/features/models/lib/hardware-catalo
 
 import {
   SettingsForm,
-  SettingsFormGrid,
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
@@ -48,12 +55,102 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { ProviderAccountsManager } from './provider-accounts-manager'
 
+export interface FineTuningGPURow {
+  id: string
+  label: string
+  price_per_second: number
+  enabled: boolean
+}
+
+const DEFAULT_FT_GPU_ROWS: FineTuningGPURow[] = [
+  { id: 'CPU', label: 'CPU', price_per_second: 0.0005, enabled: true },
+  {
+    id: 'NVIDIA_TESLA_T4',
+    label: 'NVIDIA T4 (16GB)',
+    price_per_second: 0.0015,
+    enabled: true,
+  },
+  {
+    id: 'NVIDIA_L4',
+    label: 'NVIDIA L4 (24GB)',
+    price_per_second: 0.0025,
+    enabled: true,
+  },
+  {
+    id: 'NVIDIA_A10G',
+    label: 'NVIDIA A10G (24GB)',
+    price_per_second: 0.003,
+    enabled: true,
+  },
+  {
+    id: 'NVIDIA_TESLA_A100',
+    label: 'NVIDIA A100 (80GB)',
+    price_per_second: 0.006,
+    enabled: true,
+  },
+  {
+    id: 'NVIDIA_H100_80GB',
+    label: 'NVIDIA H100 (80GB)',
+    price_per_second: 0.01,
+    enabled: true,
+  },
+]
+
+function parseFineTuningGPURows(
+  raw?: string,
+  legacyBasePrice = 0.002
+): FineTuningGPURow[] {
+  const trimmed = (raw ?? '').trim()
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item) => ({
+          id: String(item.id ?? ''),
+          label: String(item.label ?? item.id ?? ''),
+          price_per_second: Number(item.price_per_second) || 0,
+          enabled: item.enabled !== false,
+        }))
+      }
+    } catch {
+      // fall through
+    }
+  }
+  if (trimmed.startsWith('{')) {
+    try {
+      const legacy = JSON.parse(trimmed) as Record<string, number>
+      return DEFAULT_FT_GPU_ROWS.map((row) =>
+        row.id in legacy
+          ? {
+              ...row,
+              price_per_second: Number(
+                ((legacy[row.id] ?? 1) * legacyBasePrice).toFixed(6)
+              ),
+              enabled: (legacy[row.id] ?? 1) >= 0,
+            }
+          : row
+      )
+    } catch {
+      // fall through
+    }
+  }
+  return DEFAULT_FT_GPU_ROWS.map((r) => ({ ...r }))
+}
+
 const schema = z.object({
   // Global dispatch priority & fine-tuning
   priority: z.string().optional(),
   fineTuningEnabled: z.boolean().optional(),
-  fineTuningPricePerSecond: z.coerce.number().min(0).optional(),
-  fineTuningGpuMultipliers: z.string().optional(),
+  fineTuningGpuRows: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        price_per_second: z.coerce.number().min(0),
+        enabled: z.boolean(),
+      })
+    )
+    .optional(),
 
   // io.net
   ionetEnabled: z.boolean(),
@@ -217,10 +314,10 @@ export function UnifiedDeploymentSettingsSection({
     defaultValues: {
       priority: defaultValues.priority || 'deployments_first',
       fineTuningEnabled: defaultValues.fineTuningEnabled ?? false,
-      fineTuningPricePerSecond: defaultValues.fineTuningPricePerSecond ?? 0.002,
-      fineTuningGpuMultipliers:
-        defaultValues.fineTuningGpuMultipliers ??
-        '{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_L4":1.5,"NVIDIA_TESLA_A100":3,"NVIDIA_H100_80GB":5}',
+      fineTuningGpuRows: parseFineTuningGPURows(
+        defaultValues.fineTuningGpuMultipliers,
+        defaultValues.fineTuningPricePerSecond ?? 0.002
+      ),
 
       ionetEnabled: defaultValues.ionet?.enabled ?? false,
       ionetIdleTimeoutSeconds: defaultValues.ionet?.idleTimeoutSeconds ?? 300,
@@ -254,6 +351,7 @@ export function UnifiedDeploymentSettingsSection({
   const ionetEnabled = form.watch('ionetEnabled')
   const modalEnabled = form.watch('modalEnabled')
   const hfEnabled = form.watch('hfEnabled')
+  const gpuRows = form.watch('fineTuningGpuRows') ?? DEFAULT_FT_GPU_ROWS
 
   const [accountsByProvider, setAccountsByProvider] = useState<
     Record<string, DeploymentAccountSummary[]>
@@ -287,12 +385,8 @@ export function UnifiedDeploymentSettingsSection({
         value: String(Boolean(values.fineTuningEnabled)),
       })
       await updateOption.mutateAsync({
-        key: 'model_deployment.fine_tuning.price_per_second',
-        value: String(values.fineTuningPricePerSecond ?? 0.002),
-      })
-      await updateOption.mutateAsync({
         key: 'model_deployment.fine_tuning.gpu_multipliers',
-        value: String(values.fineTuningGpuMultipliers ?? '{}'),
+        value: JSON.stringify(values.fineTuningGpuRows ?? DEFAULT_FT_GPU_ROWS),
       })
 
       await updateOption.mutateAsync({
@@ -444,62 +538,84 @@ export function UnifiedDeploymentSettingsSection({
           />
 
           {form.watch('fineTuningEnabled') && (
-            <SettingsFormGrid>
-              <FormField
-                control={form.control}
-                name='fineTuningPricePerSecond'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {t('Fine-Tuning Base Price (USD / second)')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        step='0.0001'
-                        min='0'
-                        placeholder='0.002'
-                        value={field.value ?? 0.002}
-                        onChange={(e) =>
-                          field.onChange(
-                            e.target.value === '' ? 0 : Number(e.target.value)
-                          )
-                        }
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Base USD rate per training second, multiplied by the GPU multiplier.'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
+            <FormItem data-settings-form-span='full' className='space-y-2'>
+              <FormLabel>{t('Fine-Tuning GPU Pricing')}</FormLabel>
+              <FormDescription>
+                {t(
+                  'Configure per-second USD pricing and toggle availability for each accelerator.'
                 )}
-              />
-              <FormField
-                control={form.control}
-                name='fineTuningGpuMultipliers'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('GPU Price Multipliers (JSON)')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        className='font-mono text-xs'
-                        placeholder='{"CPU":0.5,"NVIDIA_TESLA_T4":1,"NVIDIA_TESLA_A100":3}'
-                        value={field.value ?? ''}
-                        onChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Multiplier per accelerator type (e.g., T4 = 1x, A100 = 3x).'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </SettingsFormGrid>
+              </FormDescription>
+              <div className='overflow-x-auto rounded-lg border'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('GPU')}</TableHead>
+                      <TableHead className='w-[200px]'>
+                        {t('Price per Second (USD/s)')}
+                      </TableHead>
+                      <TableHead className='w-[100px] text-right'>
+                        {t('Enabled')}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {gpuRows.map((row, idx) => (
+                      <TableRow
+                        key={row.id}
+                        className={!row.enabled ? 'opacity-55' : undefined}
+                      >
+                        <TableCell>
+                          <div className='text-sm font-medium'>{row.label}</div>
+                          <div className='text-muted-foreground font-mono text-[11px]'>
+                            {row.id}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className='relative flex items-center'>
+                            <span className='text-muted-foreground pointer-events-none absolute left-2.5 text-xs'>
+                              $
+                            </span>
+                            <Input
+                              type='number'
+                              step='0.0001'
+                              min='0'
+                              disabled={!row.enabled}
+                              value={row.price_per_second}
+                              onChange={(e) => {
+                                const next = [...gpuRows]
+                                next[idx] = {
+                                  ...next[idx],
+                                  price_per_second:
+                                    e.target.value === ''
+                                      ? 0
+                                      : Math.max(0, Number(e.target.value)),
+                                }
+                                form.setValue('fineTuningGpuRows', next, {
+                                  shouldDirty: true,
+                                })
+                              }}
+                              className='h-8 pl-6 font-mono text-xs'
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell className='text-right'>
+                          <Switch
+                            checked={row.enabled}
+                            onCheckedChange={(checked) => {
+                              const next = [...gpuRows]
+                              next[idx] = { ...next[idx], enabled: checked }
+                              form.setValue('fineTuningGpuRows', next, {
+                                shouldDirty: true,
+                              })
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </FormItem>
           )}
 
           <Separator data-settings-form-span='full' />

@@ -60,6 +60,72 @@ type ProxyPoolAssignment struct {
 	UpdatedAt int64 `json:"updated_at"`
 }
 
+// ProxyPoolChannelPsiphon tracks whether an OpenCode channel is bound to a
+// managed psiphon-tunnel-core proxy instead of standard proxy-pool proxies.
+type ProxyPoolChannelPsiphon struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	ChannelId int    `json:"channel_id" gorm:"not null;uniqueIndex"`
+	Enabled   bool   `json:"enabled" gorm:"not null"`
+	Region    string `json:"region" gorm:"type:varchar(16);default:''"`
+	EgressIP  string `json:"egress_ip" gorm:"type:varchar(64);default:''"`
+	Status    string `json:"status" gorm:"type:varchar(32);default:'stopped'"`
+	LastError string `json:"last_error" gorm:"type:text"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func GetChannelPsiphon(channelID int) (*ProxyPoolChannelPsiphon, error) {
+	if DB == nil || channelID <= 0 {
+		return nil, nil
+	}
+	var rec ProxyPoolChannelPsiphon
+	if err := DB.Where("channel_id = ?", channelID).First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+func IsChannelPsiphonEnabled(channelID int) bool {
+	rec, err := GetChannelPsiphon(channelID)
+	return err == nil && rec != nil && rec.Enabled
+}
+
+func SetChannelPsiphon(channelID int, enabled bool, region, status, egressIP, lastErr string) error {
+	if DB == nil || channelID <= 0 {
+		return nil
+	}
+	now := time.Now().Unix()
+	var existing ProxyPoolChannelPsiphon
+	err := DB.Where("channel_id = ?", channelID).First(&existing).Error
+	if err != nil {
+		rec := ProxyPoolChannelPsiphon{
+			ChannelId: channelID,
+			Enabled:   enabled,
+			Region:    region,
+			EgressIP:  egressIP,
+			Status:    status,
+			LastError: lastErr,
+			UpdatedAt: now,
+		}
+		return DB.Create(&rec).Error
+	}
+	existing.Enabled = enabled
+	existing.Region = region
+	if egressIP != "" || status == "stopped" {
+		existing.EgressIP = egressIP
+	}
+	existing.Status = status
+	existing.LastError = lastErr
+	existing.UpdatedAt = now
+	return DB.Save(&existing).Error
+}
+
+func DeleteChannelPsiphon(channelID int) error {
+	if DB == nil || channelID <= 0 {
+		return nil
+	}
+	return DB.Where("channel_id = ?", channelID).Delete(&ProxyPoolChannelPsiphon{}).Error
+}
+
 type ProxyPoolListResult struct {
 	Items        []ProxyPoolProxy `json:"items"`
 	Total        int64            `json:"total"`

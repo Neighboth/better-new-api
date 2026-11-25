@@ -17,14 +17,18 @@ type FineTuningJob struct {
 	Status          string `json:"status" gorm:"type:varchar(32);index;not null"` // queued | running | succeeded | failed | cancelled
 	TrainedTokens   int64  `json:"trained_tokens"`
 	Error            string  `json:"error" gorm:"type:text"`
-	Provider         string  `json:"provider" gorm:"type:varchar(32)"`
-	GPU              string  `json:"gpu" gorm:"type:varchar(64)"`
-	DeploymentID     int     `json:"deployment_id"`
-	DurationSeconds  int64   `json:"duration_seconds"`
-	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
-	BilledQuota      int64   `json:"billed_quota"`
-	TrainingFilePath string  `json:"-" gorm:"type:text"`
-	ModelFilePath    string  `json:"-" gorm:"type:text"`
+	Provider          string  `json:"provider" gorm:"type:varchar(32)"`
+	GPU               string  `json:"gpu" gorm:"type:varchar(64)"`
+	Method            string  `json:"method" gorm:"type:varchar(32)"`
+	ModelSource       string  `json:"model_source" gorm:"type:varchar(32)"`
+	ModelSourceURL    string  `json:"model_source_url" gorm:"type:text"`
+	DeploymentID      int     `json:"deployment_id"`
+	DurationSeconds   int64   `json:"duration_seconds"`
+	EstimatedCostUSD  float64 `json:"estimated_cost_usd"`
+	BilledQuota       int64   `json:"billed_quota"`
+	TrainingFilePath  string  `json:"-" gorm:"type:text"`
+	BaseModelFilePath string  `json:"-" gorm:"type:text"`
+	ModelFilePath     string  `json:"-" gorm:"type:text"`
 	HasModelFile     bool    `json:"has_model_file" gorm:"-"`
 	CallbackToken    string  `json:"-" gorm:"type:varchar(64)"`
 	CreatedAt       int64  `json:"created_at" gorm:"bigint;index"`

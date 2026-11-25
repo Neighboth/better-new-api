@@ -20,44 +20,122 @@ func IsFineTuningEnabled() bool {
 	return enabled
 }
 
-func GetFineTuningPricing() (float64, map[string]float64) {
+type FineTuningGPUOption struct {
+	ID             string  `json:"id"`
+	Label          string  `json:"label"`
+	PricePerSecond float64 `json:"price_per_second"`
+	Enabled        bool    `json:"enabled"`
+}
+
+var defaultFineTuningGPUs = []FineTuningGPUOption{
+	{ID: "CPU", Label: "CPU", PricePerSecond: 0.0005, Enabled: true},
+	{ID: "NVIDIA_TESLA_T4", Label: "NVIDIA T4 (16GB)", PricePerSecond: 0.0015, Enabled: true},
+	{ID: "NVIDIA_L4", Label: "NVIDIA L4 (24GB)", PricePerSecond: 0.0025, Enabled: true},
+	{ID: "NVIDIA_A10G", Label: "NVIDIA A10G (24GB)", PricePerSecond: 0.0030, Enabled: true},
+	{ID: "NVIDIA_TESLA_A100", Label: "NVIDIA A100 (80GB)", PricePerSecond: 0.0060, Enabled: true},
+	{ID: "NVIDIA_H100_80GB", Label: "NVIDIA H100 (80GB)", PricePerSecond: 0.0100, Enabled: true},
+}
+
+func GetFineTuningGPUOptions() []FineTuningGPUOption {
 	common.OptionMapRWMutex.RLock()
 	rawPrice := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.price_per_second"])
-	rawMult := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.gpu_multipliers"])
+	rawConfig := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.gpu_multipliers"])
 	common.OptionMapRWMutex.RUnlock()
 
-	pricePerSec := 0.002
+	basePrice := 0.002
 	if rawPrice != "" {
 		if parsed, err := strconv.ParseFloat(rawPrice, 64); err == nil && parsed >= 0 {
-			pricePerSec = parsed
+			basePrice = parsed
 		}
 	}
-	multipliers := map[string]float64{
-		"CPU":               0.5,
-		"NVIDIA_TESLA_T4":   1.0,
-		"NVIDIA_L4":         1.5,
-		"NVIDIA_TESLA_A100": 3.0,
-		"NVIDIA_H100_80GB":  5.0,
-	}
-	if rawMult != "" {
-		var parsed map[string]float64
-		if common.UnmarshalJsonStr(rawMult, &parsed) == nil && len(parsed) > 0 {
-			multipliers = parsed
+
+	// New structured row format: [{"id":"...","label":"...","price_per_second":0.0015,"enabled":true}]
+	if strings.HasPrefix(rawConfig, "[") {
+		var rows []FineTuningGPUOption
+		if common.UnmarshalJsonStr(rawConfig, &rows) == nil && len(rows) > 0 {
+			for i := range rows {
+				if rows[i].Label == "" {
+					rows[i].Label = rows[i].ID
+				}
+				if rows[i].PricePerSecond < 0 {
+					rows[i].PricePerSecond = 0
+				}
+			}
+			return rows
 		}
 	}
-	return pricePerSec, multipliers
+
+	// Legacy multiplier map format fallback: {"CPU":0.5,"NVIDIA_TESLA_T4":1,...}
+	if strings.HasPrefix(rawConfig, "{") {
+		var legacy map[string]float64
+		if common.UnmarshalJsonStr(rawConfig, &legacy) == nil && len(legacy) > 0 {
+			result := make([]FineTuningGPUOption, 0, len(defaultFineTuningGPUs))
+			seen := make(map[string]bool, len(defaultFineTuningGPUs))
+			for _, def := range defaultFineTuningGPUs {
+				seen[def.ID] = true
+				if mult, ok := legacy[def.ID]; ok {
+					result = append(result, FineTuningGPUOption{
+						ID:             def.ID,
+						Label:          def.Label,
+						PricePerSecond: basePrice * mult,
+						Enabled:        mult >= 0,
+					})
+				} else {
+					result = append(result, def)
+				}
+			}
+			for id, mult := range legacy {
+				if !seen[id] {
+					result = append(result, FineTuningGPUOption{
+						ID:             id,
+						Label:          id,
+						PricePerSecond: basePrice * mult,
+						Enabled:        mult >= 0,
+					})
+				}
+			}
+			return result
+		}
+	}
+
+	out := make([]FineTuningGPUOption, len(defaultFineTuningGPUs))
+	copy(out, defaultFineTuningGPUs)
+	return out
+}
+
+func GetFineTuningPricing() (float64, map[string]float64) {
+	opts := GetFineTuningGPUOptions()
+	mults := make(map[string]float64, len(opts))
+	for _, o := range opts {
+		if o.Enabled {
+			mults[o.ID] = o.PricePerSecond
+		}
+	}
+	return 1.0, mults
+}
+
+func FindEnabledFineTuningGPU(gpuID string) (*FineTuningGPUOption, bool) {
+	trimmed := strings.TrimSpace(gpuID)
+	for _, opt := range GetFineTuningGPUOptions() {
+		if opt.ID == trimmed && opt.Enabled {
+			copied := opt
+			return &copied, true
+		}
+	}
+	return nil, false
 }
 
 func EstimateFineTuningCostUSD(gpu string, durationSeconds int64) float64 {
 	if durationSeconds <= 0 {
 		return 0
 	}
-	baseRate, mults := GetFineTuningPricing()
-	mult := 1.0
-	if m, ok := mults[strings.TrimSpace(gpu)]; ok && m > 0 {
-		mult = m
+	trimmed := strings.TrimSpace(gpu)
+	for _, opt := range GetFineTuningGPUOptions() {
+		if opt.ID == trimmed {
+			return opt.PricePerSecond * float64(durationSeconds)
+		}
 	}
-	return baseRate * mult * float64(durationSeconds)
+	return 0.002 * float64(durationSeconds)
 }
 
 func FineTuningStorageDir(jobID string) string {

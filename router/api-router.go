@@ -209,6 +209,8 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/fine_tuning/jobs/:job_id/cancel", controller.UserCancelFineTuningJob)
 				selfRoute.GET("/fine_tuning/jobs/:job_id/download", controller.UserDownloadFineTuningModel)
 				selfRoute.DELETE("/fine_tuning/jobs/:job_id", controller.UserDeleteFineTuningJob)
+				selfRoute.GET("/fine_tuning/hf/search", controller.SearchHuggingFaceModels)
+				selfRoute.GET("/fine_tuning/hf/files", controller.GetHuggingFaceModelFiles)
 
 				// 2FA routes
 				selfRoute.GET("/2fa/status", controller.Get2FAStatus)

@@ -136,7 +136,7 @@ var ChannelBaseURLs = []string{
 	"https://api.agnes-ai.com",                  //62
 	"https://chat.deepseek.com",                 //63
 	"https://videoapi.aerobox.eu.cc",            //64
-	"https://opencode.ai/inference/openai",      //65
+	"https://opencode.ai/inference/openai/v1",   //65
 	"https://api.groq.com/openai",               //66
 	"https://api.anthropic.com",                 //67 Claude subscription
 	"https://ai-gateway.kilo.ai/api",            //68 Kilo Code Anon

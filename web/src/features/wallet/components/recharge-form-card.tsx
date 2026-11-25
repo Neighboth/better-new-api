@@ -297,17 +297,25 @@ export function RechargeFormCard({
                   {t('Custom Amount')}
                 </Label>
                 <div className='grid grid-cols-[minmax(0,1fr)_minmax(110px,0.55fr)] gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
-                  <Input
-                    id='topup-amount'
-                    type='number'
-                    step='any'
-                    value={localAmount}
-                    onChange={(e) => handleAmountChange(e.target.value)}
-                    min={minTopup}
-                    max={MAX_SAFE_TOPUP_AMOUNT}
-                    placeholder={t('Minimum {{amount}}', { amount: minTopup })}
-                    className='h-9 text-base sm:h-10 sm:text-lg'
-                  />
+                  <div className='relative flex items-center'>
+                    <span
+                      aria-hidden='true'
+                      className='text-muted-foreground pointer-events-none absolute left-3 text-base font-medium sm:text-lg'
+                    >
+                      $
+                    </span>
+                    <Input
+                      id='topup-amount'
+                      type='number'
+                      step='any'
+                      value={localAmount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      min={minTopup}
+                      max={MAX_SAFE_TOPUP_AMOUNT}
+                      placeholder={t('Minimum {{amount}}', { amount: minTopup })}
+                      className='h-9 pl-7 text-base sm:h-10 sm:pl-8 sm:text-lg'
+                    />
+                  </div>
                   <div className='bg-muted/30 flex min-h-9 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
                     <span className='text-muted-foreground truncate text-xs'>
                       {t('Amount to pay:')}

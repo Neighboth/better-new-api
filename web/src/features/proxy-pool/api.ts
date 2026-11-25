@@ -46,6 +46,11 @@ export interface ProxyPoolChannel {
   group: string
   multi_key_size: number
   assigned_keys: number
+  psiphon_enabled?: boolean
+  psiphon_status?: string
+  psiphon_egress_ip?: string
+  psiphon_region?: string
+  psiphon_error?: string
 }
 
 export interface ProxyPoolAssignment {
@@ -330,5 +335,43 @@ export async function getProxyPoolUsageStats(): Promise<
       proxies: ProxyPoolProxy[]
     }>
   >('/api/proxy-pool/usage-stats')
+  return res.data
+}
+
+export async function assignChannelPsiphon(channelId: number): Promise<
+  ApiEnvelope<{
+    channel_id: number
+    psiphon: {
+      enabled: boolean
+      status: string
+      proxy_url?: string
+      egress_ip?: string
+      region?: string
+      last_error?: string
+    }
+  }>
+> {
+  const res = await api.post(`/api/proxy-pool/channels/${channelId}/psiphon`, {})
+  return res.data
+}
+
+export async function rotateChannelPsiphon(channelId: number): Promise<
+  ApiEnvelope<{
+    channel_id: number
+    proxy_url?: string
+    psiphon: {
+      enabled: boolean
+      status: string
+      proxy_url?: string
+      egress_ip?: string
+      region?: string
+      last_error?: string
+    }
+  }>
+> {
+  const res = await api.post(
+    `/api/proxy-pool/channels/${channelId}/psiphon/rotate`,
+    {}
+  )
   return res.data
 }

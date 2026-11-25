@@ -314,14 +314,28 @@ func ListProxyPoolChannels(c *gin.Context) {
 	}
 	type channelSummary struct {
 		model.MultiKeyChannelSummary
-		AssignedKeys int `json:"assigned_keys"`
+		AssignedKeys    int    `json:"assigned_keys"`
+		PsiphonEnabled  bool   `json:"psiphon_enabled"`
+		PsiphonStatus   string `json:"psiphon_status,omitempty"`
+		PsiphonEgressIP string `json:"psiphon_egress_ip,omitempty"`
+		PsiphonRegion   string `json:"psiphon_region,omitempty"`
+		PsiphonError    string `json:"psiphon_error,omitempty"`
 	}
 	summaries := make([]channelSummary, 0, len(channels))
 	for _, channel := range channels {
-		summaries = append(summaries, channelSummary{
+		item := channelSummary{
 			MultiKeyChannelSummary: channel,
 			AssignedKeys:           assignedByChannel[channel.Id],
-		})
+		}
+		if channel.Type == constant.ChannelTypeOpenCode {
+			ps := service.GetPsiphonStatus(channel.Id)
+			item.PsiphonEnabled = ps.Enabled
+			item.PsiphonStatus = ps.Status
+			item.PsiphonEgressIP = ps.EgressIP
+			item.PsiphonRegion = ps.Region
+			item.PsiphonError = ps.LastError
+		}
+		summaries = append(summaries, item)
 	}
 	common.ApiSuccess(c, summaries)
 }
@@ -431,6 +445,10 @@ func AssignProxyPoolManual(c *gin.Context) {
 		common.ApiErrorMsg(c, "channel not found")
 		return
 	}
+	if model.IsChannelPsiphonEnabled(id) {
+		common.ApiErrorMsg(c, "channel is assigned to Psiphon; revert assignment first")
+		return
+	}
 	keyLines := splitKeyLines(ch.Key)
 	isAnon := ch.Type == constant.ChannelTypeOpenCode || ch.Type == constant.ChannelTypeKiloCodeAnon || ch.Type == constant.ChannelTypeOHVCloudAnon
 	if (!ch.ChannelInfo.IsMultiKey && !isAnon) || (len(keyLines) == 0 && !isAnon) {
@@ -504,6 +522,10 @@ func AutoAssignProxyPool(c *gin.Context) {
 	ch, err := model.GetChannelById(req.ChannelId, true)
 	if err != nil {
 		common.ApiErrorMsg(c, "channel not found")
+		return
+	}
+	if model.IsChannelPsiphonEnabled(req.ChannelId) {
+		common.ApiErrorMsg(c, "channel is assigned to Psiphon; revert assignment first")
 		return
 	}
 	keyLines := splitKeyLines(ch.Key)
@@ -720,6 +742,9 @@ func RebalanceAllProxyPoolChannels(c *gin.Context) {
 
 	roundUsage := make(map[int]int, len(enabled))
 	for _, summary := range channels {
+		if model.IsChannelPsiphonEnabled(summary.Id) {
+			continue
+		}
 		ch, err := model.GetChannelById(summary.Id, true)
 		if err != nil {
 			continue
@@ -781,8 +806,9 @@ func ClearChannelProxyPoolAssignments(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	service.StopPsiphonForChannel(id)
 	service.InvalidateProxyPoolCache()
-	model.RecordProxyPoolEvent(id, -1, 0, "", "clear", "Cleared all proxy assignments for this channel")
+	model.RecordProxyPoolEvent(id, -1, 0, "", "clear", "Cleared all proxy and Psiphon assignments for this channel")
 	common.ApiSuccess(c, gin.H{
 		"channel_id": id,
 	})
@@ -1007,13 +1033,73 @@ func ClearProxyPoolAssignments(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if channelId > 0 {
+		service.StopPsiphonForChannel(channelId)
+	}
 	service.InvalidateProxyPoolCache()
 	if channelId == 0 {
 		model.RecordProxyPoolEvent(0, -1, 0, "", "clear", "Cleared ALL proxy assignments across all channels")
 	} else {
-		model.RecordProxyPoolEvent(channelId, -1, 0, "", "clear", "Cleared all proxy assignments for this channel")
+		model.RecordProxyPoolEvent(channelId, -1, 0, "", "clear", "Cleared all proxy and Psiphon assignments for this channel")
 	}
 	common.ApiSuccess(c, gin.H{})
+}
+
+func AssignChannelPsiphon(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	ch, err := model.GetChannelById(id, true)
+	if err != nil {
+		common.ApiErrorMsg(c, "channel not found")
+		return
+	}
+	if ch.Type != constant.ChannelTypeOpenCode {
+		common.ApiErrorMsg(c, "Psiphon is only supported for OpenCode channels")
+		return
+	}
+	if assignedCount, cErr := model.CountProxyPoolChannelAssignments(id); cErr == nil && assignedCount > 0 {
+		common.ApiErrorMsg(c, "channel already has proxies assigned; revert assignments first")
+		return
+	}
+	st, startErr := service.StartPsiphonForChannel(id)
+	service.InvalidateProxyPoolCache()
+	if startErr != nil {
+		model.RecordProxyPoolEvent(id, -1, 0, "", "psiphon_error", startErr.Error())
+		common.ApiErrorMsg(c, startErr.Error())
+		return
+	}
+	model.RecordProxyPoolEvent(id, -1, 0, st.ProxyURL, "psiphon_assign", fmt.Sprintf("Assigned psiphon-tunnel-core proxy (%s)", st.Status))
+	common.ApiSuccess(c, gin.H{
+		"channel_id": id,
+		"psiphon":    st,
+	})
+}
+
+func RotateChannelPsiphon(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid channel id")
+		return
+	}
+	if !model.IsChannelPsiphonEnabled(id) {
+		common.ApiErrorMsg(c, "Psiphon is not enabled for this channel")
+		return
+	}
+	proxyURL, rotErr := service.RotatePsiphonForChannel(id)
+	if rotErr != nil {
+		common.ApiErrorMsg(c, rotErr.Error())
+		return
+	}
+	st := service.GetPsiphonStatus(id)
+	model.RecordProxyPoolEvent(id, -1, 0, proxyURL, "psiphon_rotate", fmt.Sprintf("Rotated Psiphon IP (region=%s, ip=%s)", st.Region, st.EgressIP))
+	common.ApiSuccess(c, gin.H{
+		"channel_id": id,
+		"proxy_url":  proxyURL,
+		"psiphon":    st,
+	})
 }
 
 func splitKeyLines(raw string) []string {

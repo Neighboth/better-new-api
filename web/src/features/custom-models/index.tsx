@@ -19,20 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
-  Cpu,
   Download,
   Loader2,
   Pencil,
   Plus,
-  Sparkles,
+  Search,
   Square,
   Trash2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Main } from '@/components/layout'
+import {
+  HfModelPickerDialog,
+  type HfPickedModel,
+} from '@/components/hf-model-picker-dialog'
+import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -68,9 +71,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { formatCurrencyFromUSD } from '@/lib/currency'
+
+interface FineTuningGPUOption {
+  id: string
+  label: string
+  price_per_second: number
+  enabled: boolean
+}
 
 interface FineTuningJobItem {
   id: number
@@ -83,6 +92,8 @@ interface FineTuningJobItem {
   error?: string
   provider?: string
   gpu?: string
+  method?: string
+  model_source?: string
   duration_seconds: number
   estimated_cost_usd: number
   has_model_file?: boolean
@@ -94,6 +105,7 @@ interface FineTuningListResponse {
   enabled: boolean
   price_per_second: number
   gpu_multipliers: Record<string, number>
+  gpu_options?: FineTuningGPUOption[]
   jobs: FineTuningJobItem[]
 }
 
@@ -106,18 +118,32 @@ interface UserModelAlias {
   updated_at: number
 }
 
+const FINE_TUNING_METHODS = [
+  { id: 'lora', label: 'LoRA (Low-Rank Adaptation)' },
+  { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
+  { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
+  { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
+  { id: 'full', label: 'Full Fine-Tuning' },
+] as const
+
 export function CustomModelsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   // Fine-tuning state
   const [ftCreateOpen, setFtCreateOpen] = useState(false)
+  const [hfPickerOpen, setHfPickerOpen] = useState(false)
+  const [ftModelSource, setFtModelSource] = useState<
+    'huggingface' | 'url' | 'upload'
+  >('huggingface')
   const [ftBaseModel, setFtBaseModel] = useState('')
+  const [ftModelUrl, setFtModelUrl] = useState('')
+  const [ftModelFile, setFtModelFile] = useState<File | null>(null)
+  const [ftMethod, setFtMethod] = useState<string>('lora')
   const [ftSuffix, setFtSuffix] = useState('')
-  const [ftGpu, setFtGpu] = useState('NVIDIA_TESLA_T4')
+  const [ftGpu, setFtGpu] = useState('')
   const [ftEpochs, setFtEpochs] = useState(3)
   const [ftFile, setFtFile] = useState<File | null>(null)
-  const [ftInlineData, setFtInlineData] = useState('')
 
   // Auto model alias state
   const [aliasDialogOpen, setAliasDialogOpen] = useState(false)
@@ -138,12 +164,26 @@ export function CustomModelsPage() {
           enabled: false,
           price_per_second: 0.002,
           gpu_multipliers: {},
+          gpu_options: [],
           jobs: [],
         }
       )
     },
     refetchInterval: 5000,
   })
+
+  const enabledGpuOptions = (ftQuery.data?.gpu_options ?? []).filter(
+    (g) => g.enabled
+  )
+
+  useEffect(() => {
+    if (
+      enabledGpuOptions.length > 0 &&
+      !enabledGpuOptions.some((g) => g.id === ftGpu)
+    ) {
+      setFtGpu(enabledGpuOptions[0].id)
+    }
+  }, [enabledGpuOptions, ftGpu])
 
   const aliasesQuery = useQuery({
     queryKey: ['user-model-aliases'],
@@ -169,20 +209,30 @@ export function CustomModelsPage() {
   const createFtMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData()
-      formData.append('model', ftBaseModel.trim())
+      formData.append('model_source', ftModelSource)
+      formData.append('method', ftMethod)
       formData.append('suffix', ftSuffix.trim())
       formData.append('gpu', ftGpu)
       formData.append('epochs', String(ftEpochs))
+      if (ftModelSource === 'huggingface') {
+        formData.append('model', ftBaseModel.trim())
+      } else if (ftModelSource === 'url') {
+        formData.append('model_url', ftModelUrl.trim())
+        formData.append('model', ftBaseModel.trim() || ftModelUrl.trim())
+      } else if (ftModelSource === 'upload' && ftModelFile) {
+        formData.append('model_file', ftModelFile)
+        formData.append('model', ftBaseModel.trim() || ftModelFile.name)
+      }
       if (ftFile) {
         formData.append('file', ftFile)
-      } else {
-        formData.append('training_data', ftInlineData.trim())
       }
       const res = await api.post('/api/user/fine_tuning/jobs', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       if (!res.data?.success) {
-        throw new Error(res.data?.message || t('Failed to create fine-tuning job'))
+        throw new Error(
+          res.data?.message || t('Failed to create fine-tuning job')
+        )
       }
       return res.data.data
     },
@@ -190,9 +240,10 @@ export function CustomModelsPage() {
       toast.success(t('Fine-tuning job created'))
       setFtCreateOpen(false)
       setFtBaseModel('')
+      setFtModelUrl('')
+      setFtModelFile(null)
       setFtSuffix('')
       setFtFile(null)
-      setFtInlineData('')
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
@@ -204,7 +255,9 @@ export function CustomModelsPage() {
     mutationFn: async (jobId: string) => {
       const res = await api.post(`/api/user/fine_tuning/jobs/${jobId}/cancel`)
       if (!res.data?.success) {
-        throw new Error(res.data?.message || t('Failed to stop fine-tuning job'))
+        throw new Error(
+          res.data?.message || t('Failed to stop fine-tuning job')
+        )
       }
     },
     onSuccess: () => {
@@ -220,7 +273,9 @@ export function CustomModelsPage() {
     mutationFn: async (jobId: string) => {
       const res = await api.delete(`/api/user/fine_tuning/jobs/${jobId}`)
       if (!res.data?.success) {
-        throw new Error(res.data?.message || t('Failed to delete fine-tuning job'))
+        throw new Error(
+          res.data?.message || t('Failed to delete fine-tuning job')
+        )
       }
     },
     onSuccess: () => {
@@ -298,9 +353,12 @@ export function CustomModelsPage() {
 
   const handleDownloadModel = async (jobId: string) => {
     try {
-      const res = await api.get(`/api/user/fine_tuning/jobs/${jobId}/download`, {
-        responseType: 'blob',
-      })
+      const res = await api.get(
+        `/api/user/fine_tuning/jobs/${jobId}/download`,
+        {
+          responseType: 'blob',
+        }
+      )
       const url = window.URL.createObjectURL(new Blob([res.data]))
       const a = document.createElement('a')
       a.href = url
@@ -314,17 +372,24 @@ export function CustomModelsPage() {
     }
   }
 
-  const ftData = ftQuery.data
-  const gpuMultipliers = ftData?.gpu_multipliers ?? {
-    CPU: 0.5,
-    NVIDIA_TESLA_T4: 1,
-    NVIDIA_L4: 1.5,
-    NVIDIA_TESLA_A100: 3,
-    NVIDIA_H100_80GB: 5,
+  const handleHfPicked = (picked: HfPickedModel) => {
+    setFtBaseModel(
+      picked.filename ? `${picked.repoId}/${picked.filename}` : picked.repoId
+    )
+    setHfPickerOpen(false)
   }
-  const activeGpuMult = gpuMultipliers[ftGpu] ?? 1
-  const estimatedRatePerMin =
-    (ftData?.price_per_second ?? 0.002) * activeGpuMult * 60
+
+  const ftData = ftQuery.data
+  const fineTuningEnabled = Boolean(ftData?.enabled)
+  const selectedGpuObj = enabledGpuOptions.find((g) => g.id === ftGpu)
+  const estimatedRatePerMin = (selectedGpuObj?.price_per_second ?? 0.0015) * 60
+
+  const hasValidModelInput =
+    ftModelSource === 'huggingface'
+      ? Boolean(ftBaseModel.trim())
+      : ftModelSource === 'url'
+        ? Boolean(ftModelUrl.trim())
+        : Boolean(ftModelFile)
 
   const renderStatusBadge = (status: string) => {
     switch (status) {
@@ -343,315 +408,372 @@ export function CustomModelsPage() {
     }
   }
 
-  return (
-    <Main>
-      <div className='mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-4 sm:px-6 sm:py-6'>
-        <div className='flex flex-col gap-1'>
-          <h1 className='text-2xl font-bold tracking-tight'>
-            {t('Custom Models')}
-          </h1>
-          <p className='text-muted-foreground text-sm'>
+  const autoModelsCard = (
+    <Card>
+      <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='space-y-1'>
+          <CardTitle className='text-base font-semibold'>
+            {t('Auto Models')}
+          </CardTitle>
+          <CardDescription>
             {t(
-              'Manage your fine-tuned models hosted on this server and private auto model aliases for your API requests.'
+              'Define private model aliases that automatically route to a target model on your API calls. Switch the target model anytime without changing your code. Only visible to your account.'
             )}
-          </p>
+          </CardDescription>
         </div>
+        <Button size='sm' onClick={openCreateAlias}>
+          <Plus className='mr-1.5 h-4 w-4' />
+          {t('Add Auto Model')}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className='overflow-x-auto'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Model ID (Alias)')}</TableHead>
+                <TableHead>{t('Target Model')}</TableHead>
+                <TableHead>{t('Description')}</TableHead>
+                <TableHead className='text-right'>{t('Actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {aliasesQuery.isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className='py-8 text-center'>
+                    <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
+                  </TableCell>
+                </TableRow>
+              ) : (aliasesQuery.data ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={4}
+                    className='text-muted-foreground py-8 text-center text-sm'
+                  >
+                    {t(
+                      'No auto models configured yet. Create one like "auto-myapp" pointing to your preferred model.'
+                    )}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                (aliasesQuery.data ?? []).map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className='font-mono text-sm font-medium'>
+                      {item.alias}
+                    </TableCell>
+                    <TableCell>
+                      <span className='inline-flex items-center gap-1.5 font-mono text-sm'>
+                        <ArrowRight className='text-muted-foreground h-3.5 w-3.5' />
+                        {item.target_model}
+                      </span>
+                    </TableCell>
+                    <TableCell className='text-muted-foreground text-sm'>
+                      {item.description || '—'}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      <div className='flex items-center justify-end gap-1'>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          title={t('Edit')}
+                          onClick={() => openEditAlias(item)}
+                        >
+                          <Pencil className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          className='text-destructive hover:text-destructive'
+                          title={t('Delete')}
+                          onClick={() => deleteAliasMutation.mutate(item.id)}
+                        >
+                          <Trash2 className='h-4 w-4' />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  )
 
-        <Tabs defaultValue='fine-tuning' className='space-y-4'>
-          <TabsList>
-            <TabsTrigger value='fine-tuning' className='gap-1.5'>
-              <Cpu className='h-4 w-4' />
-              {t('Fine-Tuned Models')}
-            </TabsTrigger>
-            <TabsTrigger value='auto-models' className='gap-1.5'>
-              <Sparkles className='h-4 w-4' />
-              {t('Auto Models')}
-            </TabsTrigger>
-          </TabsList>
+  const fineTuningCard = (
+    <Card>
+      <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='space-y-1'>
+          <CardTitle className='text-base font-semibold'>
+            {t('Fine-Tuned Models')}
+          </CardTitle>
+          <CardDescription>
+            {t(
+              'Create and manage fine-tuning jobs from here or directly via the OpenAI-compatible API endpoint POST /v1/fine_tuning/jobs. Trained model artifacts are hosted on this server.'
+            )}
+          </CardDescription>
+        </div>
+        <Button
+          size='sm'
+          disabled={!fineTuningEnabled || enabledGpuOptions.length === 0}
+          onClick={() => setFtCreateOpen(true)}
+        >
+          <Plus className='mr-1.5 h-4 w-4' />
+          {t('New Fine-Tuning Job')}
+        </Button>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        <div className='overflow-x-auto'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Model')}</TableHead>
+                <TableHead>{t('Base Model')}</TableHead>
+                <TableHead>{t('Method')}</TableHead>
+                <TableHead>{t('GPU')}</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead>{t('Estimated Cost')}</TableHead>
+                <TableHead className='text-right'>{t('Actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ftQuery.isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className='py-8 text-center'>
+                    <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
+                  </TableCell>
+                </TableRow>
+              ) : (ftData?.jobs ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className='text-muted-foreground py-8 text-center text-sm'
+                  >
+                    {t('No fine-tuning jobs yet.')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                (ftData?.jobs ?? []).map((job) => (
+                  <TableRow key={job.job_id}>
+                    <TableCell className='font-mono text-xs font-medium'>
+                      <div>{job.fine_tuned_model || job.job_id}</div>
+                      <div className='text-muted-foreground text-[11px]'>
+                        {job.job_id}
+                      </div>
+                    </TableCell>
+                    <TableCell className='text-sm'>{job.model}</TableCell>
+                    <TableCell className='text-xs uppercase'>
+                      {job.method || 'lora'}
+                    </TableCell>
+                    <TableCell className='text-xs'>
+                      {job.gpu || 'NVIDIA_TESLA_T4'}
+                    </TableCell>
+                    <TableCell>{renderStatusBadge(job.status)}</TableCell>
+                    <TableCell className='text-sm tabular-nums'>
+                      {formatCurrencyFromUSD(job.estimated_cost_usd)}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      <div className='flex items-center justify-end gap-1'>
+                        {(job.status === 'queued' ||
+                          job.status === 'running') && (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            title={t('Stop')}
+                            onClick={() => cancelFtMutation.mutate(job.job_id)}
+                          >
+                            <Square className='h-4 w-4' />
+                          </Button>
+                        )}
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          title={t('Download')}
+                          onClick={() => void handleDownloadModel(job.job_id)}
+                        >
+                          <Download className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          className='text-destructive hover:text-destructive'
+                          title={t('Delete')}
+                          onClick={() => deleteFtMutation.mutate(job.job_id)}
+                        >
+                          <Trash2 className='h-4 w-4' />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  )
 
-          {/* Section 1: Fine-Tuned Models */}
-          <TabsContent value='fine-tuning' className='space-y-4'>
-            <Card>
-              <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                <div className='space-y-1'>
-                  <CardTitle className='text-base font-semibold'>
+  return (
+    <>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>
+          <span className='truncate'>{t('Custom Models')}</span>
+        </SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <div className='mx-auto flex w-full max-w-6xl flex-col gap-6'>
+            {fineTuningEnabled ? (
+              <Tabs defaultValue='fine-tuning' className='space-y-4'>
+                <TabsList>
+                  <TabsTrigger value='fine-tuning'>
                     {t('Fine-Tuned Models')}
-                  </CardTitle>
-                  <CardDescription>
-                    {t(
-                      'Create and manage fine-tuning jobs from here or directly via the OpenAI-compatible API endpoint POST /v1/fine_tuning/jobs. Trained model artifacts are hosted on this server.'
-                    )}
-                  </CardDescription>
-                </div>
-                <Button
-                  size='sm'
-                  disabled={!ftData?.enabled}
-                  onClick={() => setFtCreateOpen(true)}
-                >
-                  <Plus className='mr-1.5 h-4 w-4' />
-                  {t('New Fine-Tuning Job')}
-                </Button>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {!ftData?.enabled && !ftQuery.isLoading && (
-                  <p className='text-muted-foreground text-sm'>
-                    {t(
-                      'Fine-tuning is currently disabled by the administrator.'
-                    )}
-                  </p>
-                )}
-
-                <div className='overflow-x-auto'>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t('Model')}</TableHead>
-                        <TableHead>{t('Base Model')}</TableHead>
-                        <TableHead>{t('GPU')}</TableHead>
-                        <TableHead>{t('Status')}</TableHead>
-                        <TableHead>{t('Estimated Cost')}</TableHead>
-                        <TableHead className='text-right'>
-                          {t('Actions')}
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {ftQuery.isLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className='py-8 text-center'>
-                            <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
-                          </TableCell>
-                        </TableRow>
-                      ) : (ftData?.jobs ?? []).length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={6}
-                            className='text-muted-foreground py-8 text-center text-sm'
-                          >
-                            {t('No fine-tuning jobs yet.')}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        (ftData?.jobs ?? []).map((job) => (
-                          <TableRow key={job.job_id}>
-                            <TableCell className='font-mono text-xs font-medium'>
-                              <div>{job.fine_tuned_model || job.job_id}</div>
-                              <div className='text-muted-foreground text-[11px]'>
-                                {job.job_id}
-                              </div>
-                            </TableCell>
-                            <TableCell className='text-sm'>
-                              {job.model}
-                            </TableCell>
-                            <TableCell className='text-xs'>
-                              {job.gpu || 'NVIDIA_TESLA_T4'}
-                            </TableCell>
-                            <TableCell>{renderStatusBadge(job.status)}</TableCell>
-                            <TableCell className='text-sm tabular-nums'>
-                              {formatCurrencyFromUSD(job.estimated_cost_usd)}
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <div className='flex items-center justify-end gap-1'>
-                                {(job.status === 'queued' ||
-                                  job.status === 'running') && (
-                                  <Button
-                                    variant='ghost'
-                                    size='icon'
-                                    title={t('Stop')}
-                                    onClick={() =>
-                                      cancelFtMutation.mutate(job.job_id)
-                                    }
-                                  >
-                                    <Square className='h-4 w-4' />
-                                  </Button>
-                                )}
-                                <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  title={t('Download')}
-                                  onClick={() =>
-                                    void handleDownloadModel(job.job_id)
-                                  }
-                                >
-                                  <Download className='h-4 w-4' />
-                                </Button>
-                                <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  className='text-destructive hover:text-destructive'
-                                  title={t('Delete')}
-                                  onClick={() =>
-                                    deleteFtMutation.mutate(job.job_id)
-                                  }
-                                >
-                                  <Trash2 className='h-4 w-4' />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Section 2: Auto Models (Private Per-User Aliases) */}
-          <TabsContent value='auto-models' className='space-y-4'>
-            <Card>
-              <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                <div className='space-y-1'>
-                  <CardTitle className='text-base font-semibold'>
+                  </TabsTrigger>
+                  <TabsTrigger value='auto-models'>
                     {t('Auto Models')}
-                  </CardTitle>
-                  <CardDescription>
-                    {t(
-                      'Define private model aliases that automatically route to a target model on your API calls. Switch the target model anytime without changing your code. Only visible to your account.'
-                    )}
-                  </CardDescription>
-                </div>
-                <Button size='sm' onClick={openCreateAlias}>
-                  <Plus className='mr-1.5 h-4 w-4' />
-                  {t('Add Auto Model')}
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className='overflow-x-auto'>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t('Model ID (Alias)')}</TableHead>
-                        <TableHead>{t('Target Model')}</TableHead>
-                        <TableHead>{t('Description')}</TableHead>
-                        <TableHead className='text-right'>
-                          {t('Actions')}
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {aliasesQuery.isLoading ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className='py-8 text-center'>
-                            <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
-                          </TableCell>
-                        </TableRow>
-                      ) : (aliasesQuery.data ?? []).length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={4}
-                            className='text-muted-foreground py-8 text-center text-sm'
-                          >
-                            {t(
-                              'No auto models configured yet. Create one like "auto-myapp" pointing to your preferred model.'
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        (aliasesQuery.data ?? []).map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className='font-mono text-sm font-medium'>
-                              {item.alias}
-                            </TableCell>
-                            <TableCell>
-                              <span className='inline-flex items-center gap-1.5 font-mono text-sm'>
-                                <ArrowRight className='text-muted-foreground h-3.5 w-3.5' />
-                                {item.target_model}
-                              </span>
-                            </TableCell>
-                            <TableCell className='text-muted-foreground text-sm'>
-                              {item.description || '—'}
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <div className='flex items-center justify-end gap-1'>
-                                <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  title={t('Edit')}
-                                  onClick={() => openEditAlias(item)}
-                                >
-                                  <Pencil className='h-4 w-4' />
-                                </Button>
-                                <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  className='text-destructive hover:text-destructive'
-                                  title={t('Delete')}
-                                  onClick={() =>
-                                    deleteAliasMutation.mutate(item.id)
-                                  }
-                                >
-                                  <Trash2 className='h-4 w-4' />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                  </TabsTrigger>
+                </TabsList>
 
-        {/* Create Fine-Tuning Job Dialog */}
-        <Dialog open={ftCreateOpen} onOpenChange={setFtCreateOpen}>
-          <DialogContent className='sm:max-w-lg'>
-            <DialogHeader>
-              <DialogTitle>{t('New Fine-Tuning Job')}</DialogTitle>
-              <DialogDescription>
-                {t(
-                  'Upload a JSONL training dataset or paste training examples directly. Estimated rate: {{rate}} / min.',
-                  { rate: formatCurrencyFromUSD(estimatedRatePerMin) }
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className='space-y-4 py-2'>
+                <TabsContent value='fine-tuning' className='space-y-4'>
+                  {fineTuningCard}
+                </TabsContent>
+
+                <TabsContent value='auto-models' className='space-y-4'>
+                  {autoModelsCard}
+                </TabsContent>
+              </Tabs>
+            ) : (
+              autoModelsCard
+            )}
+          </div>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+
+      {/* Create Fine-Tuning Job Dialog */}
+      <Dialog open={ftCreateOpen} onOpenChange={setFtCreateOpen}>
+        <DialogContent className='sm:max-w-lg'>
+          <DialogHeader>
+            <DialogTitle>{t('New Fine-Tuning Job')}</DialogTitle>
+            <DialogDescription>
+              {t('Estimated rate: {{rate}} / min.', {
+                rate: formatCurrencyFromUSD(estimatedRatePerMin),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4 py-2'>
+            {/* Model Source */}
+            <div className='space-y-1.5'>
+              <Label>{t('Model Source')}</Label>
+              <Select
+                value={ftModelSource}
+                onValueChange={(v) =>
+                  setFtModelSource(v as 'huggingface' | 'url' | 'upload')
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='huggingface'>Hugging Face</SelectItem>
+                  <SelectItem value='url'>{t('Download from URL')}</SelectItem>
+                  <SelectItem value='upload'>{t('Upload Model File')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {ftModelSource === 'huggingface' && (
               <div className='space-y-1.5'>
                 <Label>{t('Base Model')}</Label>
-                <Input
-                  list='ft-base-models'
-                  placeholder='Qwen/Qwen2.5-7B-Instruct'
-                  value={ftBaseModel}
-                  onChange={(e) => setFtBaseModel(e.target.value)}
-                />
-                <datalist id='ft-base-models'>
-                  {(userModelsQuery.data ?? []).map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-              </div>
-              <div className='grid grid-cols-2 gap-3'>
-                <div className='space-y-1.5'>
-                  <Label>{t('GPU')}</Label>
-                  <Select value={ftGpu} onValueChange={setFtGpu}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.keys(gpuMultipliers).map((g) => (
-                        <SelectItem key={g} value={g}>
-                          {g} ({gpuMultipliers[g]}x)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className='space-y-1.5'>
-                  <Label>{t('Epochs')}</Label>
+                <div className='flex items-center gap-2'>
                   <Input
-                    type='number'
-                    min={1}
-                    max={50}
-                    value={ftEpochs}
-                    onChange={(e) =>
-                      setFtEpochs(Math.max(1, Number(e.target.value) || 1))
-                    }
+                    placeholder='Qwen/Qwen2.5-7B-Instruct'
+                    value={ftBaseModel}
+                    onChange={(e) => setFtBaseModel(e.target.value)}
                   />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='shrink-0'
+                    onClick={() => setHfPickerOpen(true)}
+                  >
+                    <Search className='mr-1.5 h-3.5 w-3.5' />
+                    {t('Browse')}
+                  </Button>
                 </div>
+              </div>
+            )}
+
+            {ftModelSource === 'url' && (
+              <div className='space-y-1.5'>
+                <Label>{t('Model Download URL')}</Label>
+                <Input
+                  placeholder='https://huggingface.co/.../model.safetensors'
+                  value={ftModelUrl}
+                  onChange={(e) => setFtModelUrl(e.target.value)}
+                />
+              </div>
+            )}
+
+            {ftModelSource === 'upload' && (
+              <div className='space-y-1.5'>
+                <Label>{t('Model File')}</Label>
+                <Input
+                  type='file'
+                  accept='.safetensors,.gguf,.bin,.pt,.zip,.tar,.gz'
+                  onChange={(e) =>
+                    setFtModelFile(e.target.files?.[0] ?? null)
+                  }
+                />
+              </div>
+            )}
+
+            {/* Method + GPU */}
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <Label>{t('Fine-Tuning Method')}</Label>
+                <Select value={ftMethod} onValueChange={setFtMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FINE_TUNING_METHODS.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-1.5'>
+                <Label>{t('GPU')}</Label>
+                <Select value={ftGpu} onValueChange={setFtGpu}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {enabledGpuOptions.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.label} ({formatCurrencyFromUSD(g.price_per_second * 60)}/m)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className='grid grid-cols-2 gap-3'>
+              <div className='space-y-1.5'>
+                <Label>{t('Epochs')}</Label>
+                <Input
+                  type='number'
+                  min={1}
+                  max={50}
+                  value={ftEpochs}
+                  onChange={(e) =>
+                    setFtEpochs(Math.max(1, Number(e.target.value) || 1))
+                  }
+                />
               </div>
               <div className='space-y-1.5'>
                 <Label>{t('Model Suffix (Optional)')}</Label>
@@ -661,120 +783,118 @@ export function CustomModelsPage() {
                   onChange={(e) => setFtSuffix(e.target.value)}
                 />
               </div>
-              <div className='space-y-1.5'>
-                <Label>{t('Training Dataset File (.jsonl)')}</Label>
-                <Input
-                  type='file'
-                  accept='.jsonl,.json,.txt'
-                  onChange={(e) => setFtFile(e.target.files?.[0] ?? null)}
-                />
-              </div>
-              {!ftFile && (
-                <div className='space-y-1.5'>
-                  <Label>{t('Or Paste JSONL Dataset')}</Label>
-                  <Textarea
-                    rows={4}
-                    className='font-mono text-xs'
-                    placeholder='{"messages":[{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello!"}]}'
-                    value={ftInlineData}
-                    onChange={(e) => setFtInlineData(e.target.value)}
-                  />
-                </div>
-              )}
             </div>
-            <DialogFooter>
-              <Button
-                variant='outline'
-                onClick={() => setFtCreateOpen(false)}
-              >
-                {t('Cancel')}
-              </Button>
-              <Button
-                disabled={
-                  createFtMutation.isPending ||
-                  !ftBaseModel.trim() ||
-                  (!ftFile && !ftInlineData.trim())
-                }
-                onClick={() => createFtMutation.mutate()}
-              >
-                {createFtMutation.isPending && (
-                  <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
-                )}
-                {t('Start Fine-Tuning')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
-        {/* Create/Edit Auto Model Alias Dialog */}
-        <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
-          <DialogContent className='sm:max-w-md'>
-            <DialogHeader>
-              <DialogTitle>
-                {editingAlias ? t('Edit Auto Model') : t('Add Auto Model')}
-              </DialogTitle>
-              <DialogDescription>
-                {t(
-                  'Requests sent to this alias using your API key will transparently route to the target model.'
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className='space-y-4 py-2'>
-              <div className='space-y-1.5'>
-                <Label>{t('Model ID (Alias)')}</Label>
-                <Input
-                  placeholder='auto-myapp'
-                  value={aliasName}
-                  onChange={(e) => setAliasName(e.target.value)}
-                />
-              </div>
-              <div className='space-y-1.5'>
-                <Label>{t('Target Model')}</Label>
-                <Input
-                  list='alias-target-models'
-                  placeholder='opus-5.5'
-                  value={targetModel}
-                  onChange={(e) => setTargetModel(e.target.value)}
-                />
-                <datalist id='alias-target-models'>
-                  {(userModelsQuery.data ?? []).map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-              </div>
-              <div className='space-y-1.5'>
-                <Label>{t('Description (Optional)')}</Label>
-                <Input
-                  placeholder={t('Production app default model')}
-                  value={aliasDesc}
-                  onChange={(e) => setAliasDesc(e.target.value)}
-                />
-              </div>
+            {/* Dataset file upload ONLY (no inline paste to prevent browser freeze on large datasets) */}
+            <div className='space-y-1.5'>
+              <Label>{t('Training Dataset File (.jsonl)')}</Label>
+              <Input
+                type='file'
+                accept='.jsonl,.json,.parquet,.csv'
+                onChange={(e) => setFtFile(e.target.files?.[0] ?? null)}
+              />
             </div>
-            <DialogFooter>
-              <Button
-                variant='outline'
-                onClick={() => setAliasDialogOpen(false)}
-              >
-                {t('Cancel')}
-              </Button>
-              <Button
-                disabled={
-                  saveAliasMutation.isPending ||
-                  !aliasName.trim() ||
-                  !targetModel.trim()
-                }
-                onClick={() => saveAliasMutation.mutate()}
-              >
-                {saveAliasMutation.isPending && (
-                  <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
-                )}
-                {t('Save')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </Main>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setFtCreateOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              disabled={
+                createFtMutation.isPending ||
+                !hasValidModelInput ||
+                !ftGpu ||
+                !ftFile
+              }
+              onClick={() => createFtMutation.mutate()}
+            >
+              {createFtMutation.isPending && (
+                <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
+              )}
+              {t('Start Fine-Tuning')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <HfModelPickerDialog
+        open={hfPickerOpen}
+        onOpenChange={setHfPickerOpen}
+        onSelect={handleHfPicked}
+        apiBasePath='/api/user/fine_tuning/hf'
+      />
+
+      {/* Create/Edit Auto Model Alias Dialog */}
+      <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>
+              {editingAlias ? t('Edit Auto Model') : t('Add Auto Model')}
+            </DialogTitle>
+            <DialogDescription>
+              {t(
+                'Requests sent to this alias using your API key will transparently route to the target model.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4 py-2'>
+            <div className='space-y-1.5'>
+              <Label>{t('Model ID (Alias)')}</Label>
+              <Input
+                placeholder='auto-myapp'
+                value={aliasName}
+                onChange={(e) => setAliasName(e.target.value)}
+              />
+            </div>
+            <div className='space-y-1.5'>
+              <Label>{t('Target Model')}</Label>
+              <Input
+                list='alias-target-models'
+                placeholder='opus-5.5'
+                value={targetModel}
+                onChange={(e) => setTargetModel(e.target.value)}
+              />
+              <datalist id='alias-target-models'>
+                {(userModelsQuery.data ?? []).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
+            <div className='space-y-1.5'>
+              <Label>{t('Description (Optional)')}</Label>
+              <Input
+                placeholder={t('Production app default model')}
+                value={aliasDesc}
+                onChange={(e) => setAliasDesc(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setAliasDialogOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              disabled={
+                saveAliasMutation.isPending ||
+                !aliasName.trim() ||
+                !targetModel.trim()
+              }
+              onClick={() => saveAliasMutation.mutate()}
+            >
+              {saveAliasMutation.isPending && (
+                <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
+              )}
+              {t('Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

@@ -112,6 +112,10 @@ export function SidebarModulesSection({
         title: t('Token management'),
         description: t('Create, revoke, and audit API tokens.'),
       },
+      custom_models: {
+        title: t('Custom Models'),
+        description: t('Manage fine-tuned models and private auto model aliases.'),
+      },
       log: {
         title: t('Usage logs'),
         description: t('Detailed request logs for investigations.'),

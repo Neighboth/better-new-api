@@ -25,8 +25,6 @@ import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { Button } from '@/components/ui/button'
-import { api } from '@/lib/api'
-
 import {
   Form,
   FormControl,
@@ -46,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { api } from '@/lib/api'
 import {
   DEFAULT_CURRENCY_CONFIG,
   type DisplayCurrencyOption,
@@ -86,6 +85,7 @@ const createPricingSchema = (t: (key: string) => string) =>
             z.object({
               code: z.string(),
               symbol: z.string(),
+              icon: z.string().optional(),
               name: z.string().optional(),
               exchange_rate: z.coerce.number().min(0),
               auto_rate: z.boolean().optional(),
@@ -95,9 +95,10 @@ const createPricingSchema = (t: (key: string) => string) =>
       }),
     })
     .superRefine((data, ctx) => {
+      const hasMulti = (data.general_setting.display_currencies?.length ?? 0) > 0
       const displayType = data.general_setting.quota_display_type
 
-      if (displayType === 'CUSTOM') {
+      if (!hasMulti && displayType === 'CUSTOM') {
         if (!data.general_setting.custom_currency_symbol?.trim()) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -158,12 +159,14 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
           })
         }
 
-        const rawCurrencies = (data.general_setting.display_currencies ?? []) as DisplayCurrencyOption[]
+        const rawCurrencies = (data.general_setting.display_currencies ??
+          []) as DisplayCurrencyOption[]
         const seen = new Set<string>()
         const cleanedCurrencies = rawCurrencies
           .map((c) => ({
             code: (c.code ?? '').trim().toUpperCase(),
             symbol: (c.symbol ?? '').trim(),
+            icon: (c.icon ?? '').trim(),
             name: (c.name ?? '').trim(),
             exchange_rate: Number(c.exchange_rate) || 0,
             auto_rate: c.auto_rate !== false,
@@ -174,15 +177,18 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
             return true
           })
 
-        const prevCurrencies = JSON.stringify(
-          defaultValues.general_setting.display_currencies ?? []
-        )
-        const nextCurrencies = JSON.stringify(cleanedCurrencies)
-        if (nextCurrencies !== prevCurrencies) {
+        const currenciesChanged =
+          'general_setting.display_currencies' in changedFields ||
+          JSON.stringify(cleanedCurrencies) !==
+            JSON.stringify(
+              defaultValues.general_setting.display_currencies ?? []
+            )
+
+        if (currenciesChanged) {
           form.setValue('general_setting.display_currencies', cleanedCurrencies)
           await updateOption.mutateAsync({
             key: 'general_setting.display_currencies',
-            value: nextCurrencies,
+            value: JSON.stringify(cleanedCurrencies),
           })
         }
 
@@ -205,6 +211,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
     (form.watch('general_setting.display_currencies') as
       | DisplayCurrencyOption[]
       | undefined) ?? []
+  const hasMultiCurrency = displayCurrencies.length > 0
   const [fetchingRates, setFetchingRates] = useState(false)
 
   const handleFetchLiveRates = async () => {
@@ -215,7 +222,8 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         const rates = res.data.data as Record<string, number>
         const updated = displayCurrencies.map((c) => {
           const code = c.code.trim().toUpperCase()
-          if (code === 'USD' || code === 'TOKENS') return { ...c, exchange_rate: 1 }
+          if (code === 'USD' || code === 'TOKENS')
+            return { ...c, exchange_rate: 1 }
           if (c.auto_rate !== false && rates[code] && rates[code] > 0) {
             return { ...c, exchange_rate: Number(rates[code].toFixed(4)) }
           }
@@ -281,140 +289,147 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               />
             )}
 
-            <FormField
-              control={form.control}
-              name='general_setting.quota_display_type'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Display Mode')}</FormLabel>
-                  <Select
-                    items={[
-                      { value: 'USD', label: t('USD') },
-                      { value: 'CNY', label: t('CNY') },
-                      { value: 'CUSTOM', label: t('Custom Currency') },
-                      { value: 'TOKENS', label: t('Tokens Only') },
-                    ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('Select display mode')} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='USD'>{t('USD')}</SelectItem>
-                        <SelectItem value='CNY'>{t('CNY')}</SelectItem>
-                        <SelectItem value='CUSTOM'>
-                          {t('Custom Currency')}
-                        </SelectItem>
-                        {showTokensOnlyOption && (
-                          <SelectItem value='TOKENS'>
-                            {t('Tokens Only')}
-                          </SelectItem>
-                        )}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    {t('Choose how quota values are shown to users')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Hide redundant single-currency controls once multi-currency list is configured */}
+            {!hasMultiCurrency && (
+              <>
+                <FormField
+                  control={form.control}
+                  name='general_setting.quota_display_type'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Display Mode')}</FormLabel>
+                      <Select
+                        items={[
+                          { value: 'USD', label: t('USD') },
+                          { value: 'CNY', label: t('CNY') },
+                          { value: 'CUSTOM', label: t('Custom Currency') },
+                          { value: 'TOKENS', label: t('Tokens Only') },
+                        ]}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={t('Select display mode')}
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='USD'>{t('USD')}</SelectItem>
+                            <SelectItem value='CNY'>{t('CNY')}</SelectItem>
+                            <SelectItem value='CUSTOM'>
+                              {t('Custom Currency')}
+                            </SelectItem>
+                            {showTokensOnlyOption && (
+                              <SelectItem value='TOKENS'>
+                                {t('Tokens Only')}
+                              </SelectItem>
+                            )}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {t('Choose how quota values are shown to users')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            {displayType !== 'TOKENS' && (
-              <FormField
-                control={form.control}
-                name='USDExchangeRate'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {displayType === 'CNY'
-                        ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        step='0.01'
-                        {...safeNumberFieldProps(field)}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t(
-                        'Real exchange rate between USD and your payment gateway currency'
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
+                {displayType !== 'TOKENS' && (
+                  <FormField
+                    control={form.control}
+                    name='USDExchangeRate'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {displayType === 'CNY'
+                            ? t('CNY per USD')
+                            : t('USD Exchange Rate')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            step='0.01'
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Real exchange rate between USD and your payment gateway currency'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
-              />
-            )}
 
-            {displayType === 'CUSTOM' && (
-              <div className='grid gap-4 sm:grid-cols-2'>
-                <FormField
-                  control={form.control}
-                  name='general_setting.custom_currency_symbol'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Custom Currency Symbol')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='text'
-                          value={field.value ?? ''}
-                          onChange={field.onChange}
-                          name={field.name}
-                          onBlur={field.onBlur}
-                          ref={field.ref}
-                          maxLength={8}
-                          placeholder={t('e.g. ¥ or HK$')}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Prefix used when displaying prices')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='general_setting.custom_currency_exchange_rate'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Units per USD')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          step='0.01'
-                          value={field.value ?? ''}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value === ''
-                                ? undefined
-                                : e.target.valueAsNumber
-                            )
-                          }
-                          name={field.name}
-                          onBlur={field.onBlur}
-                          ref={field.ref}
-                          placeholder={t('e.g. 8 means 1 USD = 8 units')}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Conversion rate from USD to your custom currency')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                {displayType === 'CUSTOM' && (
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='general_setting.custom_currency_symbol'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Custom Currency Symbol')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='text'
+                              value={field.value ?? ''}
+                              onChange={field.onChange}
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              ref={field.ref}
+                              maxLength={8}
+                              placeholder={t('e.g. ¥ or HK$')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Prefix used when displaying prices')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='general_setting.custom_currency_exchange_rate'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Units per USD')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              step='0.01'
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? undefined
+                                    : e.target.valueAsNumber
+                                )
+                              }
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              ref={field.ref}
+                              placeholder={t('e.g. 8 means 1 USD = 8 units')}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Conversion rate from USD to your custom currency'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             {showDisplayInCurrencyOption && (
@@ -465,17 +480,15 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               )}
             />
 
-            <div className='space-y-4 pt-2'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <div>
-                  <h4 className='text-sm font-medium'>
-                    {t('Multi-Currency Display Options')}
-                  </h4>
-                  <p className='text-muted-foreground text-xs'>
+            <FormItem data-settings-form-span='full' className='space-y-4'>
+              <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div className='space-y-1'>
+                  <FormLabel>{t('Multi-Currency Display Options')}</FormLabel>
+                  <FormDescription>
                     {t(
                       'Configure multiple display currencies for the header switcher. Leave empty to use the single default currency above.'
                     )}
-                  </p>
+                  </FormDescription>
                 </div>
                 <div className='flex items-center gap-2'>
                   <Button
@@ -501,6 +514,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                               {
                                 code: 'USD',
                                 symbol: '$',
+                                icon: '🇺🇸',
                                 name: 'US Dollar',
                                 exchange_rate: 1,
                                 auto_rate: true,
@@ -508,6 +522,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                               {
                                 code: 'TRY',
                                 symbol: '₺',
+                                icon: '🇹🇷',
                                 name: 'Turkish Lira',
                                 exchange_rate: 0,
                                 auto_rate: true,
@@ -518,6 +533,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                               {
                                 code: '',
                                 symbol: '',
+                                icon: '',
                                 name: '',
                                 exchange_rate: 0,
                                 auto_rate: true,
@@ -564,9 +580,26 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                       key={idx}
                       className='grid grid-cols-12 items-center gap-2 rounded-lg border bg-muted/20 p-2.5'
                     >
-                      <div className='col-span-6 sm:col-span-2'>
+                      <div className='col-span-3 sm:col-span-1'>
                         <Input
-                          placeholder='USD / TRY'
+                          placeholder='🇺🇸'
+                          title={t('Currency Icon')}
+                          value={item.icon ?? ''}
+                          onChange={(e) => {
+                            const next = [...displayCurrencies]
+                            next[idx] = { ...next[idx], icon: e.target.value }
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
+                          }}
+                          className='h-8 px-1.5 text-center text-sm'
+                        />
+                      </div>
+                      <div className='col-span-4 sm:col-span-2'>
+                        <Input
+                          placeholder='USD'
                           value={item.code}
                           onChange={(e) => {
                             const next = [...displayCurrencies]
@@ -574,25 +607,29 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                               ...next[idx],
                               code: e.target.value.toUpperCase(),
                             }
-                            form.setValue('general_setting.display_currencies', next, {
-                              shouldDirty: true,
-                            })
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
                           }}
                           className='h-8 font-mono text-xs'
                         />
                       </div>
-                      <div className='col-span-6 sm:col-span-2'>
+                      <div className='col-span-5 sm:col-span-1'>
                         <Input
-                          placeholder='$ / ₺'
+                          placeholder='$'
                           value={item.symbol}
                           onChange={(e) => {
                             const next = [...displayCurrencies]
                             next[idx] = { ...next[idx], symbol: e.target.value }
-                            form.setValue('general_setting.display_currencies', next, {
-                              shouldDirty: true,
-                            })
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
                           }}
-                          className='h-8 text-xs'
+                          className='h-8 text-center text-xs'
                         />
                       </div>
                       <div className='col-span-6 sm:col-span-3'>
@@ -602,9 +639,11 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                           onChange={(e) => {
                             const next = [...displayCurrencies]
                             next[idx] = { ...next[idx], name: e.target.value }
-                            form.setValue('general_setting.display_currencies', next, {
-                              shouldDirty: true,
-                            })
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
                           }}
                           className='h-8 text-xs'
                         />
@@ -622,9 +661,11 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                               ...next[idx],
                               exchange_rate: Number(e.target.value) || 0,
                             }
-                            form.setValue('general_setting.display_currencies', next, {
-                              shouldDirty: true,
-                            })
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
                           }}
                           className='h-8 font-mono text-xs'
                         />
@@ -635,9 +676,11 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                           onCheckedChange={(checked) => {
                             const next = [...displayCurrencies]
                             next[idx] = { ...next[idx], auto_rate: checked }
-                            form.setValue('general_setting.display_currencies', next, {
-                              shouldDirty: true,
-                            })
+                            form.setValue(
+                              'general_setting.display_currencies',
+                              next,
+                              { shouldDirty: true }
+                            )
                           }}
                         />
                         <span className='text-muted-foreground text-[11px]'>
@@ -668,7 +711,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                   ))}
                 </div>
               )}
-            </div>
+            </FormItem>
           </SettingsForm>
         </Form>
       </SettingsSection>

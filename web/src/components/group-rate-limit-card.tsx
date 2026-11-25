@@ -34,6 +34,7 @@ interface RateLimitStatus {
   remaining: number
   window_minutes: number
   reset_at: number
+  reset_in_seconds?: number
 }
 
 function formatRemainingDuration(
@@ -55,9 +56,9 @@ function formatRemainingDuration(
 
 export function GroupRateLimitCard() {
   const { t } = useTranslation()
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const { data } = useQuery({
+  const { data, dataUpdatedAt, refetch } = useQuery({
     queryKey: ['user-rate-limit'],
     queryFn: async () => {
       const res = await api.get<{ success: boolean; data?: RateLimitStatus }>(
@@ -69,21 +70,36 @@ export function GroupRateLimitCard() {
     refetchInterval: 30 * 1000,
   })
 
+  // Anchor countdown to server-computed reset_in_seconds to eliminate client-server clock skew
+  const targetMs =
+    data && typeof data.reset_in_seconds === 'number' && data.reset_in_seconds > 0
+      ? dataUpdatedAt + data.reset_in_seconds * 1000
+      : data?.reset_at
+        ? data.reset_at * 1000
+        : 0
+
+  const secondsUntilReset =
+    targetMs > 0 ? Math.max(0, Math.ceil((targetMs - nowMs) / 1000)) : 0
+
   useEffect(() => {
-    if (!data?.reset_at) return
+    if (targetMs <= 0) return
+    setNowMs(Date.now())
     const id = window.setInterval(() => {
-      setNowSec(Math.floor(Date.now() / 1000))
+      const current = Date.now()
+      setNowMs(current)
+      if (current >= targetMs) {
+        window.clearInterval(id)
+        void refetch()
+      }
     }, 1000)
     return () => window.clearInterval(id)
-  }, [data?.reset_at])
+  }, [targetMs, refetch])
 
   if (!data || !data.enabled || data.limit <= 0) {
     return null
   }
 
   const percent = Math.min(100, Math.round((data.used / data.limit) * 100))
-  const secondsUntilReset =
-    data.reset_at > 0 ? Math.max(0, data.reset_at - nowSec) : 0
 
   return (
     <section className='bg-card overflow-hidden rounded-2xl border shadow-xs'>

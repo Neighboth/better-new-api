@@ -26,6 +26,12 @@ RUN go mod download
 COPY . .
 COPY --from=builder /build/web/dist ./web/dist
 RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
+# Optional psiphon-tunnel-core binary for OpenCode Psiphon proxy support
+RUN apk add --no-cache git \
+    && (git clone --depth 1 https://github.com/Psiphon-Labs/psiphon-tunnel-core.git /tmp/psiphon-tunnel-core \
+        && cd /tmp/psiphon-tunnel-core/ConsoleClient \
+        && go build -ldflags "-s -w" -o /build/psiphon-tunnel-core . \
+        && rm -rf /tmp/psiphon-tunnel-core) || touch /build/psiphon-tunnel-core
 
 FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
 
@@ -36,6 +42,8 @@ RUN apt-get update \
     && update-ca-certificates
 
 COPY --from=builder2 /build/new-api /
+COPY --from=builder2 /build/psiphon-tunnel-core /usr/local/bin/psiphon-tunnel-core
+RUN if [ -s /usr/local/bin/psiphon-tunnel-core ]; then chmod +x /usr/local/bin/psiphon-tunnel-core; else rm -f /usr/local/bin/psiphon-tunnel-core; fi
 COPY --from=builder2 /build/worker/binaries /worker/binaries
 COPY --from=builder2 /build/worker/binaries /data/worker/binaries
 COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/

@@ -85,19 +85,17 @@ export function CurrencySwitcher() {
         render={
           <Button
             variant='ghost'
-            size='sm'
-            className='h-9 gap-1.5 px-2.5 text-xs font-medium'
+            size='icon'
+            className='h-9 w-9'
             title={t('Display Currency')}
             aria-label={t('Display Currency')}
           />
         }
       >
-        <span className='font-mono text-sm leading-none'>
-          {active.symbol || <Coins className='h-4 w-4' />}
-        </span>
-        <span className='hidden sm:inline'>{active.code}</span>
+        <Coins aria-hidden='true' className='h-4 w-4' />
+        <span className='sr-only'>{t('Display Currency')}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end' className='min-w-[160px]'>
+      <DropdownMenuContent align='end' className='min-w-[180px]'>
         {displayCurrencies.map((option) => {
           const isSelected =
             option.code.toUpperCase() === active.code.toUpperCase()
@@ -105,18 +103,19 @@ export function CurrencySwitcher() {
             <DropdownMenuItem
               key={option.code}
               onClick={() => void handleSelectCurrency(option.code)}
-              className={cn(
-                'flex items-center justify-between gap-2',
-                isSelected && 'bg-accent font-medium'
-              )}
             >
-              <span className='flex items-center gap-2'>
-                <span className='w-5 text-center font-mono text-sm'>
-                  {option.symbol || option.code}
-                </span>
-                <span>{option.name ? `${option.code} · ${option.name}` : option.code}</span>
+              <span aria-hidden='true' className='me-2 text-base leading-none'>
+                {option.icon || option.symbol || option.code}
               </span>
-              {isSelected && <Check className='h-4 w-4 shrink-0' />}
+              <span>
+                {option.name
+                  ? `${option.code} · ${option.name}`
+                  : `${option.code}${option.symbol ? ` (${option.symbol})` : ''}`}
+              </span>
+              <Check
+                size={14}
+                className={cn('ms-auto', !isSelected && 'hidden')}
+              />
             </DropdownMenuItem>
           )
         })}

@@ -403,31 +403,53 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	if channel.Type == constant.ChannelTypeOpenCode {
 		reqHeaders := make(http.Header)
 		reqHeaders.Set("Accept", "application/json")
+		reqHeaders.Set("User-Agent", "opencode/2.0.0")
+		reqHeaders.Set("x-opencode-client", "cli")
 		key := strings.TrimSpace(channel.Key)
-		if key != "" && key != "local" && key != "default" {
-			reqHeaders.Set("Authorization", "Bearer "+key)
+		if key == "" || key == "local" || key == "default" {
+			key = "public"
 		}
+		reqHeaders.Set("Authorization", "Bearer "+key)
 		urls := []string{
+			"https://opencode.ai/zen/v1/models",
+			"https://opencode.ai/inference/openai/v1/models",
 			"https://opencode.ai/inference/v1/models",
 		}
 		if base := strings.TrimRight(channel.GetBaseURL(), "/"); base != "" && !strings.Contains(base, "localhost") {
-			urls = append([]string{base + "/v1/models", base + "/models"}, urls...)
+			urls = append([]string{base + "/models", base + "/v1/models"}, urls...)
+		}
+		type openCodeModelList struct {
+			Data []struct {
+				ID   string `json:"id"`
+				Cost *struct {
+					Text *struct {
+						Input *struct {
+							Price float64 `json:"price"`
+						} `json:"input"`
+						Output *struct {
+							Price float64 `json:"price"`
+						} `json:"output"`
+					} `json:"text"`
+				} `json:"cost"`
+			} `json:"data"`
 		}
 		for _, fetchURL := range urls {
 			body, err := getFetchModelsResponseBody(http.MethodGet, fetchURL, channel, reqHeaders)
 			if err != nil {
 				continue
 			}
-			var result OpenAIModelsResponse
-			if err := common.Unmarshal(body, &result); err == nil {
-				items := result.Data
-				if len(items) == 0 && len(result.Models) > 0 {
-					items = result.Models
-				}
+			var result openCodeModelList
+			if err := common.Unmarshal(body, &result); err == nil && len(result.Data) > 0 {
 				var freeModels []string
-				for _, item := range items {
-					idLower := strings.ToLower(item.ID)
-					if strings.HasSuffix(idLower, "-free") {
+				for _, item := range result.Data {
+					idLower := strings.ToLower(strings.TrimSpace(item.ID))
+					if idLower == "" {
+						continue
+					}
+					isZeroCost := item.Cost != nil && item.Cost.Text != nil &&
+						item.Cost.Text.Input != nil && item.Cost.Text.Output != nil &&
+						item.Cost.Text.Input.Price == 0 && item.Cost.Text.Output.Price == 0
+					if key != "public" || strings.HasSuffix(idLower, "-free") || idLower == "big-pickle" || isZeroCost {
 						freeModels = append(freeModels, item.ID)
 					}
 				}
@@ -437,6 +459,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			}
 		}
 		return []string{
+			"big-pickle",
 			"mimo-v2.6-flash-free",
 			"deepseek-v4.1-flash-free",
 			"glm-5.3-flash-free",

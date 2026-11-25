@@ -201,17 +201,18 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 }
 
 type UserRateLimitStatus struct {
-	Enabled       bool   `json:"enabled"`
-	Group         string `json:"group"`
-	Limit         int    `json:"limit"`
-	Used          int    `json:"used"`
-	Remaining     int    `json:"remaining"`
-	WindowMinutes int    `json:"window_minutes"`
-	ResetAt       int64  `json:"reset_at"`
+	Enabled        bool   `json:"enabled"`
+	Group          string `json:"group"`
+	Limit          int    `json:"limit"`
+	Used           int    `json:"used"`
+	Remaining      int    `json:"remaining"`
+	WindowMinutes  int    `json:"window_minutes"`
+	ResetAt        int64  `json:"reset_at"`
+	ResetInSeconds int64  `json:"reset_in_seconds"`
 }
 
 // GetUserRateLimitStatus returns the user's current request rate-limit usage
-// for their active group (using the success-request sliding window).
+// for their active group (using the active sliding window).
 func GetUserRateLimitStatus(userId int, group string) UserRateLimitStatus {
 	status := UserRateLimitStatus{
 		Enabled:       setting.ModelRequestRateLimitEnabled,
@@ -228,8 +229,10 @@ func GetUserRateLimitStatus(userId int, group string) UserRateLimitStatus {
 		totalLimit = groupTotal
 		limit = groupSuccess
 	}
-	if limit <= 0 {
+	useTotalKey := false
+	if limit <= 0 && totalLimit > 0 {
 		limit = totalLimit
+		useTotalKey = true
 	}
 	status.Limit = limit
 	if limit <= 0 {
@@ -241,9 +244,14 @@ func GetUserRateLimitStatus(userId int, group string) UserRateLimitStatus {
 		duration = 60
 	}
 
+	nowUnix := time.Now().Unix()
 	if common.RedisEnabled && common.RDB != nil {
 		ctx := context.Background()
-		key := fmt.Sprintf("rateLimit:%s:%d", ModelRequestRateLimitSuccessCountMark, userId)
+		mark := ModelRequestRateLimitSuccessCountMark
+		if useTotalKey {
+			mark = ModelRequestRateLimitCountMark
+		}
+		key := fmt.Sprintf("rateLimit:%s:%d", mark, userId)
 		used := 0
 		var resetAt int64
 		if items, err := common.RDB.LRange(ctx, key, 0, -1).Result(); err == nil {
@@ -266,10 +274,18 @@ func GetUserRateLimitStatus(userId int, group string) UserRateLimitStatus {
 		status.Used = used
 		status.ResetAt = resetAt
 	} else {
-		key := ModelRequestRateLimitSuccessCountMark + strconv.Itoa(userId)
+		mark := ModelRequestRateLimitSuccessCountMark
+		if useTotalKey {
+			mark = ModelRequestRateLimitCountMark
+		}
+		key := mark + strconv.Itoa(userId)
 		used, resetAt := inMemoryRateLimiter.GetUsage(key, duration)
 		status.Used = used
 		status.ResetAt = resetAt
+	}
+
+	if status.ResetAt > nowUnix {
+		status.ResetInSeconds = status.ResetAt - nowUnix
 	}
 
 	if status.Used < status.Limit {

@@ -33,7 +33,9 @@ import {
   Power,
   PowerOff,
   RefreshCw,
+  Shield,
   Trash2,
+  Undo2,
   Upload,
   Waypoints,
   ListChecks,
@@ -93,6 +95,7 @@ import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import {
+  assignChannelPsiphon,
   assignProxiesEvenly,
   assignProxiesManual,
   batchCreateProxies,
@@ -105,6 +108,7 @@ import {
   listChannels,
   listProxies,
   rebalanceAllChannels,
+  rotateChannelPsiphon,
   testProxy,
   unassignProxy,
   updateProxy,
@@ -585,6 +589,40 @@ export function ProxyPool() {
     },
     onError: (error: Error) => {
       toast.error(error.message || t('Assignments could not be cleared'))
+    },
+  })
+
+  const psiphonAssignMutation = useMutation({
+    mutationFn: (channelId: number) => assignChannelPsiphon(channelId),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Failed to assign Psiphon'))
+        return
+      }
+      toast.success(t('Psiphon assigned to channel'))
+      invalidateAll()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Failed to assign Psiphon'))
+    },
+  })
+
+  const psiphonRotateMutation = useMutation({
+    mutationFn: (channelId: number) => rotateChannelPsiphon(channelId),
+    onSuccess: (res) => {
+      if (!res.success) {
+        toast.error(res.message || t('Failed to rotate Psiphon IP'))
+        return
+      }
+      toast.success(
+        res.data?.psiphon?.egress_ip
+          ? t('Psiphon IP rotated: {{ip}}', { ip: res.data.psiphon.egress_ip })
+          : t('Psiphon IP rotated')
+      )
+      invalidateAll()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t('Failed to rotate Psiphon IP'))
     },
   })
 
@@ -1106,15 +1144,23 @@ export function ProxyPool() {
                       <TableHead>{t('Channel')}</TableHead>
                       <TableHead>{t('Keys')}</TableHead>
                       <TableHead>{t('Assigned')}</TableHead>
-                      <TableHead className='w-[220px] text-right'>
+                      <TableHead className='w-[180px] text-right'>
                         {t('Actions')}
                       </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {(channelsQuery.data ?? []).map((channel) => {
+                      const isOpenCode = channel.type === 65
                       const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
-                      const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
+                      const isPsiphon = isOpenCode && Boolean(channel.psiphon_enabled)
+                      const hasProxies = channel.assigned_keys > 0
+                      const isComplete = isPsiphon
+                        ? channel.psiphon_status === 'connected'
+                        : isAnon
+                          ? hasProxies
+                          : channel.assigned_keys === channel.multi_key_size
+                      const canRevert = hasProxies || isPsiphon
                       return (
                       <TableRow key={channel.id}>
                         <TableCell>
@@ -1123,66 +1169,196 @@ export function ProxyPool() {
                         </TableCell>
                         <TableCell>{isAnon ? '∞' : channel.multi_key_size}</TableCell>
                         <TableCell>
-                          <Badge
-                            variant={
-                              channel.assigned_keys === 0 ? 'secondary' : 'outline'
-                            }
-                            className={cn(
-                              isComplete
-                                ? 'text-emerald-600'
-                                : undefined
-                            )}
-                          >
-                            {channel.assigned_keys} / {isAnon ? '∞' : channel.multi_key_size}
-                          </Badge>
+                          {isPsiphon ? (
+                            <div className='flex flex-wrap items-center gap-1.5'>
+                              <Badge
+                                variant='outline'
+                                className={cn(
+                                  channel.psiphon_status === 'connected'
+                                    ? 'border-emerald-500/40 text-emerald-600'
+                                    : channel.psiphon_status === 'error'
+                                      ? 'border-destructive/40 text-destructive'
+                                      : 'text-amber-600'
+                                )}
+                                title={
+                                  channel.psiphon_error ||
+                                  channel.psiphon_egress_ip ||
+                                  channel.psiphon_status
+                                }
+                              >
+                                <Shield className='mr-1 h-3 w-3' />
+                                Psiphon
+                                {channel.psiphon_egress_ip
+                                  ? ` · ${channel.psiphon_egress_ip}`
+                                  : channel.psiphon_status === 'connected'
+                                    ? ` · ${t('Connected')}`
+                                    : channel.psiphon_status === 'error'
+                                      ? ` · ${t('Failed')}`
+                                      : ` · ${t('Connecting...')}`}
+                              </Badge>
+                            </div>
+                          ) : (
+                            <Badge
+                              variant={
+                                channel.assigned_keys === 0 ? 'secondary' : 'outline'
+                              }
+                              className={cn(
+                                isComplete
+                                  ? 'text-emerald-600'
+                                  : undefined
+                              )}
+                            >
+                              {channel.assigned_keys} / {isAnon ? '∞' : channel.multi_key_size}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className='flex justify-end gap-1'>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              onClick={() => {
-                                 setAssignmentsPage(1)
-                                 setDetailChannelId(channel.id)
-                               }}
-                              aria-label={t('Channel detail')}
-                              title={t('Channel detail')}
-                            >
-                              <Info className='size-3.5' />
-                            </Button>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              disabled={manualAssignMutation.isPending}
-                              onClick={() => {
-                                setManualAssignTarget(channel.id)
-                              }}
-                              aria-label={t('Assign manually')}
-                              title={t('Assign manually')}
-                            >
-                              <ListChecks className='mr-1.5 h-3.5 w-3.5 text-muted-foreground' />
-                              {t('Manual assign')}
-                            </Button>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              disabled={assignMutation.isPending || enabledCount === 0}
-                              onClick={() => assignMutation.mutate(channel.id)}
-                            >
-                              {assignMutation.isPending ? (
-                                <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
-                              ) : assignedIconFor(channel)}
-                              {t('Assign evenly')}
-                            </Button>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              disabled={clearMutation.isPending || channel.assigned_keys === 0}
-                              onClick={() => setClearTarget(channel)}
-                            >
-                              <Trash2 className='mr-1.5 h-3.5 w-3.5 text-muted-foreground' />
-                              {t('Revert Distribution')}
-                            </Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='outline'
+                                      className='h-8 w-8'
+                                      onClick={() => {
+                                        setAssignmentsPage(1)
+                                        setDetailChannelId(channel.id)
+                                      }}
+                                      aria-label={t('Channel detail')}
+                                    >
+                                      <Info className='h-3.5 w-3.5' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Channel detail')}</TooltipContent>
+                              </Tooltip>
+
+                              {/* OpenCode: Psiphon button when no proxies assigned and Psiphon not active */}
+                              {isOpenCode && !isPsiphon && !hasProxies && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        size='icon'
+                                        variant='outline'
+                                        className='h-8 w-8'
+                                        disabled={psiphonAssignMutation.isPending}
+                                        onClick={() =>
+                                          psiphonAssignMutation.mutate(channel.id)
+                                        }
+                                        aria-label={t('Assign Psiphon')}
+                                      >
+                                        {psiphonAssignMutation.isPending ? (
+                                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                        ) : (
+                                          <Shield className='h-3.5 w-3.5' />
+                                        )}
+                                      </Button>
+                                    }
+                                  />
+                                  <TooltipContent>
+                                    {t('Assign Psiphon (psiphon-tunnel-core)')}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+
+                              {/* OpenCode with Psiphon active: Rotate IP button (Manual & Evenly hidden) */}
+                              {isPsiphon && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        size='icon'
+                                        variant='outline'
+                                        className='h-8 w-8'
+                                        disabled={psiphonRotateMutation.isPending}
+                                        onClick={() =>
+                                          psiphonRotateMutation.mutate(channel.id)
+                                        }
+                                        aria-label={t('Rotate Psiphon IP')}
+                                      >
+                                        {psiphonRotateMutation.isPending ? (
+                                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                        ) : (
+                                          <RefreshCw className='h-3.5 w-3.5' />
+                                        )}
+                                      </Button>
+                                    }
+                                  />
+                                  <TooltipContent>{t('Rotate Psiphon IP')}</TooltipContent>
+                                </Tooltip>
+                              )}
+
+                              {/* Manual & Evenly assign hidden when Psiphon is bound */}
+                              {!isPsiphon && (
+                                <>
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={
+                                        <Button
+                                          size='icon'
+                                          variant='outline'
+                                          className='h-8 w-8'
+                                          disabled={manualAssignMutation.isPending}
+                                          onClick={() => {
+                                            setManualAssignTarget(channel.id)
+                                          }}
+                                          aria-label={t('Assign manually')}
+                                        >
+                                          <ListChecks className='h-3.5 w-3.5' />
+                                        </Button>
+                                      }
+                                    />
+                                    <TooltipContent>{t('Assign manually')}</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={
+                                        <Button
+                                          size='icon'
+                                          variant='outline'
+                                          className='h-8 w-8'
+                                          disabled={
+                                            assignMutation.isPending || enabledCount === 0
+                                          }
+                                          onClick={() => assignMutation.mutate(channel.id)}
+                                          aria-label={t('Assign evenly')}
+                                        >
+                                          {assignMutation.isPending ? (
+                                            <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                                          ) : isComplete ? (
+                                            <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600' />
+                                          ) : (
+                                            <Waypoints className='h-3.5 w-3.5' />
+                                          )}
+                                        </Button>
+                                      }
+                                    />
+                                    <TooltipContent>{t('Assign evenly')}</TooltipContent>
+                                  </Tooltip>
+                                </>
+                              )}
+
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      size='icon'
+                                      variant='outline'
+                                      className='h-8 w-8'
+                                      disabled={clearMutation.isPending || !canRevert}
+                                      onClick={() => setClearTarget(channel)}
+                                      aria-label={t('Revert Distribution')}
+                                    >
+                                      <Undo2 className='h-3.5 w-3.5' />
+                                    </Button>
+                                  }
+                                />
+                                <TooltipContent>{t('Revert Distribution')}</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2474,14 +2650,4 @@ function eventKindLabel(kind: string, t: (key: string) => string): string {
     default:
       return kind
   }
-}
-
-function assignedIconFor(channel: ProxyPoolChannel) {
-  const isAnon = channel.type === 65 || channel.type === 68 || channel.type === 69
-  const isComplete = isAnon ? channel.assigned_keys > 0 : channel.assigned_keys === channel.multi_key_size
-  return isComplete ? (
-    <CheckCircle2 className='mr-1 h-3.5 w-3.5 text-emerald-600' />
-  ) : (
-    <CircleX className='mr-1 h-3.5 w-3.5 text-muted-foreground' />
-  )
 }

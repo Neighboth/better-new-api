@@ -5,12 +5,14 @@ package opencode
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,65 +24,134 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
-const opencodeAnonymousBaseURL = "https://opencode.ai/inference/openai/v1/chat/completions"
+const (
+	opencodeAnonymousBaseURL = "https://opencode.ai/inference/openai/v1/chat/completions"
+	opencodeCLIUserAgent     = "opencode/2.0.0"
+	opencodeBase62Alphabet   = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
 
 // Adaptor serves the OpenCode (Anon) channel. The upstream free tier only
-// accepts requests that look like the official OpenCode CLI, so every request
-// is re-shaped: the official system prompt is injected, client tool names are
-// renamed to opaque digests, and the official agent tool set is appended. The
-// channel works with no key at all — the anonymous `public` credential is
-// used; with an OpenCode Zen/Go API key set on the channel, requests are
-// authenticated against the same endpoint instead.
+// accepts requests that match the official OpenCode CLI: valid /v1 endpoint,
+// authentic ses_/msg_ identifier format, exact CLI headers, official system
+// prompt, renamed client tools, and official agent toolset.
 type Adaptor struct {
 	openai.Adaptor
 }
 
 const renamesContextKey = "opencode_tool_renames"
 
+var (
+	sessionMu    sync.Mutex
+	channelSesID = map[int]string{}
+	idCounter    uint64
+)
+
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 	a.Adaptor.Init(info)
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	// An explicit base_url (for example the OpenCode Go lane,
-	// https://opencode.ai/inference/go/openai/v1) is honored when the operator
-	// sets one on the channel; the embedded anonymous lane is the default.
+	// Honor custom base_url when configured, while normalizing legacy URLs
+	// such as "https://opencode.ai/inference/openai" (missing /v1) that
+	// otherwise produce upstream 404 errors.
 	base := strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/")
 	if base == "" {
 		return opencodeAnonymousBaseURL, nil
 	}
-	if !strings.HasSuffix(base, "/chat/completions") {
-		base += "/chat/completions"
+	if strings.HasSuffix(base, "/chat/completions") {
+		if strings.HasSuffix(base, "/inference/openai/chat/completions") {
+			return strings.TrimSuffix(base, "/chat/completions") + "/v1/chat/completions", nil
+		}
+		if strings.HasSuffix(base, "/zen/chat/completions") {
+			return strings.TrimSuffix(base, "/chat/completions") + "/v1/chat/completions", nil
+		}
+		return base, nil
 	}
-	return base, nil
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/chat/completions", nil
+	}
+	return base + "/v1/chat/completions", nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
 	header.Set("Content-Type", "application/json")
-	header.Set("Accept", "application/json")
-	key := info.ApiKey
-	if key == "" || key == "default" {
+	if info.IsStream {
+		header.Set("Accept", "text/event-stream")
+	} else {
+		header.Set("Accept", "application/json")
+	}
+	key := strings.TrimSpace(info.ApiKey)
+	if key == "" || key == "default" || key == "local" {
 		key = "public"
 	}
 	header.Set("Authorization", "Bearer "+key)
-	// Mirror the official CLI as closely as possible: its exact user agent,
-	// and a session id that persists per channel instead of changing on
-	// every request (the anonymous lane fingerprints per-session traffic).
-	header.Set("User-Agent", "opencode/1.19.6")
+	// Match official OpenCode CLI headers: versioned User-Agent, cli client
+	// tag, descending ses_ session ID, and per-request ascending msg_ ID.
+	header.Set("User-Agent", opencodeCLIUserAgent)
 	header.Set("x-opencode-client", "cli")
-	stable := opencodeSessionID(info.ChannelId)
-	header.Set("x-opencode-session-id", stable)
-	header.Set("x-opencode-session", stable)
-	header.Set("x-opencode-request", stable)
-	header.Set("x-session-affinity", stable)
+	sessionID := getOrCreateOpenCodeSessionID(info.ChannelId)
+	requestID := generateOpenCodeID("msg", false)
+	header.Set("x-opencode-session", sessionID)
+	header.Set("x-opencode-request", requestID)
+	header.Set("x-session-affinity", sessionID)
 	return nil
 }
 
-// opencodeSessionID derives a deterministic ses_<64hex> id from the channel id,
-// matching the format the official CLI mints for its sessions.
-func opencodeSessionID(channelID int) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("opencode-anon-session:%d", channelID)))
-	return "ses_" + hex.EncodeToString(sum[:])
+// RefreshRequestHeaders rotates the session & request IDs on an outgoing
+// OpenCode request after an IP/proxy switch (e.g. Psiphon IP rotation on 429).
+func RefreshRequestHeaders(req *http.Request, channelID int) {
+	if req == nil {
+		return
+	}
+	sessionID := RotateOpenCodeSessionID(channelID)
+	requestID := generateOpenCodeID("msg", false)
+	req.Header.Set("x-opencode-session", sessionID)
+	req.Header.Set("x-opencode-request", requestID)
+	req.Header.Set("x-session-affinity", sessionID)
+}
+
+// RotateOpenCodeSessionID mints a fresh descending ses_ identifier for the channel.
+func RotateOpenCodeSessionID(channelID int) string {
+	id := generateOpenCodeID("ses", true)
+	sessionMu.Lock()
+	channelSesID[channelID] = id
+	sessionMu.Unlock()
+	return id
+}
+
+func getOrCreateOpenCodeSessionID(channelID int) string {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	if existing, ok := channelSesID[channelID]; ok && existing != "" {
+		return existing
+	}
+	id := generateOpenCodeID("ses", true)
+	channelSesID[channelID] = id
+	return id
+}
+
+// generateOpenCodeID produces the exact identifier format minted by OpenCode's
+// Identifier module: "<prefix>_<12-hex-timestamp><14-base62-random>" (30 chars).
+// Session IDs use descending timestamps; message/request IDs use ascending.
+func generateOpenCodeID(prefix string, descending bool) string {
+	seq := atomic.AddUint64(&idCounter, 1) & 0xfff
+
+	ts := (uint64(time.Now().UnixMilli()) << 12) | seq
+	ts &= 0xffffffffffff
+	if descending {
+		ts = (^ts) & 0xffffffffffff
+	}
+	randBytes := make([]byte, 14)
+	_, _ = rand.Read(randBytes)
+	var sb strings.Builder
+	sb.Grow(len(prefix) + 1 + 12 + 14)
+	sb.WriteString(prefix)
+	sb.WriteByte('_')
+	sb.WriteString(fmt.Sprintf("%012x", ts))
+	for _, b := range randBytes {
+		sb.WriteByte(opencodeBase62Alphabet[int(b)%len(opencodeBase62Alphabet)])
+	}
+	return sb.String()
 }
 
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {

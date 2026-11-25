@@ -74,6 +74,7 @@ export function HfModelPickerDialog({
   multiSelect = false,
   onSelectMultiple,
   initialQuery = 'qwen2.5',
+  apiBasePath = '/api/deployments/hf',
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -81,6 +82,7 @@ export function HfModelPickerDialog({
   multiSelect?: boolean
   onSelectMultiple?: (picked: HfPickedModel[]) => void
   initialQuery?: string
+  apiBasePath?: string
 }) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState(initialQuery)
@@ -116,7 +118,7 @@ export function HfModelPickerDialog({
     setSearching(true)
     setGatedWarning('')
     try {
-      const resp = await api.get('/api/deployments/hf/search', {
+      const resp = await api.get(`${apiBasePath}/search`, {
         params: {
           q: q || 'qwen',
           token: hfToken,
@@ -141,7 +143,7 @@ export function HfModelPickerDialog({
     setFiles([])
     setGatedWarning('')
     try {
-      const resp = await api.get('/api/deployments/hf/files', {
+      const resp = await api.get(`${apiBasePath}/files`, {
         params: {
           repo: repo.id,
           token: hfToken,

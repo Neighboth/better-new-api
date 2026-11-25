@@ -90,7 +90,7 @@ function collectDirtyValues<TFieldValues extends FieldValues>(
         ? (values as Record<string, unknown>)[key]
         : undefined
 
-    if (value === true) {
+    if (value === true || Array.isArray(source)) {
       result[nextKey] = source
       return
     }
@@ -245,6 +245,15 @@ export function useSettingsForm<T extends FieldValues>({
   const handleSubmit = async (data: T) => {
     const dirtyValues = collectDirtyValues(form.formState.dirtyFields, data)
     const flattenedDirty = flattenValues(dirtyValues)
+    const allFlattened = flattenValues(data)
+    for (const [key, value] of Object.entries(allFlattened)) {
+      if (
+        (Array.isArray(value) || Array.isArray(baselineRef.current[key])) &&
+        !(key in flattenedDirty)
+      ) {
+        flattenedDirty[key] = value
+      }
+    }
     const changedEntries = Object.entries(flattenedDirty).filter(
       ([key, value]) => !compare(value, baselineRef.current[key])
     )

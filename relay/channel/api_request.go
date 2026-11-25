@@ -555,7 +555,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	rawProxyURL = service.EffectiveRelayProxyURL(info.ChannelId, keyIndex, info.ApiKey, rawProxyURL)
 	isAnonChannel := info != nil && (info.ChannelType == rootconstant.ChannelTypeOpenCode || info.ChannelType == rootconstant.ChannelTypeKiloCodeAnon || info.ChannelType == rootconstant.ChannelTypeOHVCloudAnon)
 	isLocalhost := info != nil && (strings.Contains(info.ChannelBaseUrl, "localhost") || strings.Contains(info.ChannelBaseUrl, "127.0.0.1"))
-	if isAnonChannel && !isLocalhost && common2.OptionMap["ProxyPoolEnabled"] == "true" {
+	usingPsiphon := false
+	if info != nil && info.ChannelType == rootconstant.ChannelTypeOpenCode && !isLocalhost {
+		if psiphonURL, ok := service.GetPsiphonProxyURL(info.ChannelId); ok && psiphonURL != "" {
+			rawProxyURL = psiphonURL
+			usingPsiphon = true
+		}
+	}
+	if !usingPsiphon && isAnonChannel && !isLocalhost && common2.OptionMap["ProxyPoolEnabled"] == "true" {
 		rawProxyURL = service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
 	}
 	if service.IsCloudflareWorkerProxy(rawProxyURL) {
@@ -623,8 +630,48 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, errors.New("resp is nil")
 	}
 
+	// Automatic Psiphon IP rotation on 429 for OpenCode channels bound to psiphon-tunnel-core
+	if usingPsiphon && resp.StatusCode == http.StatusTooManyRequests && req.GetBody != nil {
+		for retry := 0; retry < 3; retry++ {
+			nextProxy, rotErr := service.RotatePsiphonForChannel(info.ChannelId)
+			if rotErr != nil || nextProxy == "" {
+				break
+			}
+			rawProxyURL = nextProxy
+			model.RecordProxyPoolEvent(info.ChannelId, -1, 0, rawProxyURL, "psiphon_rotate_429", fmt.Sprintf("Rotated Psiphon IP after upstream 429 (attempt %d/3)", retry+1))
+			_ = resp.Body.Close()
+
+			newBody, getBodyErr := req.GetBody()
+			if getBodyErr != nil {
+				break
+			}
+			req.Body = newBody
+			// Mint fresh session/request IDs so upstream treats the new IP as a fresh session
+			freshSes := "ses_" + strings.ReplaceAll(common2.GetUUID(), "-", "")[:26]
+			freshMsg := "msg_" + strings.ReplaceAll(common2.GetUUID(), "-", "")[:26]
+			req.Header.Set("x-opencode-session", freshSes)
+			req.Header.Set("x-opencode-request", freshMsg)
+			req.Header.Set("x-session-affinity", freshSes)
+
+			retryClient, clientErr := service.GetHttpClientWithProxySettings(rawProxyURL, info.ChannelSetting)
+			if clientErr != nil {
+				break
+			}
+			rClient := *retryClient
+			rClient.CheckRedirect = keepUpstreamRedirectResponse
+			newResp, doErr := rClient.Do(req)
+			if doErr != nil {
+				break
+			}
+			resp = newResp
+			if resp.StatusCode != http.StatusTooManyRequests {
+				break
+			}
+		}
+	}
+
 	// Smart retry on 429 for anonymous channels (OpenCode / Kilo Code) across proxy pool (30m cooldown, max 6 retries)
-	if isAnonChannel && !isLocalhost && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
+	if !usingPsiphon && isAnonChannel && !isLocalhost && resp.StatusCode == http.StatusTooManyRequests && common2.OptionMap["ProxyPoolEnabled"] == "true" && req.GetBody != nil {
 		for retry := 0; retry < 6; retry++ {
 			service.RecordProxyRateLimitedWithChannel(rawProxyURL, info.ChannelId, 30*time.Minute)
 			nextProxy := service.GetNextProxyForAnonChannel(info.ChannelId, rawProxyURL)
