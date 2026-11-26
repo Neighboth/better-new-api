@@ -1206,6 +1206,9 @@ export function PlaygroundSettingsSection({
                 <p className='text-muted-foreground text-[11px]'>
                   {t('Required. One or more vision-capable chat models. With several configured, the Studio shows a selector in the composer — the first model is the default.')}
                 </p>
+                <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300'>
+                  {t('Note: Requests to this prompt enhancement model (and its internal search steps) are exempt from user rate limits and do not deduct from user balance.')}
+                </div>
               </div>
 
               <div className='space-y-1.5'>

@@ -138,6 +138,13 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				// Route to the user's own actively hosted fine-tuned model if matched.
+				// Strictly isolated to owning userId; other users never match.
+				if service.TryHandleUserFineTunedRelay(c, c.GetInt("id"), modelRequest.Model) {
+					c.Abort()
+					return
+				}
+
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)

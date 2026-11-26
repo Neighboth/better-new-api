@@ -210,7 +210,10 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/fine_tuning/staged_model/:upload_id", controller.UserDeleteStagedFineTuningModel)
 				selfRoute.POST("/fine_tuning/jobs/:job_id/cancel", controller.UserCancelFineTuningJob)
 				selfRoute.GET("/fine_tuning/jobs/:job_id/logs", controller.UserGetFineTuningJobLogs)
+				selfRoute.POST("/fine_tuning/jobs/:job_id/download_ticket", controller.UserCreateFineTuningDownloadTicket)
 				selfRoute.GET("/fine_tuning/jobs/:job_id/download", controller.UserDownloadFineTuningModel)
+				selfRoute.POST("/fine_tuning/jobs/:job_id/serve/start", controller.UserStartFineTuningServing)
+				selfRoute.POST("/fine_tuning/jobs/:job_id/serve/stop", controller.UserStopFineTuningServing)
 				selfRoute.DELETE("/fine_tuning/jobs/:job_id", controller.UserDeleteFineTuningJob)
 				selfRoute.GET("/fine_tuning/hf/search", controller.SearchHuggingFaceModels)
 				selfRoute.GET("/fine_tuning/hf/files", controller.GetHuggingFaceModelFiles)
@@ -596,6 +599,9 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/deployments/fine_tuning/:job_id/checkpoint", controller.FineTuningWorkerDownloadCheckpoint)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/upload_chunk", controller.FineTuningWorkerUploadChunk)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/artifact", controller.FineTuningWorkerUploadArtifact)
+		apiRouter.GET("/deployments/fine_tuning/:job_id/artifact_download", controller.FineTuningWorkerDownloadArtifact)
+		// Direct browser streaming download using short-lived signed ticket (zero Axios RAM buffering / Range resume)
+		apiRouter.GET("/fine_tuning/download/:job_id", controller.DownloadFineTuningModelWithTicket)
 
 		// Fine-tuning admin management & statistics
 		fineTuningAdminRoute := apiRouter.Group("/fine_tuning/admin")

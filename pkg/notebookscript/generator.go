@@ -16,18 +16,22 @@ type ModelFileSpec struct {
 
 // Config holds parameters for generating a Colab/Kaggle model serving script.
 type Config struct {
-	Provider             string
-	DeploymentName       string
-	ModelRepo            string
-	ModelFile            string
-	ModelFiles           []ModelFileSpec
-	TaskType             string // text, image, video, audio, embeddings
-	Accelerator          string
-	FallbackAccelerators []string
-	IdleTimeoutSeconds   int
-	HFToken              string
-	CallbackURL          string
-	ShutdownToken        string
+	Provider               string
+	DeploymentName         string
+	ModelRepo              string
+	ModelFile              string
+	ModelFiles             []ModelFileSpec
+	TaskType               string // text, image, video, audio, embeddings
+	Accelerator            string
+	FallbackAccelerators   []string
+	IdleTimeoutSeconds     int
+	HFToken                string
+	CallbackURL            string
+	ShutdownToken          string
+	FineTunedModelID       string // Optional custom ft:... model ID returned by /v1/models and responses
+	FineTunedArtifactURL   string // Optional authenticated URL to trained .zip weights/LoRA adapter
+	FineTunedArtifactToken string // Optional Bearer token for downloading FineTunedArtifactURL
+	FineTuningMethod       string // Optional fine-tuning method (lora, qlora, sft, dpo, full, ...)
 }
 
 // NormalizeTaskType maps arbitrary/HF pipeline_tag values into supported task types.
@@ -570,56 +574,188 @@ async def chat_completions(req: Request):
 `
 		} else {
 			needsTorch = true
-			pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+			if strings.TrimSpace(cfg.FineTunedArtifactURL) != "" {
+				pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("transformers", "transformers"), ("peft", "peft"), ("safetensors", "safetensors"), ("accelerate", "accelerate"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+			} else {
+				pipPackages = `[("fastapi", "fastapi"), ("uvicorn", "uvicorn"), ("transformers", "transformers"), ("accelerate", "accelerate"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]`
+			}
 			taskHandler = `
+import zipfile
+from fastapi.responses import StreamingResponse
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 _backend = None
+def _prepare_finetuned_dir():
+    if not FT_ARTIFACT_URL:
+        return None
+    ft_dir = "/tmp/ft_weights"
+    marker = os.path.join(ft_dir, ".ready")
+    if os.path.exists(marker):
+        return ft_dir
+    os.makedirs(ft_dir, exist_ok=True)
+    zip_path = "/tmp/ft_model.zip"
+    _log("[model] Downloading fine-tuned model archive...", push_callback=True)
+    headers = {"User-Agent": "BetterNewAPI-Deployer/1.0"}
+    if FT_ARTIFACT_TOKEN:
+        headers["Authorization"] = f"Bearer {FT_ARTIFACT_TOKEN}"
+    req = urllib.request.Request(FT_ARTIFACT_URL, headers=headers)
+    with urllib.request.urlopen(req, timeout=600) as resp, open(zip_path, "wb") as out_f:
+        total = 0
+        while True:
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            out_f.write(chunk)
+            total += len(chunk)
+    _log(f"[model] Downloaded fine-tuned archive ({total / (1024 * 1024):.1f} MB), extracting...", push_callback=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(ft_dir)
+    try:
+        os.remove(zip_path)
+    except Exception:
+        pass
+    with open(marker, "w", encoding="utf-8") as mf:
+        mf.write("ok")
+    return ft_dir
+
 def get_backend():
     global _backend
     if _backend is not None:
         return _backend
     _t0 = time.time()
-    _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={torch.cuda.is_available()})...", push_callback=True)
-    tok = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN or None)
-    mdl = AutoModelForCausalLM.from_pretrained(
-        MODEL_REPO,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto" if torch.cuda.is_available() else None,
-        token=HF_TOKEN or None,
-    )
+    use_cuda = torch.cuda.is_available()
+    dtype = torch.bfloat16 if (use_cuda and torch.cuda.is_bf16_supported()) else (torch.float16 if use_cuda else torch.float32)
+    ft_dir = _prepare_finetuned_dir()
+    if ft_dir:
+        has_adapter = os.path.exists(os.path.join(ft_dir, "adapter_config.json"))
+        tok_src = ft_dir if (os.path.exists(os.path.join(ft_dir, "tokenizer_config.json")) or os.path.exists(os.path.join(ft_dir, "tokenizer.json"))) else MODEL_REPO
+        _log(f"[model] Loading fine-tuned model ({SERVED_MODEL_ID}, adapter={has_adapter}, cuda={use_cuda})...", push_callback=True)
+        tok = AutoTokenizer.from_pretrained(tok_src, trust_remote_code=True, token=HF_TOKEN or None)
+        if has_adapter:
+            from peft import PeftModel
+            base_mdl = AutoModelForCausalLM.from_pretrained(
+                MODEL_REPO,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                device_map="auto" if use_cuda else None,
+                token=HF_TOKEN or None,
+            )
+            mdl = PeftModel.from_pretrained(base_mdl, ft_dir)
+            try:
+                mdl = mdl.merge_and_unload()
+            except Exception:
+                pass
+        else:
+            mdl = AutoModelForCausalLM.from_pretrained(
+                ft_dir,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                device_map="auto" if use_cuda else None,
+            )
+    else:
+        _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={use_cuda})...", push_callback=True)
+        tok = AutoTokenizer.from_pretrained(MODEL_REPO, trust_remote_code=True, token=HF_TOKEN or None)
+        mdl = AutoModelForCausalLM.from_pretrained(
+            MODEL_REPO,
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            device_map="auto" if use_cuda else None,
+            token=HF_TOKEN or None,
+        )
+    if tok.pad_token is None and tok.eos_token is not None:
+        tok.pad_token = tok.eos_token
+    mdl.eval()
     _backend = (tok, mdl)
-    _log(f"[model] Transformers model ready in {time.time() - _t0:.1f}s", push_callback=True)
+    _log(f"[model] Model ready in {time.time() - _t0:.1f}s", push_callback=True)
     return _backend
+
+def _build_chat_prompt(tok, messages):
+    clean_msgs = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        role = str(m.get("role", "user"))
+        content = m.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("type") == "text")
+        clean_msgs.append({"role": role, "content": str(content or "")})
+    if hasattr(tok, "apply_chat_template") and getattr(tok, "chat_template", None):
+        try:
+            return tok.apply_chat_template(clean_msgs, tokenize=False, add_generation_prompt=True)
+        except Exception:
+            pass
+    return "\n".join(f"<|{m['role']}|>\n{m['content']}" for m in clean_msgs) + "\n<|assistant|>\n"
 
 def _execute_task(body, _base_url, set_progress=None):
     messages = body.get("messages", [])
-    max_tokens = int(body.get("max_tokens", 256))
+    max_tokens = int(body.get("max_tokens") or body.get("max_completion_tokens") or 512)
+    max_tokens = max(1, min(4096, max_tokens))
+    temperature = body.get("temperature")
+    top_p = body.get("top_p")
     if set_progress:
         set_progress(5, "Loading transformers model...")
     tok, mdl = get_backend()
     if set_progress:
         set_progress(40, "Generating text response...")
-    prompt = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages) + "\nassistant:"
+    prompt = _build_chat_prompt(tok, messages)
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
         inputs = {k: v.to(mdl.device) for k, v in inputs.items()}
+    gen_kwargs = {"max_new_tokens": max_tokens, "pad_token_id": tok.pad_token_id or tok.eos_token_id}
+    if temperature is not None and float(temperature) > 0:
+        gen_kwargs["do_sample"] = True
+        gen_kwargs["temperature"] = max(0.01, min(2.0, float(temperature)))
+        if top_p is not None:
+            gen_kwargs["top_p"] = max(0.05, min(1.0, float(top_p)))
     with torch.no_grad():
-        output_ids = mdl.generate(**inputs, max_new_tokens=max_tokens)
-    generated = tok.decode(output_ids[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
+        output_ids = mdl.generate(**inputs, **gen_kwargs)
+    prompt_tokens = int(inputs["input_ids"].shape[-1])
+    comp_ids = output_ids[0][prompt_tokens:]
+    generated = tok.decode(comp_ids, skip_special_tokens=True)
     if set_progress:
         set_progress(100, "Completed")
     return {
-        "id": "chatcmpl-notebook",
+        "id": f"chatcmpl-{int(time.time() * 1000)}",
         "object": "chat.completion",
-        "model": MODEL_REPO,
+        "created": int(time.time()),
+        "model": SERVED_MODEL_ID,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": int(len(comp_ids)),
+            "total_tokens": prompt_tokens + int(len(comp_ids)),
+        },
     }
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: Request):
     touch()
     body = await req.json()
+    if body.get("stream"):
+        res = _execute_task(body, str(req.base_url).rstrip("/"))
+        content = res["choices"][0]["message"]["content"]
+        cid = res["id"]
+        created = res["created"]
+        def _sse():
+            chunk1 = {
+                "id": cid,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": SERVED_MODEL_ID,
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk1, ensure_ascii=False)}\n\n"
+            chunk2 = {
+                "id": cid,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": SERVED_MODEL_ID,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": res.get("usage"),
+            }
+            yield f"data: {json.dumps(chunk2, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_sse(), media_type="text/event-stream")
     return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}
@@ -658,6 +794,11 @@ def _find_llama_cpp_wheel():
 		torchImport = "import torch\n"
 	}
 
+	servedModelID := strings.TrimSpace(cfg.FineTunedModelID)
+	if servedModelID == "" {
+		servedModelID = cfg.ModelRepo
+	}
+
 	return fmt.Sprintf(`# Auto-generated Better-New-API %s serving script
 # Deployment: %s | Model: %s | Task: %s | Accelerator: %s
 import importlib.util
@@ -672,6 +813,9 @@ import time
 import urllib.request
 
 MODEL_REPO = %s
+SERVED_MODEL_ID = %s
+FT_ARTIFACT_URL = %s
+FT_ARTIFACT_TOKEN = %s
 MODEL_FILE = %s
 MODEL_FILES_JSON = %s
 HF_TOKEN = %s
@@ -801,7 +945,7 @@ if os.path.exists("/dev/nvidia0"):
         _gpu_desc = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], text=True, timeout=5).strip() or "nvidia"
     except Exception:
         _gpu_desc = "nvidia"
-_log(f"[boot] Python {sys.version.split()[0]} | CPUs={os.cpu_count()} | GPU={_gpu_desc} | Model={MODEL_REPO}", push_callback=True)
+_log(f"[boot] Python {sys.version.split()[0]} | CPUs={os.cpu_count()} | GPU={_gpu_desc} | Model={SERVED_MODEL_ID}", push_callback=True)
 
 threading.Thread(target=_start_cloudflared, daemon=True).start()
 
@@ -881,7 +1025,7 @@ threading.Thread(target=_idle_watchdog, daemon=True).start()
 @app.get("/health")
 def health():
     touch()
-    return {"status": "ok", "model": MODEL_REPO, "task": %s}
+    return {"status": "ok", "model": SERVED_MODEL_ID, "task": %s}
 
 @app.get("/_logs")
 def get_logs(req: Request):
@@ -904,7 +1048,7 @@ async def shutdown(req: Request):
 @app.get("/v1/models")
 def list_models():
     touch()
-    return {"object": "list", "data": [{"id": MODEL_REPO, "object": "model"}]}
+    return {"object": "list", "data": [{"id": SERVED_MODEL_ID, "object": "model"}]}
 %s
 _jobs = {}
 _jobs_lock = threading.Lock()
@@ -970,10 +1114,13 @@ if __name__ == "__main__":
 `,
 		cfg.Provider,
 		cfg.DeploymentName,
-		cfg.ModelRepo,
+		servedModelID,
 		task,
 		cfg.Accelerator,
 		pyQuote(cfg.ModelRepo),
+		pyQuote(servedModelID),
+		pyQuote(cfg.FineTunedArtifactURL),
+		pyQuote(cfg.FineTunedArtifactToken),
 		pyQuote(cfg.ModelFile),
 		pyQuote(modelFilesJSON),
 		pyQuote(cfg.HFToken),

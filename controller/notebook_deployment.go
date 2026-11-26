@@ -1033,13 +1033,17 @@ type provisionParams struct {
 	CallbackURL        string
 	CallbackToken      string
 	Script             string
-	ModalTokenID       string
-	ModalTokenSecret   string
-	ModalVolPath       string
-	KaggleUser         string
-	KaggleKey          string
-	HFGlobalToken      string
-	HFDefaultOrg       string
+	ModalTokenID           string
+	ModalTokenSecret       string
+	ModalVolPath           string
+	KaggleUser             string
+	KaggleKey              string
+	HFGlobalToken          string
+	HFDefaultOrg           string
+	FineTunedModelID       string
+	FineTunedArtifactURL   string
+	FineTunedArtifactToken string
+	FineTuningMethod       string
 }
 
 func provisionDeploymentAsync(p provisionParams) {
@@ -1051,21 +1055,25 @@ func provisionDeploymentAsync(p provisionParams) {
 		setDeploymentStatus(p.ID, "downloading", "Deploying container & downloading model on Modal...")
 		appName := sanitizeSlug(p.Name)
 		endpointURL, modalScript, err := modaldeploy.DeployWithLogger(ctx, modaldeploy.DeployConfig{
-			AppName:              appName,
-			ModelRepo:            p.ModelRepo,
-			ModelFile:            p.ModelFile,
-			ModelFiles:           p.ModelFiles,
-			TaskType:             p.TaskType,
-			Accelerator:          p.PrimaryAccelerator,
-			FallbackAccelerators: p.Fallbacks,
-			CPUCores:             p.CPUCores,
-			MemoryGB:             p.MemoryGB,
-			IdleTimeoutSeconds:   p.IdleTimeoutSeconds,
-			TokenID:              p.ModalTokenID,
-			TokenSecret:          p.ModalTokenSecret,
-			HFToken:              p.HFToken,
-			SharedVolumePath:     p.ModalVolPath,
-			ShutdownToken:        p.CallbackToken,
+			AppName:                appName,
+			ModelRepo:              p.ModelRepo,
+			ModelFile:              p.ModelFile,
+			ModelFiles:             p.ModelFiles,
+			TaskType:               p.TaskType,
+			Accelerator:            p.PrimaryAccelerator,
+			FallbackAccelerators:   p.Fallbacks,
+			CPUCores:               p.CPUCores,
+			MemoryGB:               p.MemoryGB,
+			IdleTimeoutSeconds:     p.IdleTimeoutSeconds,
+			TokenID:                p.ModalTokenID,
+			TokenSecret:            p.ModalTokenSecret,
+			HFToken:                p.HFToken,
+			SharedVolumePath:       p.ModalVolPath,
+			ShutdownToken:          p.CallbackToken,
+			FineTunedModelID:       p.FineTunedModelID,
+			FineTunedArtifactURL:   p.FineTunedArtifactURL,
+			FineTunedArtifactToken: p.FineTunedArtifactToken,
+			FineTuningMethod:       p.FineTuningMethod,
 		}, func(line string) {
 			appendDeploymentLog(p.ID, "[modal] "+line)
 			msg := line
@@ -1601,18 +1609,10 @@ func UpdateNotebookDeployment(c *gin.Context) {
 	common.ApiSuccess(c, item)
 }
 
-func DeleteNotebookDeployment(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil || id <= 0 {
-		common.ApiErrorMsg(c, "invalid deployment id")
-		return
+func stopNotebookDeploymentRemote(item *model.NotebookDeployment) error {
+	if item == nil {
+		return nil
 	}
-	item, err := model.GetNotebookDeploymentByID(id)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-
 	bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1667,7 +1667,22 @@ func DeleteNotebookDeployment(c *gin.Context) {
 			}
 		}
 	}
+	return remoteStopErr
+}
 
+func DeleteNotebookDeployment(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "invalid deployment id")
+		return
+	}
+	item, err := model.GetNotebookDeploymentByID(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	remoteStopErr := stopNotebookDeploymentRemote(item)
 	if remoteStopErr != nil {
 		common.SysError(fmt.Sprintf("DeleteNotebookDeployment remote cleanup failed for #%d (%s): %v", item.Id, item.Provider, remoteStopErr))
 	}

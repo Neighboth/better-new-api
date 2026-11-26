@@ -319,18 +319,20 @@ func ValidateOpenAIDatasetFile(taskType, method, path, origFilename string) (*Fi
 // FineTuningModelCompatResult describes whether the selected base model can
 // actually be fine-tuned with our OpenAI-format dataset & chosen task/method.
 type FineTuningModelCompatResult struct {
-	Compatible        bool     `json:"compatible"`
-	Checked           bool     `json:"checked"`
-	ModelID           string   `json:"model_id"`
-	Architecture      string   `json:"architecture,omitempty"`
-	ModelType         string   `json:"model_type,omitempty"`
-	PipelineTag       string   `json:"pipeline_tag,omitempty"`
-	QuantMethod       string   `json:"quant_method,omitempty"`
-	TotalWeightBytes  int64    `json:"total_weight_bytes,omitempty"`
-	ParameterBillions float64  `json:"parameter_billions,omitempty"`
-	SupportsVision    bool     `json:"supports_vision,omitempty"`
-	Reason            string   `json:"reason,omitempty"`
-	Warnings          []string `json:"warnings,omitempty"`
+	Compatible        bool              `json:"compatible"`
+	Checked           bool              `json:"checked"`
+	ModelID           string            `json:"model_id"`
+	Architecture      string            `json:"architecture,omitempty"`
+	ModelType         string            `json:"model_type,omitempty"`
+	PipelineTag       string            `json:"pipeline_tag,omitempty"`
+	QuantMethod       string            `json:"quant_method,omitempty"`
+	TotalWeightBytes  int64             `json:"total_weight_bytes,omitempty"`
+	ParameterBillions float64           `json:"parameter_billions,omitempty"`
+	SupportsVision    bool              `json:"supports_vision,omitempty"`
+	Reason            string            `json:"reason,omitempty"`
+	ReasonCode        string            `json:"reason_code,omitempty"`
+	ReasonParams      map[string]string `json:"reason_params,omitempty"`
+	Warnings          []string          `json:"warnings,omitempty"`
 }
 
 type cachedModelCompatEntry struct {
@@ -453,6 +455,7 @@ func CheckFineTuningModelCompatibility(
 		ModelID: trimmed,
 	}
 	if trimmed == "" && localFilePath == "" {
+		res.ReasonCode = "FT_COMPAT_BASE_MODEL_REQUIRED"
 		res.Reason = "Base model is required."
 		return res
 	}
@@ -460,9 +463,12 @@ func CheckFineTuningModelCompatibility(
 	lowName := strings.ToLower(trimmed)
 	for _, badExt := range []string{".gguf", ".ggml", ".onnx", ".exl2", ".mlx"} {
 		if strings.HasSuffix(lowName, badExt) || (localFilePath != "" && strings.HasSuffix(strings.ToLower(localFilePath), badExt)) {
+			fmtName := strings.ToUpper(strings.TrimPrefix(badExt, "."))
 			res.Checked = true
 			res.Compatible = false
-			res.Reason = fmt.Sprintf("Format %s is inference-only and cannot be fine-tuned with PyTorch/PEFT. Choose a Hugging Face model repository or trainable .safetensors/.zip archive.", strings.ToUpper(strings.TrimPrefix(badExt, ".")))
+			res.ReasonCode = "FT_COMPAT_INFERENCE_ONLY_FORMAT"
+			res.ReasonParams = map[string]string{"format": fmtName}
+			res.Reason = fmt.Sprintf("Format %s is inference-only and cannot be fine-tuned with PyTorch/PEFT. Choose a Hugging Face model repository or trainable .safetensors/.zip archive.", fmtName)
 			return res
 		}
 	}
@@ -473,6 +479,7 @@ func CheckFineTuningModelCompatibility(
 		target := localFilePath
 		if target == "" {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_UPLOAD_NOT_FOUND"
 			res.Reason = "Uploaded base model file was not found."
 			return res
 		}
@@ -487,12 +494,14 @@ func CheckFineTuningModelCompatibility(
 				return res
 			}
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_IMAGE_REQUIRES_DIFFUSERS"
 			res.Reason = "Image / Diffusion fine-tuning requires a .safetensors/.ckpt checkpoint or Diffusers .zip archive."
 			return res
 		}
 		// Text / Vision / Audio local upload: single bare .safetensors lacks config.json & tokenizer
 		if !strings.HasSuffix(lowPath, ".zip") {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_STANDALONE_WEIGHTS"
 			res.Reason = "A standalone weight file without config.json and tokenizer files cannot be fine-tuned with OpenAI chat datasets. Upload a .zip archive containing the model directory (config.json, tokenizer, .safetensors) or select a Hugging Face repository."
 			return res
 		}
@@ -504,6 +513,7 @@ func CheckFineTuningModelCompatibility(
 		res.Checked = true
 		if task == "text" && strings.HasSuffix(lowName, ".safetensors") {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_DIRECT_SAFETENSORS_URL"
 			res.Reason = "A direct single .safetensors URL lacks config.json and tokenizer files needed for Text / LLM OpenAI fine-tuning. Provide a Hugging Face repo ID (e.g. Qwen/Qwen2.5-7B-Instruct) or a .zip model package."
 			return res
 		}
@@ -516,6 +526,8 @@ func CheckFineTuningModelCompatibility(
 	if !strings.Contains(repoID, "/") || strings.Count(repoID, "/") != 1 {
 		res.Checked = true
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_INVALID_HF_REPO"
+		res.ReasonParams = map[string]string{"repo": trimmed}
 		res.Reason = fmt.Sprintf("Invalid Hugging Face repository ID %q. Use the exact format \"owner/model-name\" (for example, HuggingFaceTB/SmolLM2-135M).", trimmed)
 		return res
 	}
@@ -548,6 +560,7 @@ func inspectLocalModelZipCompat(zipPath, task, method string, datasetHasImages b
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_ZIP_CORRUPT"
 		res.Reason = "Uploaded model .zip archive is corrupted or unreadable."
 		return res
 	}
@@ -576,11 +589,13 @@ func inspectLocalModelZipCompat(zipPath, task, method string, datasetHasImages b
 	}
 	if !hasConfig || !hasWeights {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_ZIP_MISSING_CONFIG_OR_WEIGHTS"
 		res.Reason = "Uploaded model .zip archive must contain config.json and trainable weights (.safetensors or .bin)."
 		return res
 	}
 	if (task == "text" || task == "vision") && !hasTokenizer {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_ZIP_MISSING_TOKENIZER"
 		res.Reason = "Uploaded model .zip archive is missing tokenizer files (tokenizer.json / tokenizer_config.json) required for OpenAI chat fine-tuning."
 		return res
 	}
@@ -614,6 +629,11 @@ func evaluateConfigJSONCompat(configBytes []byte, task, method string, datasetHa
 		case "awq", "gptq", "exl2", "marlin", "eetq", "hqq", "fp8", "fbgemm_fp8":
 			if method == "full" || res.QuantMethod == "awq" || res.QuantMethod == "exl2" {
 				res.Compatible = false
+				res.ReasonCode = "FT_COMPAT_PREQUANTIZED"
+				res.ReasonParams = map[string]string{
+					"quant":  strings.ToUpper(res.QuantMethod),
+					"method": strings.ToUpper(method),
+				}
 				res.Reason = fmt.Sprintf("Model uses pre-quantized %s weights which are incompatible with %s fine-tuning. Select the unquantized base model instead.", strings.ToUpper(res.QuantMethod), strings.ToUpper(method))
 				return res
 			}
@@ -624,16 +644,29 @@ func evaluateConfigJSONCompat(configBytes []byte, task, method string, datasetHa
 	case "text":
 		if isNonTextArchitecture(res.Architecture, res.ModelType, res.PipelineTag) {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_NOT_CAUSAL_LM"
+			res.ReasonParams = map[string]string{
+				"model": res.ModelID,
+				"arch":  nonEmptyOr(res.Architecture, "unknown"),
+				"task":  nonEmptyOr(res.PipelineTag, "unknown"),
+			}
 			res.Reason = fmt.Sprintf("Model %q (architecture=%s, task=%s) is not a Causal Language Model and cannot be fine-tuned on OpenAI chat/text datasets.", res.ModelID, nonEmptyOr(res.Architecture, "unknown"), nonEmptyOr(res.PipelineTag, "unknown"))
 			return res
 		}
 		if res.Architecture != "" && !isCausalLMArchitecture(res.Architecture, res.ModelType, res.PipelineTag) && !res.SupportsVision {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_UNSUPPORTED_ARCH"
+			res.ReasonParams = map[string]string{"arch": res.Architecture}
 			res.Reason = fmt.Sprintf("Model architecture %q is not a supported Causal LM for OpenAI chat fine-tuning. Select a *ForCausalLM model (e.g. Qwen, Llama, Mistral, Gemma, SmolLM).", res.Architecture)
 			return res
 		}
 		if datasetHasImages && !res.SupportsVision {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_TEXT_ONLY_MODEL_WITH_IMAGES"
+			res.ReasonParams = map[string]string{
+				"model": res.ModelID,
+				"arch":  nonEmptyOr(res.Architecture, "text-only"),
+			}
 			res.Reason = fmt.Sprintf("Dataset contains multimodal images, but %q (%s) is a text-only model. Choose a Vision-Language model.", res.ModelID, nonEmptyOr(res.Architecture, "text-only"))
 			return res
 		}
@@ -642,6 +675,11 @@ func evaluateConfigJSONCompat(configBytes []byte, task, method string, datasetHa
 	case "vision":
 		if !res.SupportsVision {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_NOT_VISION_MODEL"
+			res.ReasonParams = map[string]string{
+				"model": res.ModelID,
+				"arch":  nonEmptyOr(res.Architecture, "unknown"),
+			}
 			res.Reason = fmt.Sprintf("Model %q (architecture=%s) is not a Vision-Language model and cannot be fine-tuned on multimodal vision datasets.", res.ModelID, nonEmptyOr(res.Architecture, "unknown"))
 			return res
 		}
@@ -650,6 +688,11 @@ func evaluateConfigJSONCompat(configBytes []byte, task, method string, datasetHa
 	case "image":
 		if isCausalLMArchitecture(res.Architecture, res.ModelType, res.PipelineTag) {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_LLM_NOT_IMAGE"
+			res.ReasonParams = map[string]string{
+				"model": res.ModelID,
+				"arch":  res.Architecture,
+			}
 			res.Reason = fmt.Sprintf("Model %q is a text LLM (%s), not an image diffusion model. Switch Task Type to Text / LLM or select a Stable Diffusion / Flux model.", res.ModelID, res.Architecture)
 			return res
 		}
@@ -658,6 +701,11 @@ func evaluateConfigJSONCompat(configBytes []byte, task, method string, datasetHa
 	case "audio":
 		if isCausalLMArchitecture(res.Architecture, res.ModelType, res.PipelineTag) && !strings.Contains(strings.ToLower(res.ModelType), "audio") && !strings.Contains(strings.ToLower(res.PipelineTag), "audio") {
 			res.Compatible = false
+			res.ReasonCode = "FT_COMPAT_NOT_AUDIO_MODEL"
+			res.ReasonParams = map[string]string{
+				"model": res.ModelID,
+				"arch":  nonEmptyOr(res.Architecture, res.PipelineTag),
+			}
 			res.Reason = fmt.Sprintf("Model %q (%s) does not appear to be an audio/speech model.", res.ModelID, nonEmptyOr(res.Architecture, res.PipelineTag))
 			return res
 		}
@@ -709,11 +757,15 @@ func fetchAndCheckHFModelCompat(ctx context.Context, repoID, task, method string
 	}
 	if statusCode == http.StatusNotFound {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_NOT_FOUND"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Hugging Face repository %q was not found.", repoID)
 		return res
 	}
 	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_PRIVATE_OR_GATED"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Hugging Face repository %q is private or gated. Configure a Hugging Face token with access to this repository.", repoID)
 		return res
 	}
@@ -748,11 +800,15 @@ func fetchAndCheckHFModelCompat(ctx context.Context, repoID, task, method string
 
 	if gatedBool, ok := hfMeta.Gated.(bool); ok && gatedBool && hfToken == "" {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_GATED"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Model %q is gated on Hugging Face and requires a Hugging Face access token configured in System Settings > Model Deployment.", repoID)
 		return res
 	}
 	if gatedStr, ok := hfMeta.Gated.(string); ok && gatedStr != "" && gatedStr != "false" && hfToken == "" {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_GATED"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Model %q is gated on Hugging Face and requires a Hugging Face access token configured in System Settings > Model Deployment.", repoID)
 		return res
 	}
@@ -801,11 +857,15 @@ func fetchAndCheckHFModelCompat(ctx context.Context, repoID, task, method string
 
 	if !hasTrainable {
 		res.Compatible = false
+		res.ReasonParams = map[string]string{"repo": repoID}
 		if hasGGUFOnly {
+			res.ReasonCode = "FT_COMPAT_HF_GGUF_ONLY"
 			res.Reason = fmt.Sprintf("Repository %q only contains GGUF/GGML quantized weights (inference-only) and cannot be fine-tuned. Select the original non-GGUF Safetensors model repository.", repoID)
 		} else if hasONNXOnly {
+			res.ReasonCode = "FT_COMPAT_HF_ONNX_ONLY"
 			res.Reason = fmt.Sprintf("Repository %q only contains ONNX inference weights and cannot be fine-tuned with PyTorch/PEFT.", repoID)
 		} else {
+			res.ReasonCode = "FT_COMPAT_HF_NO_WEIGHTS"
 			res.Reason = fmt.Sprintf("Repository %q does not contain trainable PyTorch/Safetensors weights.", repoID)
 		}
 		return res
@@ -813,6 +873,8 @@ func fetchAndCheckHFModelCompat(ctx context.Context, repoID, task, method string
 
 	if strings.EqualFold(hfMeta.LibraryName, "mlx") || strings.Contains(strings.ToLower(repoID), "-mlx") {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_MLX_ONLY"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Repository %q is an Apple MLX-format model and cannot be fine-tuned on CUDA/PyTorch workers.", repoID)
 		return res
 	}
@@ -826,12 +888,16 @@ func fetchAndCheckHFModelCompat(ctx context.Context, repoID, task, method string
 
 	if (task == "text" || task == "vision") && hasModelIndex && !hasConfig {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_DIFFUSERS_NOT_TEXT"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Repository %q is a Diffusers image generation model, not a Text / LLM model compatible with OpenAI chat JSONL datasets.", repoID)
 		return res
 	}
 
 	if (task == "text" || task == "vision") && !hasTokenizer {
 		res.Compatible = false
+		res.ReasonCode = "FT_COMPAT_HF_MISSING_TOKENIZER"
+		res.ReasonParams = map[string]string{"repo": repoID}
 		res.Reason = fmt.Sprintf("Repository %q is missing tokenizer files (tokenizer.json / tokenizer_config.json) required for OpenAI chat fine-tuning.", repoID)
 		return res
 	}

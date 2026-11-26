@@ -391,6 +391,32 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 
+	// Inject private per-user actively hosted fine-tuned models (visible ONLY to owning user)
+	if userId := c.GetInt("id"); userId > 0 && service.IsFineTuningServingEnabled() {
+		if activeJobs, ftErr := model.ListUserActiveServingFineTuningJobs(userId); ftErr == nil && len(activeJobs) > 0 {
+			seenFT := make(map[string]bool, len(userOpenAiModels))
+			for _, m := range userOpenAiModels {
+				seenFT[m.Id] = true
+			}
+			for _, job := range activeJobs {
+				mID := strings.TrimSpace(job.FineTunedModel)
+				if mID == "" || seenFT[mID] {
+					continue
+				}
+				if modelLimitEnable && !tokenModelLimit[mID] {
+					continue
+				}
+				userOpenAiModels = append(userOpenAiModels, dto.OpenAIModels{
+					Id:      mID,
+					Object:  "model",
+					Created: int(job.CreatedAt),
+					OwnedBy: "fine-tuned",
+				})
+				seenFT[mID] = true
+			}
+		}
+	}
+
 	switch modelType {
 	case constant.ChannelTypeAnthropic:
 		useranthropicModels := make([]dto.AnthropicModel, len(userOpenAiModels))

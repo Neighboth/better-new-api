@@ -214,6 +214,20 @@ const schema = z.object({
       })
     )
     .optional(),
+  servingEnabled: z.boolean().optional(),
+  servingColabNormalRamMultiplier: z.number().min(0.1).max(20),
+  servingColabHighRamMultiplier: z.number().min(0.1).max(20),
+  servingGpuRows: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        kind: z.enum(['cpu', 'gpu', 'tpu']).optional(),
+        price_per_second: z.number().min(0),
+        enabled: z.boolean(),
+      })
+    )
+    .optional(),
 })
 
 type Values = z.infer<typeof schema>
@@ -229,6 +243,10 @@ export function FineTuningSettingsSection({
     colabHighRamMultiplier?: number
     retentionDays?: number
     expiryWarningDays?: number
+    servingEnabled?: boolean
+    servingGpuMultipliers?: string
+    servingColabNormalRamMultiplier?: number
+    servingColabHighRamMultiplier?: number
     enabledProviders: Record<DeploymentProviderId, boolean>
   }
 }) {
@@ -250,12 +268,23 @@ export function FineTuningSettingsSection({
         defaultValues.fineTuningGpuMultipliers,
         defaultValues.fineTuningPricePerSecond ?? 0.002
       ),
+      servingEnabled: defaultValues.servingEnabled ?? false,
+      servingColabNormalRamMultiplier:
+        defaultValues.servingColabNormalRamMultiplier ?? 1,
+      servingColabHighRamMultiplier:
+        defaultValues.servingColabHighRamMultiplier ?? 1.5,
+      servingGpuRows: parseFineTuningGPURows(
+        defaultValues.servingGpuMultipliers,
+        0.0015
+      ),
     },
   })
 
   const { isDirty, isSubmitting } = form.formState
   const isFineTuningEnabled = Boolean(form.watch('fineTuningEnabled'))
+  const isServingEnabled = Boolean(form.watch('servingEnabled'))
   const savedGpuRows = form.watch('fineTuningGpuRows') ?? DEFAULT_FT_GPU_ROWS
+  const savedServingGpuRows = form.watch('servingGpuRows') ?? DEFAULT_FT_GPU_ROWS
   const [accountsByProvider, setAccountsByProvider] = useState<
     Record<string, DeploymentAccountSummary[]>
   >({})
@@ -327,6 +356,21 @@ export function FineTuningSettingsSection({
     return savedGpuRows
   }, [defaultValues.enabledProviders, accountsByProvider, savedGpuRows])
 
+  const servingGpuRows = useMemo<FineTuningGPURow[]>(() => {
+    const savedById = new Map(savedServingGpuRows.map((r) => [r.id, r]))
+    return gpuRows.map((row) => {
+      const saved = savedById.get(row.id)
+      return {
+        ...row,
+        price_per_second:
+          saved?.price_per_second ??
+          DEFAULT_PRICE_BY_HW_ID[row.id] ??
+          row.price_per_second,
+        enabled: saved ? saved.enabled : row.enabled,
+      }
+    })
+  }, [gpuRows, savedServingGpuRows])
+
   const updateGpuRow = (
     rowId: string,
     patch: Partial<Pick<FineTuningGPURow, 'price_per_second' | 'enabled'>>
@@ -349,6 +393,30 @@ export function FineTuningSettingsSection({
           }
     )
     form.setValue('fineTuningGpuRows', next, { shouldDirty: true })
+  }
+
+  const updateServingGpuRow = (
+    rowId: string,
+    patch: Partial<Pick<FineTuningGPURow, 'price_per_second' | 'enabled'>>
+  ) => {
+    const next = servingGpuRows.map((r) =>
+      r.id === rowId
+        ? {
+            id: r.id,
+            label: r.label,
+            kind: r.kind,
+            price_per_second: patch.price_per_second ?? r.price_per_second,
+            enabled: patch.enabled ?? r.enabled,
+          }
+        : {
+            id: r.id,
+            label: r.label,
+            kind: r.kind,
+            price_per_second: r.price_per_second,
+            enabled: r.enabled,
+          }
+    )
+    form.setValue('servingGpuRows', next, { shouldDirty: true })
   }
 
   const adminJobsQuery = useQuery({
@@ -386,7 +454,9 @@ export function FineTuningSettingsSection({
 
   const deleteJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      const res = await api.delete(`/api/fine_tuning/admin/jobs/${jobId}`)
+      const res = await api.delete(`/api/fine_tuning/admin/jobs/${jobId}`, {
+        skipBusinessError: true,
+      })
       if (!res.data?.success) {
         throw new Error(res.data?.message || t('Failed to delete fine-tuning job'))
       }
@@ -403,17 +473,22 @@ export function FineTuningSettingsSection({
 
   const handleDownloadModel = async (jobId: string) => {
     try {
-      const res = await api.get(`/api/user/fine_tuning/jobs/${jobId}/download`, {
-        responseType: 'blob',
+      const res = await api.post<{
+        success: boolean
+        message?: string
+        data?: { download_url: string; filename: string }
+      }>(`/api/user/fine_tuning/jobs/${jobId}/download_ticket`, undefined, {
+        skipBusinessError: true,
       })
-      const url = window.URL.createObjectURL(new Blob([res.data]))
+      if (!res.data?.success || !res.data.data?.download_url) {
+        throw new Error(res.data?.message || t('Failed to download model file'))
+      }
       const a = document.createElement('a')
-      a.href = url
-      a.download = `${jobId}.zip`
+      a.href = res.data.data.download_url
+      a.download = res.data.data.filename || `${jobId}.zip`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
     } catch {
       toast.error(t('Failed to download model file'))
     }
@@ -451,6 +526,29 @@ export function FineTuningSettingsSection({
       await updateOption.mutateAsync({
         key: 'model_deployment.fine_tuning.gpu_multipliers',
         value: JSON.stringify(persistedRows),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.serving_enabled',
+        value: String(Boolean(values.servingEnabled)),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.serving_colab_normal_ram_multiplier',
+        value: String(values.servingColabNormalRamMultiplier ?? 1),
+      })
+      await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.serving_colab_high_ram_multiplier',
+        value: String(values.servingColabHighRamMultiplier ?? 1.5),
+      })
+      const persistedServingRows = servingGpuRows.map((r) => ({
+        id: r.id,
+        label: r.label,
+        kind: r.kind,
+        price_per_second: r.price_per_second,
+        enabled: r.enabled,
+      }))
+      await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.serving_gpu_multipliers',
+        value: JSON.stringify(persistedServingRows),
       })
       form.reset(values)
       toast.success(t('Fine-Tuning settings saved successfully'))
@@ -725,6 +823,204 @@ export function FineTuningSettingsSection({
                     </Table>
                   </div>
                 </FormItem>
+
+                <Separator data-settings-form-span='full' className='my-2' />
+
+                {/* One-Click Fine-Tuned Model Hosting (Serving) */}
+                <FormField
+                  control={form.control}
+                  name='servingEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>
+                          {t('Enable Fine-Tuned Model Hosting')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Allow users to activate and host their fine-tuned models on demand. Hosted models appear only in the owning user’s Playground and /v1/models and stop automatically when balance runs out.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                {isServingEnabled && (
+                  <>
+                    {defaultValues.enabledProviders.colab && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name='servingColabNormalRamMultiplier'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Hosting Colab Normal RAM Multiplier')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  step='0.05'
+                                  min='0.1'
+                                  max='20'
+                                  value={field.value ?? 1}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value === ''
+                                        ? 1
+                                        : Math.max(0.1, Number(e.target.value))
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Multiplier for standard Colab RAM when hosting a fine-tuned model (default 1.0x).'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='servingColabHighRamMultiplier'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Hosting Colab High RAM Multiplier')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  step='0.05'
+                                  min='0.1'
+                                  max='20'
+                                  value={field.value ?? 1.5}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value === ''
+                                        ? 1.5
+                                        : Math.max(0.1, Number(e.target.value))
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Multiplier for High-RAM Colab runtimes when hosting a fine-tuned model (default 1.5x).'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+
+                    <FormItem
+                      data-settings-form-span='full'
+                      className='space-y-3'
+                    >
+                      <FormLabel>
+                        {t('Fine-Tuned Model Hosting Pricing')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Configure per-second USD hosting rates and toggle available accelerators for user-activated fine-tuned models.'
+                        )}
+                      </FormDescription>
+                      <div className='overflow-x-auto rounded-lg border'>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{t('Accelerator')}</TableHead>
+                              <TableHead className='w-[220px]'>
+                                {t('Price per Second (USD/s)')}
+                              </TableHead>
+                              <TableHead className='w-[100px] text-right'>
+                                {t('Enabled')}
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {servingGpuRows.map((row) => (
+                              <TableRow
+                                key={row.id}
+                                className={
+                                  !row.enabled ? 'opacity-55' : undefined
+                                }
+                              >
+                                <TableCell>
+                                  <div className='flex flex-wrap items-center gap-1.5'>
+                                    <span className='text-sm font-medium'>
+                                      {row.label}
+                                    </span>
+                                    {row.providers?.map((p) => (
+                                      <Badge
+                                        key={p}
+                                        variant='secondary'
+                                        className='px-1.5 py-0 text-xs font-normal'
+                                      >
+                                        {PROVIDER_LABELS[p] ?? p}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                  <div className='text-muted-foreground text-xs'>
+                                    {row.id}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className='relative flex items-center'>
+                                    <span className='text-muted-foreground pointer-events-none absolute left-3 text-sm'>
+                                      $
+                                    </span>
+                                    <Input
+                                      type='number'
+                                      step='0.0001'
+                                      min='0'
+                                      disabled={!row.enabled}
+                                      value={row.price_per_second}
+                                      onChange={(e) => {
+                                        updateServingGpuRow(row.id, {
+                                          price_per_second:
+                                            e.target.value === ''
+                                              ? 0
+                                              : Math.max(
+                                                  0,
+                                                  Number(e.target.value)
+                                                ),
+                                        })
+                                      }}
+                                      className='pl-7 tabular-nums'
+                                    />
+                                  </div>
+                                </TableCell>
+                                <TableCell className='text-right'>
+                                  <Switch
+                                    checked={row.enabled}
+                                    onCheckedChange={(checked) => {
+                                      updateServingGpuRow(row.id, {
+                                        enabled: checked,
+                                      })
+                                    }}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </FormItem>
+                  </>
+                )}
               </>
             )}
 

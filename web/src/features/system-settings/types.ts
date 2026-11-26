@@ -410,6 +410,10 @@ export type ModelSettings = {
   'model_deployment.fine_tuning.colab_high_ram_multiplier'?: number | string
   'model_deployment.fine_tuning.retention_days'?: number | string
   'model_deployment.fine_tuning.expiry_warning_days'?: number | string
+  'model_deployment.fine_tuning.serving_enabled'?: boolean | string
+  'model_deployment.fine_tuning.serving_gpu_multipliers'?: string
+  'model_deployment.fine_tuning.serving_colab_normal_ram_multiplier'?: number | string
+  'model_deployment.fine_tuning.serving_colab_high_ram_multiplier'?: number | string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
   'model_deployment.ionet.idle_timeout_seconds'?: number

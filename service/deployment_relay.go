@@ -7,12 +7,38 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
+
+type fineTuningServingStopFunc func(jobID string, reason string)
+
+var (
+	ftServingStopHookMu sync.RWMutex
+	ftServingStopHook   fineTuningServingStopFunc
+)
+
+// RegisterFineTuningServingStopHook registers the controller-level teardown callback
+// used when a private fine-tuned model must be immediately stopped (e.g. balance depleted).
+func RegisterFineTuningServingStopHook(fn fineTuningServingStopFunc) {
+	ftServingStopHookMu.Lock()
+	ftServingStopHook = fn
+	ftServingStopHookMu.Unlock()
+}
+
+// TriggerFineTuningServingAutoStop invokes the registered remote-runtime stop hook asynchronously.
+func TriggerFineTuningServingAutoStop(jobID string, reason string) {
+	ftServingStopHookMu.RLock()
+	fn := ftServingStopHook
+	ftServingStopHookMu.RUnlock()
+	if fn != nil {
+		go fn(jobID, reason)
+	}
+}
 
 // ShouldPreferDeployments reports whether Model Deployments take priority over upstream channels.
 func ShouldPreferDeployments() bool {
@@ -145,9 +171,73 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 	return false
 }
 
+// TryHandleUserFineTunedRelay proxies OpenAI/Playground requests directly to a
+// user's own actively hosted fine-tuned model. Strictly isolated to userId.
+func TryHandleUserFineTunedRelay(c *gin.Context, userId int, modelName string) bool {
+	if userId <= 0 || strings.TrimSpace(modelName) == "" || !IsFineTuningServingEnabled() {
+		return false
+	}
+	job, err := model.GetUserActiveServingFineTuningJobByModel(userId, modelName)
+	if err != nil || job == nil || strings.TrimSpace(job.ServingEndpointURL) == "" {
+		return false
+	}
+
+	// Enforce positive authoritative user balance before forwarding; auto-stop if depleted.
+	if quota, qErr := model.GetUserQuota(userId, true); qErr == nil && quota <= 0 {
+		TriggerFineTuningServingAutoStop(job.JobID, "insufficient_balance")
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error": gin.H{
+				"message": "Your balance has been exhausted; this hosted fine-tuned model has been stopped.",
+				"type":    "insufficient_quota",
+				"code":    "insufficient_quota",
+			},
+		})
+		return true
+	}
+
+	var bodyBytes []byte
+	if c.Request.Body != nil {
+		if b, rErr := io.ReadAll(c.Request.Body); rErr == nil {
+			bodyBytes = b
+			c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+	}
+
+	picked := model.NotebookDeployment{
+		Id:          job.ServingDeploymentID,
+		OwnerUserID: userId,
+		Provider:    job.ServingProvider,
+		ModelID:     job.FineTunedModel,
+		ModelRepo:   job.Model,
+		EndpointURL: job.ServingEndpointURL,
+		Status:      "running",
+	}
+	if tryProxyDeployment(c, picked, bodyBytes) {
+		return true
+	}
+	if c.Request.Context().Err() != nil {
+		return true
+	}
+	c.JSON(http.StatusBadGateway, gin.H{
+		"error": gin.H{
+			"message": "Hosted fine-tuned model endpoint did not respond. Please verify its status or restart it.",
+			"type":    "server_error",
+			"code":    "fine_tuned_serving_unreachable",
+		},
+	})
+	return true
+}
+
+func normalizeDeploymentRequestPath(rawPath string) string {
+	if strings.HasPrefix(rawPath, "/pg/") {
+		return "/v1/" + strings.TrimPrefix(rawPath, "/pg/")
+	}
+	return rawPath
+}
+
 func tryProxyDeployment(c *gin.Context, picked model.NotebookDeployment, bodyBytes []byte) bool {
 	baseEndpoint := strings.TrimRight(strings.TrimSpace(picked.EndpointURL), "/")
-	reqPath := c.Request.URL.Path
+	reqPath := normalizeDeploymentRequestPath(c.Request.URL.Path)
 	isJobEligible := (picked.Provider == "colab" || picked.Provider == "kaggle" || picked.Provider == "modal") &&
 		c.Request.Method == http.MethodPost &&
 		(reqPath == "/v1/images/generations" || reqPath == "/v1/videos/generations" || reqPath == "/v1/audio/speech" || reqPath == "/v1/audio/generations" || reqPath == "/v1/chat/completions") &&
@@ -220,7 +310,8 @@ func tryProxyDeployment(c *gin.Context, picked model.NotebookDeployment, bodyByt
 		}
 	}
 
-	targetURL := baseEndpoint + c.Request.URL.RequestURI()
+	reqURI := normalizeDeploymentRequestPath(c.Request.URL.RequestURI())
+	targetURL := baseEndpoint + reqURI
 	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return false

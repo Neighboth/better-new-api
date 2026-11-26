@@ -32,6 +32,24 @@ const serverErrorMessageKeys = {
   TELEGRAM_BIND_USER_DELETED: 'This user account no longer exists.',
   TELEGRAM_BIND_USER_DISABLED: 'This user account is disabled.',
   TELEGRAM_BIND_INTERNAL_ERROR: 'Telegram binding failed. Please try again.',
+  FT_DISABLED: 'Fine-tuning is disabled in System Settings',
+  FT_INSUFFICIENT_BALANCE: 'Insufficient balance for estimated fine-tuning cost',
+  FT_JOB_NOT_FOUND: 'Fine-tuning job not found',
+  FT_MODEL_NOT_READY:
+    'Model is not ready for download yet; training must complete first',
+  FT_MODEL_EXPIRED: 'Model files have expired and been purged from storage',
+  FT_MODEL_MISSING: 'Model archive file not found on disk',
+  FT_GGUF_UNSUPPORTED:
+    'GGUF files are inference-only and cannot be fine-tuned. Please select a .safetensors, .pt, or .bin file.',
+  FT_SERVING_DISABLED: 'Fine-tuned model hosting is disabled in System Settings',
+  FT_SERVING_INSUFFICIENT_BALANCE:
+    'Insufficient balance to activate this model',
+  FT_SERVING_NO_PROVIDER:
+    'No enabled compute provider account supports the selected accelerator',
+  FT_SERVING_GPU_DISABLED:
+    'Selected accelerator is not enabled for model hosting',
+  FT_SERVING_ALREADY_ACTIVE:
+    'This fine-tuned model is already starting or running',
 } as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {

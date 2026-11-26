@@ -716,6 +716,17 @@ func GetUserModels(c *gin.Context) {
 			}
 		}
 	}
+	if service.IsFineTuningServingEnabled() {
+		if activeJobs, err := model.ListUserActiveServingFineTuningJobs(id); err == nil {
+			for _, job := range activeJobs {
+				mID := strings.TrimSpace(job.FineTunedModel)
+				if mID != "" && !modelMap[mID] {
+					enabledModels = append(enabledModels, mID)
+					modelMap[mID] = true
+				}
+			}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

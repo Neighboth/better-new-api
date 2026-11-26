@@ -25,7 +25,9 @@ import {
   FolderOpen,
   Loader2,
   Pencil,
+  Play,
   Plus,
+  Power,
   Search,
   Square,
   Terminal,
@@ -82,6 +84,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatTimestamp } from '@/lib/format'
+import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 interface FineTuningGPUOption {
@@ -114,6 +117,16 @@ interface FineTuningJobItem {
   dataset_bytes?: number
   estimated_cost_usd: number
   has_model_file?: boolean
+  serving_status?: string
+  serving_deployment_id?: number
+  serving_provider?: string
+  serving_gpu?: string
+  serving_ram_tier?: string
+  serving_started_at?: number
+  serving_billed_seconds?: number
+  serving_billed_quota?: number
+  serving_error?: string
+  serving_stop_reason?: string
   created_at: number
   finished_at: number
   expires_at?: number
@@ -128,6 +141,10 @@ interface FineTuningListResponse {
   colab_enabled?: boolean
   colab_normal_ram_multiplier?: number
   colab_high_ram_multiplier?: number
+  serving_enabled?: boolean
+  serving_gpu_options?: FineTuningGPUOption[]
+  serving_colab_normal_ram_multiplier?: number
+  serving_colab_high_ram_multiplier?: number
   retention_days?: number
   expiry_warning_days?: number
   jobs: FineTuningJobItem[]
@@ -171,6 +188,8 @@ interface FineTuningModelCompatResult {
   parameter_billions?: number
   supports_vision?: boolean
   reason?: string
+  reason_code?: string
+  reason_params?: Record<string, string>
   warnings?: string[]
 }
 
@@ -1062,7 +1081,157 @@ function formatDurationEstimate(totalSeconds: number, t: (key: string, opts?: an
   }
   const hours = Math.floor(mins / 60)
   const remMins = mins % 60
-  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`
+  return remMins > 0
+    ? t('{{hours}}h {{mins}}m', { hours, mins: remMins })
+    : t('{{hours}}h', { hours })
+}
+
+function resolveCompatReason(
+  compat: FineTuningModelCompatResult,
+  t: (key: string, opts?: any) => string
+): string {
+  const p = compat.reason_params ?? {}
+  switch (compat.reason_code) {
+    case 'FT_COMPAT_BASE_MODEL_REQUIRED':
+      return t('Base model is required.')
+    case 'FT_COMPAT_INFERENCE_ONLY_FORMAT':
+      return t(
+        'Format {{format}} is inference-only and cannot be fine-tuned with PyTorch/PEFT. Choose a Hugging Face model repository or trainable .safetensors/.zip archive.',
+        { format: p.format ?? '' }
+      )
+    case 'FT_COMPAT_UPLOAD_NOT_FOUND':
+      return t('Uploaded base model file was not found.')
+    case 'FT_COMPAT_IMAGE_REQUIRES_DIFFUSERS':
+      return t(
+        'Image / Diffusion fine-tuning requires a .safetensors/.ckpt checkpoint or Diffusers .zip archive.'
+      )
+    case 'FT_COMPAT_STANDALONE_WEIGHTS':
+      return t(
+        'A standalone weight file without config.json and tokenizer files cannot be fine-tuned with OpenAI chat datasets. Upload a .zip archive containing the model directory (config.json, tokenizer, .safetensors) or select a Hugging Face repository.'
+      )
+    case 'FT_COMPAT_DIRECT_SAFETENSORS_URL':
+      return t(
+        'A direct single .safetensors URL lacks config.json and tokenizer files needed for Text / LLM OpenAI fine-tuning. Provide a Hugging Face repo ID (e.g. Qwen/Qwen2.5-7B-Instruct) or a .zip model package.'
+      )
+    case 'FT_COMPAT_INVALID_HF_REPO':
+      return t(
+        'Invalid Hugging Face repository ID "{{repo}}". Use the exact format "owner/model-name" (for example, HuggingFaceTB/SmolLM2-135M).',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_ZIP_CORRUPT':
+      return t('Uploaded model .zip archive is corrupted or unreadable.')
+    case 'FT_COMPAT_ZIP_MISSING_CONFIG_OR_WEIGHTS':
+      return t(
+        'Uploaded model .zip archive must contain config.json and trainable weights (.safetensors or .bin).'
+      )
+    case 'FT_COMPAT_ZIP_MISSING_TOKENIZER':
+      return t(
+        'Uploaded model .zip archive is missing tokenizer files (tokenizer.json / tokenizer_config.json) required for OpenAI chat fine-tuning.'
+      )
+    case 'FT_COMPAT_PREQUANTIZED':
+      return t(
+        'Model uses pre-quantized {{quant}} weights which are incompatible with {{method}} fine-tuning. Select the unquantized base model instead.',
+        { quant: p.quant ?? '', method: p.method ?? '' }
+      )
+    case 'FT_COMPAT_NOT_CAUSAL_LM':
+      return t(
+        'Model "{{model}}" (architecture={{arch}}, task={{task}}) is not a Causal Language Model and cannot be fine-tuned on OpenAI chat/text datasets.',
+        { model: p.model ?? '', arch: p.arch ?? '', task: p.task ?? '' }
+      )
+    case 'FT_COMPAT_UNSUPPORTED_ARCH':
+      return t(
+        'Model architecture "{{arch}}" is not a supported Causal LM for OpenAI chat fine-tuning. Select a *ForCausalLM model (e.g. Qwen, Llama, Mistral, Gemma, SmolLM).',
+        { arch: p.arch ?? '' }
+      )
+    case 'FT_COMPAT_TEXT_ONLY_MODEL_WITH_IMAGES':
+      return t(
+        'Dataset contains multimodal images, but "{{model}}" ({{arch}}) is a text-only model. Choose a Vision-Language model.',
+        { model: p.model ?? '', arch: p.arch ?? '' }
+      )
+    case 'FT_COMPAT_NOT_VISION_MODEL':
+      return t(
+        'Model "{{model}}" (architecture={{arch}}) is not a Vision-Language model and cannot be fine-tuned on multimodal vision datasets.',
+        { model: p.model ?? '', arch: p.arch ?? '' }
+      )
+    case 'FT_COMPAT_LLM_NOT_IMAGE':
+      return t(
+        'Model "{{model}}" is a text LLM ({{arch}}), not an image diffusion model. Switch Task Type to Text / LLM or select a Stable Diffusion model.',
+        { model: p.model ?? '', arch: p.arch ?? '' }
+      )
+    case 'FT_COMPAT_NOT_AUDIO_MODEL':
+      return t(
+        'Model "{{model}}" ({{arch}}) does not appear to be an audio/speech model.',
+        { model: p.model ?? '', arch: p.arch ?? '' }
+      )
+    case 'FT_COMPAT_HF_NOT_FOUND':
+      return t('Hugging Face repository "{{repo}}" was not found.', {
+        repo: p.repo ?? '',
+      })
+    case 'FT_COMPAT_HF_PRIVATE_OR_GATED':
+      return t(
+        'Hugging Face repository "{{repo}}" is private or gated. Configure a Hugging Face token with access to this repository.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_GATED':
+      return t(
+        'Model "{{repo}}" is gated on Hugging Face and requires a Hugging Face access token configured in System Settings > Model Deployment.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_GGUF_ONLY':
+      return t(
+        'Repository "{{repo}}" only contains GGUF/GGML quantized weights (inference-only) and cannot be fine-tuned. Select the original non-GGUF Safetensors model repository.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_ONNX_ONLY':
+      return t(
+        'Repository "{{repo}}" only contains ONNX inference weights and cannot be fine-tuned with PyTorch/PEFT.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_NO_WEIGHTS':
+      return t(
+        'Repository "{{repo}}" does not contain trainable PyTorch/Safetensors weights.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_MLX_ONLY':
+      return t(
+        'Repository "{{repo}}" is an Apple MLX-format model and cannot be fine-tuned on CUDA/PyTorch workers.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_DIFFUSERS_NOT_TEXT':
+      return t(
+        'Repository "{{repo}}" is a Diffusers image generation model, not a Text / LLM model compatible with OpenAI chat JSONL datasets.',
+        { repo: p.repo ?? '' }
+      )
+    case 'FT_COMPAT_HF_MISSING_TOKENIZER':
+      return t(
+        'Repository "{{repo}}" is missing tokenizer files (tokenizer.json / tokenizer_config.json) required for OpenAI chat fine-tuning.',
+        { repo: p.repo ?? '' }
+      )
+    default:
+      return (
+        compat.reason ||
+        t(
+          'The selected model is not compatible with fine-tuning using this OpenAI dataset.'
+        )
+      )
+  }
+}
+
+function resolveApiErrorMessage(
+  payloadOrErr: unknown,
+  fallbackKey: string,
+  t: (key: string, opts?: any) => string
+): string {
+  const codeKey = getServerErrorMessageKey(payloadOrErr)
+  if (codeKey) return t(codeKey)
+  const raw =
+    (payloadOrErr as any)?.response?.data?.message ||
+    (payloadOrErr as any)?.message
+  if (typeof raw === 'string' && raw.trim()) {
+    const translated = t(raw)
+    return translated
+  }
+  return t(fallbackKey)
 }
 
 async function countDatasetSamplesFromFile(file: File): Promise<number> {
@@ -1146,6 +1315,9 @@ export function CustomModelsPage() {
   const [deleteFtTarget, setDeleteFtTarget] =
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
+  const [serveTarget, setServeTarget] = useState<FineTuningJobItem | null>(null)
+  const [serveGpu, setServeGpu] = useState('')
+  const [serveRamTier, setServeRamTier] = useState<'normal' | 'high'>('normal')
   const modelFileInputRef = useRef<HTMLInputElement | null>(null)
   const datasetFileInputRef = useRef<HTMLInputElement | null>(null)
   const stagedUploadRef = useRef<StagedModelUpload | null>(null)
@@ -1490,10 +1662,13 @@ export function CustomModelsPage() {
       fd.append('model_file', file)
       const res = await api.post<{
         success: boolean
+        code?: string
         message?: string
         data?: StagedModelUpload
       }>('/api/user/fine_tuning/upload_model', fd, {
         headers: { 'Content-Type': undefined },
+        skipBusinessError: true,
+        skipErrorHandler: true,
         onUploadProgress: (evt) => {
           if (evt.total && evt.total > 0) {
             setUploadPercent(Math.min(100, Math.round((evt.loaded / evt.total) * 100)))
@@ -1501,13 +1676,15 @@ export function CustomModelsPage() {
         },
       })
       if (!res.data?.success || !res.data.data) {
-        throw new Error(res.data?.message || t('Model upload failed'))
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Model upload failed', t)
+        )
       }
       setUploadPercent(100)
       setStagedUpload(res.data.data)
       toast.success(t('Model uploaded and ready for training'))
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || err?.message || t('Model upload failed'))
+      toast.error(resolveApiErrorMessage(err, 'Model upload failed', t))
     } finally {
       setUploadingModel(false)
       if (modelFileInputRef.current) {
@@ -1568,10 +1745,12 @@ export function CustomModelsPage() {
       }
       const res = await api.post('/api/user/fine_tuning/jobs', formData, {
         headers: { 'Content-Type': undefined },
+        skipBusinessError: true,
+        skipErrorHandler: true,
       })
       if (!res.data?.success) {
         throw new Error(
-          res.data?.message || t('Failed to create fine-tuning job')
+          resolveApiErrorMessage(res.data, 'Failed to create fine-tuning job', t)
         )
       }
       return res.data.data
@@ -1590,16 +1769,22 @@ export function CustomModelsPage() {
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Failed to create fine-tuning job'))
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to create fine-tuning job', t)
+      )
     },
   })
 
   const cancelFtMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      const res = await api.post(`/api/user/fine_tuning/jobs/${jobId}/cancel`)
+      const res = await api.post(
+        `/api/user/fine_tuning/jobs/${jobId}/cancel`,
+        undefined,
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
       if (!res.data?.success) {
         throw new Error(
-          res.data?.message || t('Failed to stop fine-tuning job')
+          resolveApiErrorMessage(res.data, 'Failed to stop fine-tuning job', t)
         )
       }
     },
@@ -1608,16 +1793,21 @@ export function CustomModelsPage() {
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Failed to stop fine-tuning job'))
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to stop fine-tuning job', t)
+      )
     },
   })
 
   const deleteFtMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      const res = await api.delete(`/api/user/fine_tuning/jobs/${jobId}`)
+      const res = await api.delete(`/api/user/fine_tuning/jobs/${jobId}`, {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
       if (!res.data?.success) {
         throw new Error(
-          res.data?.message || t('Failed to delete fine-tuning job')
+          resolveApiErrorMessage(res.data, 'Failed to delete fine-tuning job', t)
         )
       }
     },
@@ -1625,9 +1815,84 @@ export function CustomModelsPage() {
       toast.success(t('Fine-tuning model deleted'))
       setDeleteFtTarget(null)
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['user-available-models-for-alias'],
+      })
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Failed to delete fine-tuning job'))
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to delete fine-tuning job', t)
+      )
+    },
+  })
+
+  const startServeMutation = useMutation({
+    mutationFn: async (payload: {
+      jobId: string
+      gpu: string
+      ram_tier: 'normal' | 'high'
+    }) => {
+      const res = await api.post(
+        `/api/user/fine_tuning/jobs/${payload.jobId}/serve/start`,
+        { gpu: payload.gpu, ram_tier: payload.ram_tier },
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      if (!res.data?.success) {
+        throw new Error(
+          resolveApiErrorMessage(
+            res.data,
+            'Failed to activate fine-tuned model',
+            t
+          )
+        )
+      }
+      return res.data.data
+    },
+    onSuccess: () => {
+      toast.success(
+        t('Fine-tuned model is starting and will appear in your model list once ready')
+      )
+      setServeTarget(null)
+      void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['user-available-models-for-alias'],
+      })
+    },
+    onError: (err: Error) => {
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to activate fine-tuned model', t)
+      )
+    },
+  })
+
+  const stopServeMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await api.post(
+        `/api/user/fine_tuning/jobs/${jobId}/serve/stop`,
+        undefined,
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      if (!res.data?.success) {
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Failed to stop hosted model', t)
+        )
+      }
+      return res.data.data
+    },
+    onSuccess: () => {
+      toast.success(t('Hosted fine-tuned model stopped'))
+      void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['user-available-models-for-alias'],
+      })
+    },
+    onError: (err: Error) => {
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to stop hosted model', t)
+      )
     },
   })
 
@@ -1640,10 +1905,18 @@ export function CustomModelsPage() {
         system_prompt: aliasSystemPrompt.trim(),
       }
       const res = editingAlias
-        ? await api.put(`/api/user/model_aliases/${editingAlias.id}`, payload)
-        : await api.post('/api/user/model_aliases', payload)
+        ? await api.put(`/api/user/model_aliases/${editingAlias.id}`, payload, {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          })
+        : await api.post('/api/user/model_aliases', payload, {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          })
       if (!res.data?.success) {
-        throw new Error(res.data?.message || t('Failed to save auto model'))
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Failed to save auto model', t)
+        )
       }
     },
     onSuccess: () => {
@@ -1660,15 +1933,20 @@ export function CustomModelsPage() {
       void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Failed to save auto model'))
+      toast.error(resolveApiErrorMessage(err, 'Failed to save auto model', t))
     },
   })
 
   const deleteAliasMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await api.delete(`/api/user/model_aliases/${id}`)
+      const res = await api.delete(`/api/user/model_aliases/${id}`, {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
       if (!res.data?.success) {
-        throw new Error(res.data?.message || t('Failed to delete auto model'))
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Failed to delete auto model', t)
+        )
       }
     },
     onSuccess: () => {
@@ -1678,7 +1956,7 @@ export function CustomModelsPage() {
       void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
     },
     onError: (err: Error) => {
-      toast.error(err.message || t('Failed to delete auto model'))
+      toast.error(resolveApiErrorMessage(err, 'Failed to delete auto model', t))
     },
   })
 
@@ -1702,22 +1980,30 @@ export function CustomModelsPage() {
 
   const handleDownloadModel = async (jobId: string) => {
     try {
-      const res = await api.get(
-        `/api/user/fine_tuning/jobs/${jobId}/download`,
-        {
-          responseType: 'blob',
-        }
-      )
-      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const res = await api.post<{
+        success: boolean
+        code?: string
+        message?: string
+        data?: { download_url: string; filename: string }
+      }>(`/api/user/fine_tuning/jobs/${jobId}/download_ticket`, undefined, {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!res.data?.success || !res.data.data?.download_url) {
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Failed to download model file', t)
+        )
+      }
       const a = document.createElement('a')
-      a.href = url
-      a.download = `${jobId}.zip`
+      a.href = res.data.data.download_url
+      a.download = res.data.data.filename || `${jobId}.zip`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-    } catch {
-      toast.error(t('Failed to download model file'))
+    } catch (err: any) {
+      toast.error(
+        resolveApiErrorMessage(err, 'Failed to download model file', t)
+      )
     }
   }
 
@@ -1742,6 +2028,40 @@ export function CustomModelsPage() {
 
   const ftData = ftQuery.data
   const fineTuningEnabled = Boolean(ftData?.enabled)
+  const servingEnabled = Boolean(ftData?.serving_enabled)
+  const enabledServingGpuOptions = useMemo(
+    () => (ftData?.serving_gpu_options ?? []).filter((g) => g.enabled),
+    [ftData?.serving_gpu_options]
+  )
+  const servingNormalRamMult = ftData?.serving_colab_normal_ram_multiplier ?? 1
+  const servingHighRamMult = ftData?.serving_colab_high_ram_multiplier ?? 1.5
+  const selectedServeGpuObj = enabledServingGpuOptions.find(
+    (g) => g.id === serveGpu
+  )
+  const showServeColabRam = Boolean(selectedServeGpuObj?.supports_colab_ram)
+  const activeServeRamTier: 'normal' | 'high' = showServeColabRam
+    ? serveRamTier
+    : 'normal'
+  const activeServeRamMult = showServeColabRam
+    ? serveRamTier === 'high'
+      ? servingHighRamMult
+      : servingNormalRamMult
+    : 1
+  const servePricePerSec =
+    (selectedServeGpuObj?.price_per_second ?? 0.0015) * activeServeRamMult
+  const serveRatePerMin = servePricePerSec * 60
+  const serveRatePerHour = servePricePerSec * 3600
+
+  const openActivateDialog = (job: FineTuningJobItem) => {
+    const defaultGpu =
+      enabledServingGpuOptions.find((g) => g.id === job.gpu)?.id ||
+      enabledServingGpuOptions[0]?.id ||
+      ''
+    setServeGpu(defaultGpu)
+    setServeRamTier(job.ram_tier === 'high' ? 'high' : 'normal')
+    setServeTarget(job)
+  }
+
   const taskCfg = TASK_TYPE_CONFIG[ftTaskType]
   const hasValidModelInput = Boolean(stagedUpload || ftBaseModel.trim())
 
@@ -1941,8 +2261,14 @@ export function CustomModelsPage() {
                     <TableCell className='text-xs uppercase'>
                       <div>{job.method || 'lora'}</div>
                       {job.task_type && (
-                        <div className='text-muted-foreground text-[10px] capitalize'>
-                          {job.task_type}
+                        <div className='text-muted-foreground text-[10px] normal-case'>
+                          {TASK_TYPE_CONFIG[job.task_type as FineTuningTaskType]
+                            ? t(
+                                TASK_TYPE_CONFIG[
+                                  job.task_type as FineTuningTaskType
+                                ].labelKey
+                              )
+                            : job.task_type}
                         </div>
                       )}
                     </TableCell>
@@ -1955,13 +2281,76 @@ export function CustomModelsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {renderStatusBadge(job.status, job.progress)}
+                      <div className='flex flex-col items-start gap-1'>
+                        {renderStatusBadge(job.status, job.progress)}
+                        {job.serving_status === 'running' && (
+                          <Badge
+                            variant='outline'
+                            className='border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-400'
+                          >
+                            {t('Active')} ·{' '}
+                            {formatHardwareLabel(job.serving_gpu)}
+                          </Badge>
+                        )}
+                        {job.serving_status === 'starting' && (
+                          <Badge
+                            variant='outline'
+                            className='border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-400'
+                          >
+                            <Loader2 className='mr-1 h-2.5 w-2.5 animate-spin' />
+                            {t('Starting hosting...')}
+                          </Badge>
+                        )}
+                        {job.serving_status === 'stopped' &&
+                          job.serving_stop_reason === 'insufficient_balance' && (
+                            <span className='text-[10px] text-amber-700 dark:text-amber-400'>
+                              {t('Stopped: insufficient balance')}
+                            </span>
+                          )}
+                        {job.serving_status === 'failed' && job.serving_error && (
+                          <span
+                            className='text-destructive max-w-[160px] truncate text-[10px]'
+                            title={job.serving_error}
+                          >
+                            {t('Hosting failed')}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className='text-sm tabular-nums'>
                       {formatCurrencyFromUSD(job.estimated_cost_usd)}
                     </TableCell>
                     <TableCell className='text-right'>
                       <div className='flex items-center justify-end gap-1'>
+                        {servingEnabled &&
+                          job.status === 'succeeded' &&
+                          job.has_model_file &&
+                          (job.serving_status === 'running' ||
+                          job.serving_status === 'starting' ? (
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='text-amber-600 hover:text-amber-700 dark:text-amber-400'
+                              title={t('Stop Hosting')}
+                              disabled={stopServeMutation.isPending}
+                              onClick={() =>
+                                stopServeMutation.mutate(job.job_id)
+                              }
+                            >
+                              <Power className='h-4 w-4' />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='text-emerald-600 hover:text-emerald-700 dark:text-emerald-400'
+                              title={t('Activate Model')}
+                              disabled={enabledServingGpuOptions.length === 0}
+                              onClick={() => openActivateDialog(job)}
+                            >
+                              <Play className='h-4 w-4' />
+                            </Button>
+                          ))}
                         <Button
                           variant='ghost'
                           size='icon'
@@ -2250,10 +2639,7 @@ export function CustomModelsPage() {
                           {t('Model Incompatible with Fine-Tuning')}
                         </div>
                         <p className='leading-relaxed'>
-                          {modelCompat.reason ||
-                            t(
-                              'The selected model is not compatible with fine-tuning using this OpenAI dataset.'
-                            )}
+                          {resolveCompatReason(modelCompat, t)}
                         </p>
                       </div>
                     </div>
@@ -2274,14 +2660,16 @@ export function CustomModelsPage() {
                 >
                   <SelectTrigger>
                     <SelectValue>
-                      {taskCfg.methods.find((m) => m.id === ftMethod)?.label ??
-                        ftMethod}
+                      {t(
+                        taskCfg.methods.find((m) => m.id === ftMethod)?.label ??
+                          ftMethod
+                      )}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {taskCfg.methods.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
-                        {m.label}
+                        {t(m.label)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2307,7 +2695,8 @@ export function CustomModelsPage() {
                     {enabledGpuOptions.map((g) => (
                       <SelectItem key={g.id} value={g.id}>
                         {g.label} (
-                        {formatCurrencyFromUSD(g.price_per_second * 60)}/m)
+                        {formatCurrencyFromUSD(g.price_per_second * 60)}/
+                        {t('min')})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2492,6 +2881,129 @@ export function CustomModelsPage() {
                 <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
               )}
               {t('Start Fine-Tuning')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* One-Click Activate Fine-Tuned Model Hosting Dialog */}
+      <Dialog
+        open={Boolean(serveTarget)}
+        onOpenChange={(open) => {
+          if (!open && !startServeMutation.isPending) setServeTarget(null)
+        }}
+      >
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('Activate Fine-Tuned Model')}</DialogTitle>
+            <DialogDescription className='font-mono text-xs'>
+              {serveTarget?.fine_tuned_model || serveTarget?.job_id}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4 py-2'>
+            <div className='space-y-1.5'>
+              <Label>{t('Accelerator')}</Label>
+              <Select
+                value={serveGpu}
+                disabled={startServeMutation.isPending}
+                onValueChange={(v) => {
+                  if (v) setServeGpu(v)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {selectedServeGpuObj
+                      ? selectedServeGpuObj.label
+                      : formatHardwareLabel(serveGpu)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {enabledServingGpuOptions.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.label} (
+                      {formatCurrencyFromUSD(g.price_per_second * 60)}/
+                      {t('min')})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {showServeColabRam && (
+              <div className='space-y-1.5'>
+                <Label>{t('RAM Tier')}</Label>
+                <Select
+                  value={serveRamTier}
+                  disabled={startServeMutation.isPending}
+                  onValueChange={(v) =>
+                    setServeRamTier(v as 'normal' | 'high')
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue>
+                      {serveRamTier === 'high'
+                        ? `${t('High RAM')} (${servingHighRamMult}x)`
+                        : `${t('Normal RAM')} (${servingNormalRamMult}x)`}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='normal'>
+                      {t('Normal RAM')} ({servingNormalRamMult}x)
+                    </SelectItem>
+                    <SelectItem value='high'>
+                      {t('High RAM')} ({servingHighRamMult}x)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>
+              <div className='space-y-0.5'>
+                <div className='text-xs font-medium'>{t('Hosting Rate')}</div>
+                <div className='text-muted-foreground text-[11px]'>
+                  {t('Billed continuously while running')}
+                </div>
+              </div>
+              <div className='text-right'>
+                <div className='text-sm font-semibold tabular-nums'>
+                  {formatCurrencyFromUSD(serveRatePerMin)} / {t('min')}
+                </div>
+                <div className='text-muted-foreground text-[11px] tabular-nums'>
+                  {formatCurrencyFromUSD(serveRatePerHour)} / {t('hour')}
+                </div>
+              </div>
+            </div>
+
+            <p className='text-muted-foreground text-xs leading-relaxed'>
+              {t(
+                'This model will appear only in your Playground model list and your /v1/models API (hidden from all other users). It stops automatically and disappears from your model list if your balance runs out.'
+              )}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              disabled={startServeMutation.isPending}
+              onClick={() => setServeTarget(null)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              disabled={startServeMutation.isPending || !serveGpu || !serveTarget}
+              onClick={() => {
+                if (!serveTarget) return
+                startServeMutation.mutate({
+                  jobId: serveTarget.job_id,
+                  gpu: serveGpu,
+                  ram_tier: activeServeRamTier,
+                })
+              }}
+            >
+              {startServeMutation.isPending && (
+                <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
+              )}
+              {t('Activate Model')}
             </Button>
           </DialogFooter>
         </DialogContent>

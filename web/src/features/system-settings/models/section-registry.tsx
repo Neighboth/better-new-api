@@ -266,6 +266,18 @@ const MODELS_SECTIONS = [
           expiryWarningDays: Number(
             settings['model_deployment.fine_tuning.expiry_warning_days'] ?? 3
           ),
+          servingEnabled:
+            settings['model_deployment.fine_tuning.serving_enabled'] === true ||
+            settings['model_deployment.fine_tuning.serving_enabled'] === 'true',
+          servingGpuMultipliers: String(
+            settings['model_deployment.fine_tuning.serving_gpu_multipliers'] ?? ''
+          ),
+          servingColabNormalRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.serving_colab_normal_ram_multiplier'] ?? 1
+          ),
+          servingColabHighRamMultiplier: Number(
+            settings['model_deployment.fine_tuning.serving_colab_high_ram_multiplier'] ?? 1.5
+          ),
           enabledProviders: {
             colab: Boolean(settings['model_deployment.colab.enabled']),
             kaggle: Boolean(settings['model_deployment.kaggle.enabled']),

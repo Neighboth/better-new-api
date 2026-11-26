@@ -40,14 +40,26 @@ type FineTuningJob struct {
 	BaseModelFilePath   string  `json:"-" gorm:"type:text"`
 	CheckpointPath      string  `json:"-" gorm:"type:text"`
 	ModelFilePath       string  `json:"-" gorm:"type:text"`
-	HasModelFile        bool    `json:"has_model_file" gorm:"-"`
-	CallbackToken       string  `json:"-" gorm:"type:varchar(64)"`
-	CreatedAt           int64   `json:"created_at" gorm:"bigint;index"`
-	FinishedAt          int64   `json:"finished_at" gorm:"bigint"`
-	ExpiresAt           int64   `json:"expires_at" gorm:"bigint;index"`
-	ExpiryWarningSentAt int64   `json:"expiry_warning_sent_at" gorm:"bigint"`
-	FilesPurgedAt       int64   `json:"files_purged_at" gorm:"bigint"`
-	UpdatedAt           int64   `json:"updated_at" gorm:"bigint"`
+	HasModelFile         bool   `json:"has_model_file" gorm:"-"`
+	ServingStatus        string `json:"serving_status" gorm:"type:varchar(32);index"` // "" | stopped | starting | running | failed
+	ServingDeploymentID  int    `json:"serving_deployment_id"`
+	ServingProvider      string `json:"serving_provider" gorm:"type:varchar(32)"`
+	ServingGPU           string `json:"serving_gpu" gorm:"type:varchar(64)"`
+	ServingRamTier       string `json:"serving_ram_tier" gorm:"type:varchar(16)"`
+	ServingEndpointURL   string `json:"-" gorm:"type:text"`
+	ServingStartedAt     int64  `json:"serving_started_at" gorm:"bigint"`
+	ServingLastBilledAt  int64  `json:"serving_last_billed_at" gorm:"bigint"`
+	ServingBilledSeconds int64  `json:"serving_billed_seconds"`
+	ServingBilledQuota   int64  `json:"serving_billed_quota"`
+	ServingError         string `json:"serving_error" gorm:"type:text"`
+	ServingStopReason    string `json:"serving_stop_reason" gorm:"type:varchar(64)"`
+	CallbackToken        string `json:"-" gorm:"type:varchar(64)"`
+	CreatedAt            int64  `json:"created_at" gorm:"bigint;index"`
+	FinishedAt           int64  `json:"finished_at" gorm:"bigint"`
+	ExpiresAt            int64  `json:"expires_at" gorm:"bigint;index"`
+	ExpiryWarningSentAt  int64  `json:"expiry_warning_sent_at" gorm:"bigint"`
+	FilesPurgedAt        int64  `json:"files_purged_at" gorm:"bigint"`
+	UpdatedAt            int64  `json:"updated_at" gorm:"bigint"`
 }
 
 func CreateFineTuningJob(job *FineTuningJob) error {
@@ -68,6 +80,51 @@ func ListUserFineTuningJobs(userId int, limit int) ([]FineTuningJob, error) {
 	}
 	var jobs []FineTuningJob
 	err := DB.Where("user_id = ?", userId).Order("id desc").Limit(limit).Find(&jobs).Error
+	return jobs, err
+}
+
+// ListUserActiveServingFineTuningJobs returns fine-tuned models currently actively
+// hosted for userId only. Never returns models belonging to other users.
+func ListUserActiveServingFineTuningJobs(userId int) ([]FineTuningJob, error) {
+	if userId <= 0 {
+		return nil, nil
+	}
+	var jobs []FineTuningJob
+	err := DB.Where("user_id = ? AND serving_status = ? AND serving_endpoint_url != ?", userId, "running", "").
+		Order("id desc").
+		Find(&jobs).Error
+	return jobs, err
+}
+
+// GetUserActiveServingFineTuningJobByModel resolves a private running fine-tuned
+// model exclusively for its owning user.
+func GetUserActiveServingFineTuningJobByModel(userId int, fineTunedModel string) (*FineTuningJob, error) {
+	if userId <= 0 {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(fineTunedModel)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var job FineTuningJob
+	err := DB.Where("user_id = ? AND LOWER(fine_tuned_model) = ? AND serving_status = ? AND serving_endpoint_url != ?",
+		userId, strings.ToLower(trimmed), "running", "").
+		Order("id desc").
+		First(&job).Error
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// ListAllActiveOrStartingServingFineTuningJobs returns every fine-tuned model
+// currently provisioning or running so the background watchdog can sync status
+// and bill/stop when user balance is exhausted.
+func ListAllActiveOrStartingServingFineTuningJobs() ([]FineTuningJob, error) {
+	var jobs []FineTuningJob
+	err := DB.Where("serving_status IN ?", []string{"starting", "running"}).
+		Order("id asc").
+		Find(&jobs).Error
 	return jobs, err
 }
 

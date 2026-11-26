@@ -26,6 +26,7 @@ import (
 // cross-provider GPU translation, and automatic failover/checkpoint resume.
 func InitFineTuningDispatcher() {
 	service.RegisterFineTuningDispatcher(dispatchRealFineTuningJob)
+	service.RegisterFineTuningServingStopHook(stopFineTuningServingJob)
 }
 
 type fineTuningCandidate struct {

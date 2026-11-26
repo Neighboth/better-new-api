@@ -2,11 +2,15 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -106,4 +110,206 @@ func TestFreeInternalStudioOptimizerSkipsBillingAndRateLimit(t *testing.T) {
 
 	assert.Nil(t, service.PreConsumeBilling(c, 999999, info))
 	assert.NoError(t, service.SettleBilling(c, info, 999999))
+}
+
+func TestFineTuningDownloadTicketAndRangeStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	prevDB := model.DB
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.FineTuningJob{}))
+	model.DB = db
+	t.Cleanup(func() { model.DB = prevDB })
+
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "ftjob-dl-1.zip")
+	payload := bytes.Repeat([]byte("0123456789ABCDEF"), 4096) // 64 KB
+	require.NoError(t, os.WriteFile(zipPath, payload, 0o644))
+
+	job := &model.FineTuningJob{
+		JobID:         "ftjob-dl-1",
+		UserId:        42,
+		Model:         "HuggingFaceTB/SmolLM2-135M",
+		Status:        "succeeded",
+		ModelFilePath: zipPath,
+	}
+	require.NoError(t, model.CreateFineTuningJob(job))
+
+	r := gin.New()
+	r.POST("/api/user/fine_tuning/jobs/:job_id/download_ticket", func(c *gin.Context) {
+		c.Set("id", 42)
+		c.Set("role", common.RoleCommonUser)
+		UserCreateFineTuningDownloadTicket(c)
+	})
+	r.GET("/api/fine_tuning/download/:job_id", DownloadFineTuningModelWithTicket)
+
+	// Step 1: Request download ticket
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, httptest.NewRequest(http.MethodPost, "/api/user/fine_tuning/jobs/ftjob-dl-1/download_ticket", nil))
+	require.Equal(t, http.StatusOK, w1.Code)
+	var ticketResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Ticket      string `json:"ticket"`
+			Filename    string `json:"filename"`
+			Size        int64  `json:"size"`
+			DownloadURL string `json:"download_url"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w1.Body.Bytes(), &ticketResp))
+	require.True(t, ticketResp.Success)
+	require.NotEmpty(t, ticketResp.Data.Ticket)
+	assert.Equal(t, int64(len(payload)), ticketResp.Data.Size)
+	assert.Equal(t, "ftjob-dl-1.zip", ticketResp.Data.Filename)
+
+	// Step 2: Stream partial byte range directly with signed ticket (simulates browser/resume)
+	reqRange := httptest.NewRequest(http.MethodGet, ticketResp.Data.DownloadURL, nil)
+	reqRange.Header.Set("Range", "bytes=16-31")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, reqRange)
+	assert.Equal(t, http.StatusPartialContent, w2.Code)
+	assert.Equal(t, "no", w2.Header().Get("X-Accel-Buffering"))
+	assert.Contains(t, w2.Header().Get("Content-Disposition"), "ftjob-dl-1.zip")
+	assert.Equal(t, payload[16:32], w2.Body.Bytes())
+
+	// Step 3: Invalid ticket rejected
+	w3 := httptest.NewRecorder()
+	r.ServeHTTP(w3, httptest.NewRequest(http.MethodGet, "/api/fine_tuning/download/ftjob-dl-1?ticket=invalid", nil))
+	assert.Equal(t, http.StatusUnauthorized, w3.Code)
+}
+
+func TestFineTuningServingPrivateIsolationAndAutoStopOnZeroBalance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	prevDB := model.DB
+	prevRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.FineTuningJob{}, &model.NotebookDeployment{}))
+	model.DB = db
+	t.Cleanup(func() {
+		model.DB = prevDB
+		common.RedisEnabled = prevRedis
+	})
+
+	common.OptionMapRWMutex.Lock()
+	if common.OptionMap == nil {
+		common.OptionMap = map[string]string{}
+	}
+	prevFT := common.OptionMap["model_deployment.fine_tuning.enabled"]
+	prevServe := common.OptionMap["model_deployment.fine_tuning.serving_enabled"]
+	prevPrices := common.OptionMap["model_deployment.fine_tuning.serving_gpu_multipliers"]
+	common.OptionMap["model_deployment.fine_tuning.enabled"] = "true"
+	common.OptionMap["model_deployment.fine_tuning.serving_enabled"] = "true"
+	common.OptionMap["model_deployment.fine_tuning.serving_gpu_multipliers"] = `[{"id":"CPU","label":"CPU","kind":"cpu","price_per_second":0.01,"enabled":true}]`
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap["model_deployment.fine_tuning.enabled"] = prevFT
+		common.OptionMap["model_deployment.fine_tuning.serving_enabled"] = prevServe
+		common.OptionMap["model_deployment.fine_tuning.serving_gpu_multipliers"] = prevPrices
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	// Create mock upstream OpenAI server for User A's fine-tuned model
+	var seenDirectPath string
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_jobs" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		seenDirectPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-ft","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"private-ft-ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer mockUpstream.Close()
+
+	userA := &model.User{Id: 101, Username: "alice", AffCode: "ALICE1", Quota: 50000, Status: common.UserStatusEnabled, Group: "default"}
+	userB := &model.User{Id: 202, Username: "bob", AffCode: "BOB2", Quota: 50000, Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, db.Create(userA).Error)
+	require.NoError(t, db.Create(userB).Error)
+
+	// Private NotebookDeployment must NOT appear in public ListNotebookDeployments("")
+	privDep := &model.NotebookDeployment{
+		OwnerUserID:     userA.Id,
+		FineTuningJobID: "ftjob-priv-1",
+		Provider:        "colab",
+		Name:            "ft-serve-priv",
+		ModelID:         "ft:Qwen/Qwen2.5-0.5B:alice",
+		ModelRepo:       "Qwen/Qwen2.5-0.5B",
+		TaskType:        "text",
+		Accelerator:     "CPU",
+		Status:          "running",
+		EndpointURL:     mockUpstream.URL,
+	}
+	require.NoError(t, model.CreateNotebookDeployment(privDep))
+	publicDeps, err := model.ListNotebookDeployments("")
+	require.NoError(t, err)
+	assert.Empty(t, publicDeps, "Private user fine-tuned deployments must never leak into public deployment list")
+
+	now := time.Now().Unix()
+	ftJob := &model.FineTuningJob{
+		JobID:               "ftjob-priv-1",
+		UserId:              userA.Id,
+		Model:               "Qwen/Qwen2.5-0.5B",
+		FineTunedModel:      "ft:Qwen/Qwen2.5-0.5B:alice",
+		Status:              "succeeded",
+		ServingStatus:       "running",
+		ServingDeploymentID: privDep.Id,
+		ServingProvider:     "colab",
+		ServingGPU:          "CPU",
+		ServingRamTier:      "normal",
+		ServingEndpointURL:  mockUpstream.URL,
+		ServingStartedAt:    now - 10,
+		ServingLastBilledAt: now - 10,
+	}
+	require.NoError(t, model.CreateFineTuningJob(ftJob))
+
+	// Isolation: User A sees it, User B does NOT
+	aActive, err := model.ListUserActiveServingFineTuningJobs(userA.Id)
+	require.NoError(t, err)
+	require.Len(t, aActive, 1)
+	bActive, err := model.ListUserActiveServingFineTuningJobs(userB.Id)
+	require.NoError(t, err)
+	assert.Empty(t, bActive)
+
+	// User B cannot route to User A's fine-tuned model
+	wB := httptest.NewRecorder()
+	cB, _ := gin.CreateTestContext(wB)
+	cB.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"ft:Qwen/Qwen2.5-0.5B:alice","messages":[{"role":"user","content":"hi"}]}`)))
+	assert.False(t, service.TryHandleUserFineTunedRelay(cB, userB.Id, "ft:Qwen/Qwen2.5-0.5B:alice"))
+
+	// User A routes cleanly from Playground /pg/chat/completions -> upstream /v1/chat/completions
+	wA := httptest.NewRecorder()
+	cA, _ := gin.CreateTestContext(wA)
+	cA.Request = httptest.NewRequest(http.MethodPost, "/pg/chat/completions", bytes.NewReader([]byte(`{"model":"ft:Qwen/Qwen2.5-0.5B:alice","messages":[{"role":"user","content":"hi"}]}`)))
+	cA.Request.Header.Set("Content-Type", "application/json")
+	assert.True(t, service.TryHandleUserFineTunedRelay(cA, userA.Id, "ft:Qwen/Qwen2.5-0.5B:alice"))
+	assert.Equal(t, "/v1/chat/completions", seenDirectPath, "Playground /pg/ path must normalize to /v1/")
+	assert.Equal(t, http.StatusOK, wA.Code)
+	assert.Contains(t, wA.Body.String(), "private-ft-ok")
+
+	// Deplete User A balance -> watchdog bills remaining quota and immediately stops hosting
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", userA.Id).Update("quota", 1000).Error)
+	require.NoError(t, model.UpdateFineTuningJobStatus(ftJob.JobID, map[string]any{
+		"serving_last_billed_at": now - 60, // 60s * $0.01/s * 500000 = 300000 quota > 1000 remaining
+	}))
+
+	tickFineTuningServingWatchdog(context.Background())
+
+	stoppedJob, err := model.GetFineTuningJobByJobID(ftJob.JobID)
+	require.NoError(t, err)
+	assert.Equal(t, "stopped", stoppedJob.ServingStatus)
+	assert.Equal(t, "insufficient_balance", stoppedJob.ServingStopReason)
+	assert.Empty(t, stoppedJob.ServingEndpointURL)
+
+	// Immediately disappears from User A's active models list
+	aAfter, err := model.ListUserActiveServingFineTuningJobs(userA.Id)
+	require.NoError(t, err)
+	assert.Empty(t, aAfter)
+
+	// User A balance never goes negative
+	var freshA model.User
+	require.NoError(t, db.First(&freshA, userA.Id).Error)
+	assert.GreaterOrEqual(t, freshA.Quota, 0)
 }

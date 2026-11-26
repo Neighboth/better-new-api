@@ -7,6 +7,8 @@ import (
 // NotebookDeployment stores deployments launched on Google Colab, Kaggle, Modal, etc.
 type NotebookDeployment struct {
 	Id                   int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	OwnerUserID          int    `json:"owner_user_id" gorm:"index"`                   // 0 = global admin deployment; >0 = private user fine-tuned model serving
+	FineTuningJobID      string `json:"fine_tuning_job_id" gorm:"type:varchar(64);index"`
 	Provider             string `json:"provider" gorm:"type:varchar(32);index;not null"` // colab | kaggle | modal | huggingface | ...
 	AccountID            string `json:"account_id" gorm:"type:varchar(64)"`
 	AccountLabel         string `json:"account_label" gorm:"type:varchar(128)"`
@@ -64,7 +66,7 @@ func normalizeNotebookDeployment(d *NotebookDeployment) {
 
 func ListNotebookDeployments(provider string) ([]NotebookDeployment, error) {
 	var items []NotebookDeployment
-	q := DB.Order("priority desc, id desc")
+	q := DB.Where("owner_user_id = 0 OR owner_user_id IS NULL").Order("priority desc, id desc")
 	if p := strings.TrimSpace(strings.ToLower(provider)); p != "" {
 		q = q.Where("provider = ?", p)
 	}

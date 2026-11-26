@@ -605,19 +605,25 @@ func UserListFineTuningJobs(c *gin.Context) {
 	pricePerSec, gpuMultipliers := service.GetFineTuningPricing()
 	gpuOptions := service.GetFineTuningGPUOptions()
 	colabNormalMult, colabHighMult := service.GetColabRAMMultipliers()
+	servingGPUOptions := service.GetFineTuningServingGPUOptions()
+	servingNormalMult, servingHighMult := service.GetFineTuningServingColabRAMMultipliers()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":                     service.IsFineTuningEnabled(),
-			"price_per_second":            pricePerSec,
-			"gpu_multipliers":             gpuMultipliers,
-			"gpu_options":                 gpuOptions,
-			"colab_enabled":               service.IsColabDeploymentEnabled(),
-			"colab_normal_ram_multiplier": colabNormalMult,
-			"colab_high_ram_multiplier":   colabHighMult,
-			"retention_days":              service.GetFineTuningRetentionDays(),
-			"expiry_warning_days":         service.GetFineTuningExpiryWarningDays(),
-			"jobs":                        jobs,
+			"enabled":                             service.IsFineTuningEnabled(),
+			"price_per_second":                    pricePerSec,
+			"gpu_multipliers":                     gpuMultipliers,
+			"gpu_options":                         gpuOptions,
+			"colab_enabled":                       service.IsColabDeploymentEnabled(),
+			"colab_normal_ram_multiplier":         colabNormalMult,
+			"colab_high_ram_multiplier":           colabHighMult,
+			"serving_enabled":                     service.IsFineTuningServingEnabled(),
+			"serving_gpu_options":                 servingGPUOptions,
+			"serving_colab_normal_ram_multiplier": servingNormalMult,
+			"serving_colab_high_ram_multiplier":   servingHighMult,
+			"retention_days":                      service.GetFineTuningRetentionDays(),
+			"expiry_warning_days":                 service.GetFineTuningExpiryWarningDays(),
+			"jobs":                                jobs,
 		},
 	})
 }
@@ -982,7 +988,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		requiredQuota := common.QuotaRound(estCost * common.QuotaPerUnit)
 		if userQuota, qErr := model.GetUserQuota(userId, false); qErr == nil && requiredQuota > 0 && userQuota < requiredQuota {
 			service.CleanupFineTuningStorageForUser(userId, jobID)
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Insufficient balance for estimated fine-tuning cost"})
+			c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_INSUFFICIENT_BALANCE", "message": "Insufficient balance for estimated fine-tuning cost"})
 			return
 		}
 	}
@@ -1084,22 +1090,18 @@ func UserDownloadFineTuningModel(c *gin.Context) {
 	jobID := c.Param("job_id")
 	job, err := model.GetFineTuningJobByJobID(jobID)
 	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
 		return
 	}
 	if job.Status != "succeeded" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Model is not ready for download yet; training must complete first"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "FT_MODEL_NOT_READY", "message": "Model is not ready for download yet; training must complete first"})
 		return
 	}
 	if job.FilesPurgedAt > 0 || job.ModelFilePath == "" {
-		c.JSON(http.StatusGone, gin.H{"success": false, "message": "Model files have expired and been purged from storage"})
+		c.JSON(http.StatusGone, gin.H{"success": false, "code": "FT_MODEL_EXPIRED", "message": "Model files have expired and been purged from storage"})
 		return
 	}
-	if _, statErr := os.Stat(job.ModelFilePath); statErr != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Model archive file not found on disk"})
-		return
-	}
-	c.FileAttachment(job.ModelFilePath, job.JobID+".zip")
+	streamFineTuningZipFile(c, job.ModelFilePath, job.JobID+".zip")
 }
 
 func UserDeleteFineTuningJob(c *gin.Context) {
@@ -1107,8 +1109,11 @@ func UserDeleteFineTuningJob(c *gin.Context) {
 	jobID := c.Param("job_id")
 	job, err := model.GetFineTuningJobByJobID(jobID)
 	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
 		return
+	}
+	if job.ServingStatus == "starting" || job.ServingStatus == "running" {
+		stopFineTuningServingJob(job.JobID, "job_deleted")
 	}
 	if err := model.DeleteFineTuningJob(jobID, job.UserId); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -1181,8 +1186,11 @@ func AdminDeleteFineTuningJob(c *gin.Context) {
 	jobID := c.Param("job_id")
 	job, err := model.GetFineTuningJobByJobID(jobID)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Fine-tuning job not found"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
 		return
+	}
+	if job.ServingStatus == "starting" || job.ServingStatus == "running" {
+		stopFineTuningServingJob(job.JobID, "job_deleted")
 	}
 	if err := model.AdminDeleteFineTuningJob(jobID); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})

@@ -24,6 +24,14 @@ func IsFineTuningEnabled() bool {
 	return enabled
 }
 
+func IsFineTuningServingEnabled() bool {
+	common.OptionMapRWMutex.RLock()
+	ftEnabled := common.OptionMap["model_deployment.fine_tuning.enabled"] == "true"
+	servingEnabled := common.OptionMap["model_deployment.fine_tuning.serving_enabled"] == "true"
+	common.OptionMapRWMutex.RUnlock()
+	return ftEnabled && servingEnabled
+}
+
 type FineTuningGPUOption struct {
 	ID               string   `json:"id"`
 	Label            string   `json:"label"`
@@ -938,19 +946,7 @@ func EstimateFineTuningDurationSeconds(gpuID string, taskType string, epochs int
 	})
 }
 
-func parseSavedFineTuningPricing() map[string]FineTuningGPUOption {
-	common.OptionMapRWMutex.RLock()
-	rawPrice := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.price_per_second"])
-	rawConfig := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.gpu_multipliers"])
-	common.OptionMapRWMutex.RUnlock()
-
-	basePrice := 0.002
-	if rawPrice != "" {
-		if parsed, err := strconv.ParseFloat(rawPrice, 64); err == nil && parsed >= 0 {
-			basePrice = parsed
-		}
-	}
-
+func parseSavedPricingConfig(rawConfig string, basePrice float64) map[string]FineTuningGPUOption {
 	saved := make(map[string]FineTuningGPUOption)
 	if strings.HasPrefix(rawConfig, "[") {
 		var rows []FineTuningGPUOption
@@ -981,6 +977,103 @@ func parseSavedFineTuningPricing() map[string]FineTuningGPUOption {
 		}
 	}
 	return saved
+}
+
+func parseSavedFineTuningPricing() map[string]FineTuningGPUOption {
+	common.OptionMapRWMutex.RLock()
+	rawPrice := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.price_per_second"])
+	rawConfig := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.gpu_multipliers"])
+	common.OptionMapRWMutex.RUnlock()
+
+	basePrice := 0.002
+	if rawPrice != "" {
+		if parsed, err := strconv.ParseFloat(rawPrice, 64); err == nil && parsed >= 0 {
+			basePrice = parsed
+		}
+	}
+	return parseSavedPricingConfig(rawConfig, basePrice)
+}
+
+func GetFineTuningServingColabRAMMultipliers() (normalMult float64, highMult float64) {
+	normalMult = 1.0
+	highMult = 1.5
+	common.OptionMapRWMutex.RLock()
+	rawNormal := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.serving_colab_normal_ram_multiplier"])
+	rawHigh := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.serving_colab_high_ram_multiplier"])
+	common.OptionMapRWMutex.RUnlock()
+	if rawNormal != "" {
+		if v, err := strconv.ParseFloat(rawNormal, 64); err == nil && v > 0 {
+			normalMult = v
+		}
+	}
+	if rawHigh != "" {
+		if v, err := strconv.ParseFloat(rawHigh, 64); err == nil && v > 0 {
+			highMult = v
+		}
+	}
+	return normalMult, highMult
+}
+
+func GetFineTuningServingGPUOptions() []FineTuningGPUOption {
+	common.OptionMapRWMutex.RLock()
+	rawConfig := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.serving_gpu_multipliers"])
+	common.OptionMapRWMutex.RUnlock()
+
+	saved := parseSavedPricingConfig(rawConfig, 0.0015)
+	available, hasEnabledProviders := collectAccountAvailableHardware()
+
+	if hasEnabledProviders {
+		for i := range available {
+			if cfg, ok := saved[available[i].ID]; ok {
+				available[i].PricePerSecond = cfg.PricePerSecond
+				available[i].Enabled = cfg.Enabled
+			}
+		}
+		return available
+	}
+
+	out := make([]FineTuningGPUOption, len(defaultFineTuningGPUs))
+	copy(out, defaultFineTuningGPUs)
+	for i := range out {
+		if cfg, ok := saved[out[i].ID]; ok {
+			out[i].PricePerSecond = cfg.PricePerSecond
+			out[i].Enabled = cfg.Enabled
+		}
+	}
+	return out
+}
+
+func FindEnabledFineTuningServingGPU(gpuID string) (*FineTuningGPUOption, bool) {
+	trimmed := strings.TrimSpace(gpuID)
+	for _, opt := range GetFineTuningServingGPUOptions() {
+		if opt.ID == trimmed && opt.Enabled {
+			copied := opt
+			return &copied, true
+		}
+	}
+	return nil, false
+}
+
+func ResolveFineTuningServingPricePerSecond(gpuID string, ramTier string) float64 {
+	trimmed := strings.TrimSpace(gpuID)
+	normalMult, highMult := GetFineTuningServingColabRAMMultipliers()
+	ramMult := 1.0
+	for _, opt := range GetFineTuningServingGPUOptions() {
+		if opt.ID == trimmed {
+			if opt.SupportsColabRAM {
+				if strings.EqualFold(strings.TrimSpace(ramTier), "high") {
+					ramMult = highMult
+				} else {
+					ramMult = normalMult
+				}
+			}
+			if opt.PricePerSecond < 0 {
+				return 0
+			}
+			return opt.PricePerSecond * ramMult
+		}
+	}
+	return 0.0015
 }
 
 func GetFineTuningGPUOptions() []FineTuningGPUOption {

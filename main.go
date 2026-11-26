@@ -167,6 +167,7 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	controller.InitFineTuningDispatcher()
+	controller.StartFineTuningServingBillingWorker()
 	service.StartSystemTaskRunner()
 	discordbot.RestartBot()
 

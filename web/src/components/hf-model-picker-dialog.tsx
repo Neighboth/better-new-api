@@ -529,7 +529,7 @@ export function HfModelPickerDialog({
                           variant='secondary'
                           className='text-[11px] shrink-0 font-bold px-2 py-0.5'
                         >
-                          {file.quantization || 'Standard'}
+                          {file.quantization || t('Standard')}
                         </Badge>
                       </div>
 
