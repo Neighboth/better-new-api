@@ -450,7 +450,7 @@ export function SiteStatistics() {
       .catch(() => toast.error(t('Failed to load')))
   }, [t])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceRefresh = false) => {
     const current = ++requestId.current
     setLoading(true)
     setError(false)
@@ -469,6 +469,7 @@ export function SiteStatistics() {
         sort,
         order,
         limit,
+        refresh: forceRefresh ? true : undefined,
       })
       if (current === requestId.current) setData(res)
     } catch {
@@ -481,7 +482,7 @@ export function SiteStatistics() {
   }, [rangePreset, granularity, sort, order, limit, textFilters, t])
 
   useEffect(() => {
-    load()
+    void load(false)
   }, [load])
 
   const applyFilters = () => {
@@ -603,7 +604,12 @@ export function SiteStatistics() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Statistics')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button variant='outline' size='sm' onClick={load} disabled={loading}>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => void load(true)}
+          disabled={loading}
+        >
           <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} />
           {t('Refresh')}
         </Button>
@@ -854,7 +860,7 @@ export function SiteStatistics() {
               className='text-destructive flex items-center gap-3'
             >
               {t('Failed to load statistics')}{' '}
-              <Button variant='outline' size='sm' onClick={load}>
+              <Button variant='outline' size='sm' onClick={() => void load(true)}>
                 {t('Retry')}
               </Button>
             </div>

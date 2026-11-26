@@ -38,7 +38,15 @@ export interface HfPickedModel {
 export function mapPipelineTagToTask(tag?: string): HfTaskType {
 	const t = (tag ?? '').toLowerCase()
 	if (t.includes('video')) return 'video'
-	if (t.includes('image') || t.includes('diffusion')) return 'image'
+	if (
+		t === 'image-text-to-text' ||
+		t.includes('text-generation') ||
+		t.includes('question-answering') ||
+		t.includes('conversational')
+	) {
+		return 'text'
+	}
+	if (t.includes('text-to-image') || t.includes('image-to-image') || t.includes('diffusion')) return 'image'
 	if (t.includes('audio') || t.includes('speech') || t.includes('tts')) return 'audio'
 	if (t.includes('embed') || t.includes('feature-extraction')) return 'embeddings'
 	return 'text'

@@ -15,1537 +15,1400 @@ type EmailTemplate struct {
 	Body    string
 }
 
-// Built-in professional, responsive HTML email templates with anti-spam layout
-var defaultEmailTemplates = map[string]map[string]EmailTemplate{
-	"tr": {
-		"verification": {
-			Subject: "{{system_name}} - E-posta Doğrulama Kodunuz",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Doğrulama Kodu</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">E-posta Adresinizi Doğrulayın</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Merhaba,<br>
-                <strong>{{system_name}}</strong> hesabınız için e-posta doğrulama talebinde bulundunuz. Aşağıdaki tek kullanımlık doğrulama kodunu kullanarak işleminizi tamamlayabilirsiniz.
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Doğrulama Kodunu Görüntüle
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  Buton çalışmıyor mu? Aşağıdaki bağlantıyı doğrudan tarayıcınıza kopyalayabilirsiniz:<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Bu kod <strong>{{valid_minutes}} dakika</strong> boyunca geçerlidir.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Eğer bu işlemi siz başlatmadıysanız, bu e-postayı güvenle göz ardı edebilirsiniz. Hesabınız güvendedir.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.<br>
-              Bu otomatik bir güvenlik bildirimidir, lütfen bu e-postayı yanıtlamayınız.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - Şifre Sıfırlama Talebi",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Şifre Sıfırlama</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Şifrenizi Sıfırlayın</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Merhaba,<br>
-                <strong>{{system_name}}</strong> hesabınız için bir şifre sıfırlama talebinde bulunuldu. Yeni şifrenizi belirlemek için aşağıdaki butona tıklayabilirsiniz.
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">Şifremi Sıfırla</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Butona tıklayamıyorsanız, aşağıdaki bağlantıyı kopyalayıp tarayıcınızın adres çubuğuna yapıştırabilirsiniz:<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Bu bağlantı <strong>{{valid_minutes}} dakika</strong> geçerlidir.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Bu talebi siz yapmadıysanız lütfen endişelenmeyin; şifreniz değişmedi ve hesabınız güvendedir.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.<br>
-              Bu otomatik bir güvenlik bildirimidir, lütfen bu e-postayı yanıtlamayınız.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"system_error": {
-			Subject: "{{system_name}} - Kritik Sistem Hatası Uyarısı",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Sistem Hatası</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #b91c1c;">⚠️ Sistem Hatası Bildirimi</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Sisteminizde beklenmeyen bir hata tespit edildi. Ayrıntılar aşağıdadır:
-              </p>
-              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-family: monospace; font-size: 14px; color: #991b1b; white-space: pre-wrap; word-break: break-all;">
-                {{error_message}}
-              </div>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Tarih: {{time}}
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.<br>
-              Bu otomatik bir sistem bildirimidir.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"quota_warning": {
-			Subject: "{{system_name}} - Bakiye / Kota Uyarısı",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Kota Uyarısı</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #d97706;">Kotanız Tükenmek Üzere</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Merhaba <strong>{{user_name}}</strong>,<br>
-                {{system_name}} hesabınızdaki kullanılabilir bakiye/kota belirlediğiniz eşiğin altına inmiştir.
-              </p>
-              <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 14px; color: #92400e;">Kalan Bakiye:</span><br>
-                <span style="font-size: 24px; font-weight: 700; color: #b45309;">{{quota_remaining}}</span>
-              </div>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="{{topup_link}}" target="_blank" style="display: inline-block; background-color: #d97706; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Bakiye Yükle</a>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"ticket_created": {
-			Subject: "{{system_name}} - Yeni Destek Talebi #{{ticket_id}}: {{ticket_title}}",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Yeni Destek Talebi</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Yeni Destek Talebi #{{ticket_id}}</h2>
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-                <tr><td style="padding: 6px 0; color: #64748b;">Başlık:</td><td style="padding: 6px 0; font-weight: 600;">{{ticket_title}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Kullanıcı:</td><td style="padding: 6px 0;">{{user_name}} ({{user_email}})</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Kategori:</td><td style="padding: 6px 0;">{{category}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Öncelik:</td><td style="padding: 6px 0;">{{priority}}</td></tr>
-              </table>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #334155; white-space: pre-wrap;">
-                {{message}}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"ticket_replied": {
-			Subject: "{{system_name}} - Destek Talebinize Yanıt Verildi #{{ticket_id}}",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Destek Talebi Yanıtı</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #059669;">Talebiniz Yanıtlandı</h2>
-              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                <strong>#{{ticket_id}}</strong> numaralı (<strong>{{ticket_title}}</strong>) destek talebiniz destek ekibimiz tarafından yanıtlandı:
-              </p>
-              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #166534; white-space: pre-wrap;">
-                {{reply_message}}
-              </div>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="{{dashboard_link}}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Talebi Görüntüle</a>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"channel_disabled": {
-			Subject: "{{system_name}} - Kanal Devre Dışı Bırakıldı (Kanal #{{channel_id}})",
-			Body: `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Kanal Devre Dışı</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ea580c;">Kanal Otomatik Olarak Kapatıldı</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Aşağıdaki kanal ardışık hatalar veya otomatik engelleme kuralları nedeniyle devre dışı bırakılmıştır:
-              </p>
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-                <tr><td style="padding: 6px 0; color: #64748b;">Kanal ID:</td><td style="padding: 6px 0; font-weight: 600;">#{{channel_id}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Kanal Adı:</td><td style="padding: 6px 0; font-weight: 600;">{{channel_name}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Neden:</td><td style="padding: 6px 0; color: #b91c1c;">{{reason}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Zaman:</td><td style="padding: 6px 0;">{{time}}</td></tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tüm hakları saklıdır.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} - Videonuz {{expires_at}} tarihinde silinecek",
-			Body: `<html lang="tr">
-<head><meta charset="utf-8"><title>{{system_name}} Video Hatırlatması</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Videolarınız silinmek üzere</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Merhaba <strong>{{username}}</strong>,<br>Sunucumuzdaki videonuz <strong>{{expires_at}}</strong> tarihinde kalıcı olarak silinecektir.</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Kaydetmek isterseniz <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> bağlantısını açarak indirin.</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">Bu e-posta, kayıtlı e-posta adresinize otomatik gönderilmiştir.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tüm hakları saklıdır.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
-	"en": {
-		"verification": {
-			Subject: "{{system_name}} - Your Verification Code",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Verification Code</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Verify Your Email Address</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Hello,<br>
-                You requested a verification code for your <strong>{{system_name}}</strong> account. Use the one-time code below to complete your verification.
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  View Verification Code
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  Button not working? Copy and paste the following link directly into your browser:<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ This code is valid for <strong>{{valid_minutes}} minutes</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                If you did not request this verification, please safely ignore this email. Your account remains secure.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.<br>
-              This is an automated security notification. Please do not reply to this email.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - Password Reset Request",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Password Reset</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Reset Your Password</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Hello,<br>
-                We received a request to reset the password for your <strong>{{system_name}}</strong> account. Click the button below to choose a new password.
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">Reset Password</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                If the button doesn't work, copy and paste the following link into your browser:<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ This link will expire in <strong>{{valid_minutes}} minutes</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                If you did not request a password reset, you can safely ignore this email.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.<br>
-              This is an automated security notification. Please do not reply to this email.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"system_error": {
-			Subject: "{{system_name}} - Critical System Error Alert",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} System Error</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #b91c1c;">⚠️ System Error Notification</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                An unexpected system error was encountered. Details are below:
-              </p>
-              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-family: monospace; font-size: 14px; color: #991b1b; white-space: pre-wrap; word-break: break-all;">
-                {{error_message}}
-              </div>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Timestamp: {{time}}
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.<br>
-              This is an automated system notification.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"quota_warning": {
-			Subject: "{{system_name}} - Quota / Balance Warning",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Quota Warning</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #d97706;">Low Balance Warning</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Hello <strong>{{user_name}}</strong>,<br>
-                Your available balance/quota on {{system_name}} has fallen below your warning threshold.
-              </p>
-              <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 14px; color: #92400e;">Remaining Quota:</span><br>
-                <span style="font-size: 24px; font-weight: 700; color: #b45309;">{{quota_remaining}}</span>
-              </div>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="{{topup_link}}" target="_blank" style="display: inline-block; background-color: #d97706; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">Top Up Balance</a>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"ticket_created": {
-			Subject: "{{system_name}} - New Support Ticket #{{ticket_id}}: {{ticket_title}}",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} New Ticket</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">New Support Ticket #{{ticket_id}}</h2>
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-                <tr><td style="padding: 6px 0; color: #64748b;">Title:</td><td style="padding: 6px 0; font-weight: 600;">{{ticket_title}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">User:</td><td style="padding: 6px 0;">{{user_name}} ({{user_email}})</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Category:</td><td style="padding: 6px 0;">{{category}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Priority:</td><td style="padding: 6px 0;">{{priority}}</td></tr>
-              </table>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #334155; white-space: pre-wrap;">
-                {{message}}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"ticket_replied": {
-			Subject: "{{system_name}} - Reply to Ticket #{{ticket_id}}: {{ticket_title}}",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Ticket Reply</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #059669;">Your Ticket Has a New Reply</h2>
-              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Support team has replied to your ticket <strong>#{{ticket_id}}</strong> (<strong>{{ticket_title}}</strong>):
-              </p>
-              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 24px; font-size: 14px; line-height: 22px; color: #166534; white-space: pre-wrap;">
-                {{reply_message}}
-              </div>
-              <div style="text-align: center; margin: 24px 0;">
-                <a href="{{dashboard_link}}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px;">View Ticket</a>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"channel_disabled": {
-			Subject: "{{system_name}} - Channel Disabled Alert (Channel #{{channel_id}})",
-			Body: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Channel Disabled</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #ea580c;">Channel Automatically Disabled</h2>
-              <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                The following channel has been automatically disabled due to consecutive errors:
-              </p>
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-                <tr><td style="padding: 6px 0; color: #64748b;">Channel ID:</td><td style="padding: 6px 0; font-weight: 600;">#{{channel_id}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Channel Name:</td><td style="padding: 6px 0; font-weight: 600;">{{channel_name}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Reason:</td><td style="padding: 6px 0; color: #b91c1c;">{{reason}}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Timestamp:</td><td style="padding: 6px 0;">{{time}}</td></tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-	},
-	"zh_CN": {
-		"verification": {
-			Subject: "{{system_name}} - 邮箱验证码",
-			Body: `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} 验证码</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">验证您的邮箱</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                您好，<br>
-                您正在进行 <strong>{{system_name}}</strong> 账号的邮箱验证，请在验证页面输入以下验证码：
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  查看验证码
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  如果按钮无法点击，请将以下链接直接复制到浏览器地址栏：<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ 验证码有效期为 <strong>{{valid_minutes}} 分钟</strong>。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                如果这不是您的操作，请忽略此邮件，您的账号依然安全。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}} 保留所有权利。<br>
-              此邮件由系统自动发送，请勿直接回复。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - 密码重置",
-			Body: `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} 密码重置</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">重置您的密码</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                您好，<br>
-                我们收到了您的 <strong>{{system_name}}</strong> 账号密码重置请求。请点击下方按钮完成重置：
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">重置密码</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                如果按钮无法点击，请复制以下链接到浏览器打开：<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ 链接有效期为 <strong>{{valid_minutes}} 分钟</strong>。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                如果这不是您的操作，请忽略此邮件。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}} 保留所有权利。<br>
-              此邮件由系统自动发送，请勿直接回复。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-	},
-	"zh_TW": {
-		"verification": {
-			Subject: "{{system_name}} - 您的驗證碼",
-			Body: `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} 驗證碼</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang TC', 'Microsoft JhengHei', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">驗證您的電子郵件</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                您好，<br>
-                您正在進行 <strong>{{system_name}}</strong> 帳號的信箱驗證，請在驗證頁面輸入以下驗證碼：
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  查看驗證碼
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  如果按鈕無法點擊，請將以下連結直接複製到瀏覽器網址列：<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ 驗證碼有效期限為 <strong>{{valid_minutes}} 分鐘</strong>。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                如果這不是您的操作，請忽略此郵件，您的帳號依然安全。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}} 保留所有權利。<br>
-              此郵件由系統自動發送，請勿直接回覆。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - 密碼重置請求",
-			Body: `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} 密碼重置</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang TC', 'Microsoft JhengHei', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">重置您的密碼</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                您好，<br>
-                我們收到了您的 <strong>{{system_name}}</strong> 帳號密碼重設請求。請點選下方按鈕完成重設：
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">重設密碼</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                若無法點選按鈕，請複製以下連結至瀏覽器開啟：<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ 連結有效期限為 <strong>{{valid_minutes}} 分鐘</strong>。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                如果這不是您的操作，請忽略此郵件。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}} 保留所有權利。<br>
-              此郵件由系統自動發送，請勿直接回覆。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} - Your video will be deleted on {{expires_at}}",
-			Body: `<html lang="en">
-<head><meta charset="utf-8"><title>{{system_name}} video reminder</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Your video is about to expire</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Hi <strong>{{username}}</strong>,<br>The video at <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> will be permanently deleted on <strong>{{expires_at}}</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Download it before then to keep a copy of it.</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">This is an automated reminder sent to your account email.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
-	"fr": {
-		"verification": {
-			Subject: "{{system_name}} - Votre code de vérification",
-			Body: `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Code de vérification</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Vérifiez votre adresse e-mail</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Bonjour,<br>
-                Vous avez demandé un code de vérification pour votre compte <strong>{{system_name}}</strong>. Utilisez le code unique ci-dessous :
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Afficher le code de vérification
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  Le bouton ne fonctionne pas ? Copiez et collez le lien suivant directement dans votre navigateur :<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Ce code est valable pendant <strong>{{valid_minutes}} minutes</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Si vous n'avez pas demandé ce code, ignorez cet e-mail. Votre compte reste sécurisé.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tous droits réservés.<br>
-              Ceci est un message automatique, veuillez ne pas y répondre.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - Réinitialisation de votre mot de passe",
-			Body: `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Réinitialisation de mot de passe</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Réinitialisez votre mot de passe</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Bonjour,<br>
-                Nous avons reçu une demande de réinitialisation de mot de passe pour votre compte <strong>{{system_name}}</strong>. Cliquez ci-dessous :
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">Réinitialiser mon mot de passe</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Ce lien est valide pendant <strong>{{valid_minutes}} minutes</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Tous droits réservés.<br>
-              Ceci est un message automatique, veuillez ne pas y répondre.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} - Votre vidéo sera supprimée le {{expires_at}}",
-			Body: `<html lang="fr">
-<head><meta charset="utf-8"><title>{{system_name}} rappel vidéo</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Votre vidéo va expirer</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Bonjour <strong>{{username}}</strong>,<br>La vidéo à l'adresse <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> sera supprimée définitivement le <strong>{{expires_at}}</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Téléchargez-la avant cette date pour en garder une copie.</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">Ceci est un rappel automatique envoyé à l'adresse de votre compte.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tous droits réservés.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
-	"ru": {
-		"verification": {
-			Subject: "{{system_name}} - Ваш код подтверждения",
-			Body: `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Код подтверждения</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Подтверждение адреса эл. почты</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Здравствуйте,<br>
-                Вы запросили код подтверждения для аккаунта <strong>{{system_name}}</strong>. Введите одноразовый код:
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Посмотреть код подтверждения
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  Кнопка не работает? Скопируйте и вставьте следующую ссылку прямо в браузер:<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Код действителен в течение <strong>{{valid_minutes}} минут</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Если вы не совершали этот запрос, проигнорируйте письмо.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Все права защищены.<br>
-              Это автоматическое уведомление, не отвечайте на него.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - Сброс пароля",
-			Body: `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Сброс пароля</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Сброс вашего пароля</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Здравствуйте,<br>
-                Поступил запрос на сброс пароля для аккаунта <strong>{{system_name}}</strong>. Нажмите кнопку ниже:
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">Сбросить пароль</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Если кнопка не нажимается, скопируйте ссылку в адресную строку браузера:<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Ссылка действительна в течение <strong>{{valid_minutes}} минут</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Если вы не отправляли этот запрос, проигнорируйте письмо.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Все права защищены.<br>
-              Это автоматическое уведомление, не отвечайте на него.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} — Ваше видео будет удалено {{expires_at}}",
-			Body: `<html lang="ru">
-<head><meta charset="utf-8"><title>{{system_name}} — напоминание о видео</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Срок хранения видео истекает</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Здравствуйте, <strong>{{username}}</strong>!<br>Видео по адресу <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> будет безвозвратно удалено <strong>{{expires_at}}</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Скачайте его до этой даты, чтобы сохранить копию.</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">Это автоматическое напоминание на адрес вашей учётной записи.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Все права защищены.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
-	"ja": {
-		"verification": {
-			Subject: "{{system_name}} - 認証コードのご案内",
-			Body: `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} 認証コード</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Meiryo', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">メールアドレスの認証</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                こんにちは、<br>
-                <strong>{{system_name}}</strong> アカウントの認証リクエストを受け付けました。以下の認証コードを入力してください：
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  認証コードを確認する
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  ボタンが機能しない場合は、次のリンクをブラウザに直接コピー＆ペーストしてください：<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ この認証コードの有効期限は <strong>{{valid_minutes}} 分間</strong> です。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                お心当たりがない場合は、このメールを破棄してください。アカウントは保護されています。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.<br>
-              本メールは送信専用アドレスより配信されています。返信は受け付けておりません。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - パスワード再設定のご案内",
-			Body: `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} パスワード再設定</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Meiryo', sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">パスワードの再設定</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                こんにちは、<br>
-                <strong>{{system_name}}</strong> アカウントのパスワード再設定リクエストを受け付けました。下のボタンをクリックしてください：
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">パスワードを再設定する</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                ボタンをクリックできない場合は、以下のURLをブラウザに貼り付けてアクセスしてください：<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ このリンクの有効期限は <strong>{{valid_minutes}} 分間</strong> です。
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                心当たりがない場合は、このメールを破棄してください。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. All rights reserved.<br>
-              本メールは送信専用アドレスより配信されています。返信は受け付けておりません。
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} - ご動画が {{expires_at}} に削除されます",
-			Body: `<html lang="ja">
-<head><meta charset="utf-8"><title>{{system_name}} 動画のお知らせ</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">動画の保存期限のお知らせ</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;"><strong>{{username}}</strong>様<br><a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> の動画は <strong>{{expires_at}}</strong> に完全に削除されます。</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">保存するにはそれまでにダウンロードしてください。</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">このメールはアカウントの登録アドレスに自動送信されています。</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
-	"vi": {
-		"verification": {
-			Subject: "{{system_name}} - Mã xác thực của bạn",
-			Body: `<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Mã xác thực</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Xác thực địa chỉ email</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Xin chào,<br>
-                Bạn đã yêu cầu mã xác thực cho tài khoản <strong>{{system_name}}</strong>. Vui lòng nhập mã bên dưới:
-              </p>
-              <div style="text-align: center; margin: 28px 0 20px 0;">
-                <a href="{{link}}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);">
-                  Xem mã xác minh
-                </a>
-              </div>
-              <div style="margin: 0 0 24px 0; text-align: center;">
-                <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 18px; word-break: break-all;">
-                  Nút không hoạt động? Sao chép và dán liên kết sau trực tiếp vào trình duyệt của bạn:<br>
-                  <a href="{{link}}" style="color: #2563eb; text-decoration: underline;">{{link}}</a>
-                </p>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Mã này có hiệu lực trong vòng <strong>{{valid_minutes}} phút</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Bản quyền đã được bảo lưu.<br>
-              Đây là thư thông báo tự động, vui lòng không phản hồi thư này.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"password_reset": {
-			Subject: "{{system_name}} - Yêu cầu đặt lại mật khẩu",
-			Body: `<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{system_name}} Đặt lại mật khẩu</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
-  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="min-width: 100%; background-color: #f4f7fb; padding: 40px 15px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); overflow: hidden; border: 1px solid #e2e8f0;">
-          <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 32px 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">{{system_name}}</h1>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #0f172a;">Đặt lại mật khẩu của bạn</h2>
-              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #475569;">
-                Xin chào,<br>
-                Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>{{system_name}}</strong>. Nhấp vào nút bên dưới:
-              </p>
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="{{link}}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);">Đặt lại mật khẩu</a>
-              </div>
-              <p style="margin: 0 0 16px 0; font-size: 13px; line-height: 20px; color: #64748b;">
-                Nếu không nhấp được vào nút, vui lòng sao chép đường liên kết sau vào trình duyệt:<br>
-                <a href="{{link}}" style="color: #2563eb; word-break: break-all;">{{link}}</a>
-              </p>
-              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #64748b;">
-                ⏱️ Đường dẫn này có hiệu lực trong <strong>{{valid_minutes}} phút</strong>.
-              </p>
-              <p style="margin: 0; font-size: 13px; line-height: 20px; color: #94a3b8;">
-                Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua thư này.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #f8fafc; padding: 24px 40px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; line-height: 18px;">
-              © {{year}} {{system_name}}. Bản quyền đã được bảo lưu.<br>
-              Đây là thư thông báo tự động, vui lòng không phản hồi thư này.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		},
-		"video_expiry": {
-			Subject: "{{system_name}} - Video của bạn sẽ bị xóa vào {{expires_at}}",
-			Body: `<html lang="vi">
-<head><meta charset="utf-8"><title>{{system_name}} - nhắc nhở video</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;">
-<tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Video của bạn sắp hết hạn</h2>
-<p style="margin:0 0 20px 0;font-size:15px;line-height:24px;color:#475569;">Chào <strong>{{username}}</strong>,<br>Video tại <a href="{{video_url}}" style="color:#2563eb;">{{video_url}}</a> sẽ bị xóa vĩnh viễn vào <strong>{{expires_at}}</strong>.</p>
-<p style="margin:0 0 12px 0;font-size:14px;line-height:22px;color:#64748b;">Hãy tải xuống trước ngày đó để giữ một bản sao.</p>
-<p style="margin:0;font-size:13px;color:#94a3b8;">Đây là email nhắc nhở được gửi tự động đến địa chỉ tài khoản của bạn.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Bảo lưu mọi quyền.</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
-		},
-	},
+type cleanEmailSpec struct {
+	Lang       string
+	Title      string
+	Greeting   string
+	Paragraphs []string
+	Code       string
+	Details    [][2]string
+	CTALabel   string
+	CTAURL     string
+	Footnote   string
+	Closing    string
 }
 
-func NormalizeEmailLang(lang string) string {
-	l := strings.ToLower(strings.TrimSpace(lang))
-	if strings.HasPrefix(l, "tr") {
-		return "tr"
+// buildCleanEmailHTML renders a minimal, modern, anti-spam responsive HTML email
+// matching the clean solid-indigo card layout (periwinkle outer canvas, solid
+// #4D62E5 header with site name only — no header icon, no avatar, no social
+// icons, no gradients, no emojis, clean high-contrast typography).
+func buildCleanEmailHTML(spec cleanEmailSpec) string {
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html>
+<html lang="` + spec.Lang + `">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>` + spec.Title + `</title>
+<style>
+@media only screen and (max-width: 620px) {
+  .email-outer { padding: 16px 10px !important; }
+  .email-body { padding: 28px 22px !important; }
+  .email-header { padding: 24px 20px !important; }
+  .email-footer { padding: 18px 22px !important; }
+}
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:#9EB7EE;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#374151;-webkit-font-smoothing:antialiased;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="email-outer" style="background-color:#9EB7EE;padding:36px 16px;">
+<tr>
+<td align="center">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+<tr>
+<td class="email-header" align="center" style="background-color:#4D62E5;padding:28px 32px;">
+<span style="display:inline-block;color:#ffffff;font-size:21px;font-weight:600;line-height:28px;letter-spacing:-0.2px;">{{system_name}}</span>
+</td>
+</tr>
+<tr>
+<td class="email-body" style="padding:36px 40px 28px 40px;font-size:15px;line-height:24px;color:#374151;">
+<p style="margin:0 0 18px 0;">` + spec.Greeting + `</p>
+`)
+
+	for _, p := range spec.Paragraphs {
+		b.WriteString(`<p style="margin:0 0 16px 0;">` + p + `</p>` + "\n")
 	}
-	if strings.HasPrefix(l, "zh") {
-		if strings.Contains(l, "tw") || strings.Contains(l, "hk") || strings.Contains(l, "hant") {
-			return "zh_TW"
+
+	if spec.Code != "" {
+		b.WriteString(`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:22px 0;">
+<tr>
+<td align="center" style="background-color:#F3F5FD;border:1px solid #DCE3F9;border-radius:6px;padding:16px 20px;">
+<span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:26px;font-weight:700;letter-spacing:6px;color:#1F2937;">` + spec.Code + `</span>
+</td>
+</tr>
+</table>
+`)
+	}
+
+	if len(spec.Details) > 0 {
+		b.WriteString(`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:20px 0;background-color:#F8FAFC;border:1px solid #E5E7EB;border-radius:6px;">
+`)
+		for i, kv := range spec.Details {
+			borderTop := ""
+			if i > 0 {
+				borderTop = "border-top:1px solid #E5E7EB;"
+			}
+			b.WriteString(`<tr>
+<td style="padding:10px 14px;font-size:13px;color:#6B7280;width:36%;vertical-align:top;` + borderTop + `">` + kv[0] + `</td>
+<td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;word-break:break-word;` + borderTop + `">` + kv[1] + `</td>
+</tr>
+`)
 		}
-		return "zh_CN"
+		b.WriteString("</table>\n")
 	}
-	if strings.HasPrefix(l, "fr") {
-		return "fr"
+
+	if spec.CTALabel != "" && spec.CTAURL != "" {
+		b.WriteString(`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:26px 0 22px 0;">
+<tr>
+<td align="center">
+<a href="` + spec.CTAURL + `" target="_blank" style="display:inline-block;background-color:#4D62E5;color:#ffffff;font-size:14px;font-weight:600;letter-spacing:0.4px;text-decoration:none;padding:14px 32px;border-radius:6px;">` + spec.CTALabel + `</a>
+</td>
+</tr>
+</table>
+`)
 	}
-	if strings.HasPrefix(l, "ru") {
-		return "ru"
+
+	if spec.Footnote != "" {
+		b.WriteString(`<p style="margin:0 0 18px 0;font-size:13px;line-height:20px;color:#6B7280;">` + spec.Footnote + `</p>` + "\n")
 	}
-	if strings.HasPrefix(l, "ja") {
-		return "ja"
-	}
-	if strings.HasPrefix(l, "vi") {
-		return "vi"
-	}
-	return "en"
+
+	b.WriteString(`<p style="margin:20px 0 0 0;font-size:14px;line-height:22px;color:#374151;">` + spec.Closing + `</p>
+</td>
+</tr>
+<tr>
+<td class="email-footer" style="padding:18px 40px 26px 40px;border-top:1px solid #EEF2F7;font-size:12px;line-height:18px;color:#6B7280;">
+{{system_name}} &middot; &copy; {{year}}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`)
+	return b.String()
 }
 
-// RenderEmail resolves the subject and HTML body for a given template and language, replacing variables
+var defaultEmailTemplates = buildAllDefaultEmailTemplates()
+
+func buildAllDefaultEmailTemplates() map[string]map[string]EmailTemplate {
+	return map[string]map[string]EmailTemplate{
+		"tr": {
+			"verification": {
+				Subject: "{{system_name}} - E-posta doğrulama kodunuz",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - E-posta Doğrulama",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> hesabınız için bir e-posta doğrulama isteği aldık. İşlemi tamamlamak için aşağıdaki kodu girin:",
+						"<strong>Geçerlilik süresi:</strong> Bu kod {{valid_minutes}} dakika boyunca geçerlidir.",
+					},
+					Code:     "{{code}}",
+					CTALabel: "DOĞRULAMA SAYFASINI AÇ",
+					CTAURL:   "{{link}}",
+					Footnote: "Bu isteği siz oluşturmadıysanız herhangi bir işlem yapmanız gerekmez.",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - Şifre sıfırlama bağlantısı",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Şifre Sıfırlama",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> hesabınız için şifre sıfırlama talebi alındı. Yeni şifrenizi belirlemek için aşağıdaki bağlantıyı kullanabilirsiniz.",
+						"<strong>Geçerlilik süresi:</strong> Bu bağlantı güvenlik nedeniyle {{valid_minutes}} dakika içinde geçerliliğini yitirir.",
+					},
+					CTALabel: "ŞİFREMİ SIFIRLA",
+					CTAURL:   "{{link}}",
+					Footnote: "Bağlantı çalışmıyorsa tarayıcınıza yapıştırın: {{link}}<br>Bu talebi siz yapmadıysanız şifreniz değişmeden kalır.",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - Sistem hatası bildirimi",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Sistem Hatası",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> üzerinde inceleme gerektiren bir sistem hatası kaydedildi.",
+					},
+					Details: [][2]string{
+						{"Zaman", "{{time}}"},
+						{"Hata", "{{error_message}}"},
+					},
+					Footnote: "Ayrıntılar için sunucu kayıtlarını ve yönetim panelini kontrol edin.",
+					Closing:  "İyi çalışmalar,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - Bakiye uyarısı",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Bakiye Uyarısı",
+					Greeting: "Merhaba {{user_name}},",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> hesabınızdaki kalan bakiye belirlenen uyarı eşiğinin altına düştü.",
+						"<strong>Kalan bakiye:</strong> {{quota_remaining}}. API isteklerinizin kesintiye uğramaması için cüzdanınızdan bakiye yükleyebilirsiniz.",
+					},
+					CTALabel: "BAKİYE YÜKLE",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - Yeni destek talebi #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Yeni Destek Talebi",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"Yeni bir destek talebi oluşturuldu. Özet bilgiler aşağıdadır:",
+					},
+					Details: [][2]string{
+						{"Talep No", "#{{ticket_id}}"},
+						{"Konu", "{{ticket_title}}"},
+						{"Kullanıcı", "{{user_name}} ({{user_email}})"},
+						{"Kategori / Öncelik", "{{category}} / {{priority}}"},
+						{"Mesaj", "{{message}}"},
+					},
+					Closing: "İyi çalışmalar,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - Destek talebinize yanıt verildi (#{{ticket_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Destek Yanıtı",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"<strong>#{{ticket_id}} — {{ticket_title}}</strong> numaralı destek talebinize yeni bir yanıt eklendi:",
+					},
+					Details: [][2]string{
+						{"Yanıt", "{{reply_message}}"},
+					},
+					CTALabel: "TALEBİ GÖRÜNTÜLE",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - Kanal devre dışı bırakıldı (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Kanal Devre Dışı",
+					Greeting: "Merhaba,",
+					Paragraphs: []string{
+						"Bir upstream API kanalı otomatik sağlık kontrolü nedeniyle devre dışı bırakıldı.",
+					},
+					Details: [][2]string{
+						{"Kanal", "{{channel_name}} (#{{channel_id}})"},
+						{"Neden", "{{reason}}"},
+						{"Zaman", "{{time}}"},
+					},
+					Footnote: "Kanal ayarlarını ve API anahtarını yönetim panelinden kontrol edebilirsiniz.",
+					Closing:  "İyi çalışmalar,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - Video dosyalarınız yakında silinecek",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - Video Süre Hatırlatması",
+					Greeting: "Merhaba {{username}},",
+					Paragraphs: []string{
+						"Sunucuda saklanan video dosyanızın saklama süresi <strong>{{expires_at}}</strong> tarihinde sona erecek ve otomatik olarak silinecektir.",
+						"Videoyu saklamak istiyorsanız belirtilen tarihten önce cihazınıza indirebilirsiniz.",
+					},
+					CTALabel: "VİDEOYU AÇ",
+					CTAURL:   "{{video_url}}",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - İnce ayarlı modeliniz {{days_left}} gün içinde silinecek",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "tr",
+					Title:    "{{system_name}} - İnce Ayar Model Hatırlatması",
+					Greeting: "Merhaba {{username}},",
+					Paragraphs: []string{
+						"<strong>{{model}}</strong> ince ayarlı modelinizin sunucu saklama süresi <strong>{{days_left}} gün</strong> içinde (<strong>{{expires_at}}</strong>) dolacaktır.",
+						"Model ağırlıklarını, kontrol noktalarını ve eğitim kayıtlarını kaybetmemek için son tarihten önce .zip arşivini indirin.",
+					},
+					Details: [][2]string{
+						{"Model", "{{model}}"},
+						{"İş ID", "{{job_id}}"},
+						{"Son Tarih", "{{expires_at}}"},
+					},
+					CTALabel: "MODELİ İNDİR",
+					CTAURL:   "{{download_url}}",
+					Closing:  "Saygılarımızla,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"en": {
+			"verification": {
+				Subject: "{{system_name}} - Your verification code",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Email Verification",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"We received a request to verify your email address for <strong>{{system_name}}</strong>. Enter the code below to continue:",
+						"<strong>Expiration:</strong> This code remains valid for {{valid_minutes}} minutes.",
+					},
+					Code:     "{{code}}",
+					CTALabel: "VERIFY EMAIL",
+					CTAURL:   "{{link}}",
+					Footnote: "If you did not request this verification, you can safely ignore this message.",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - Password reset request",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Password Reset",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"A password reset was requested for your <strong>{{system_name}}</strong> account. Use the button below to choose a new password.",
+						"<strong>Expiration:</strong> For your security, this link expires in {{valid_minutes}} minutes.",
+					},
+					CTALabel: "RESET PASSWORD",
+					CTAURL:   "{{link}}",
+					Footnote: "If the button does not open, paste this link into your browser: {{link}}<br>If you did not request a reset, your password has not been changed.",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - System error alert",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - System Error",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"A system error was recorded on <strong>{{system_name}}</strong> and requires review.",
+					},
+					Details: [][2]string{
+						{"Time", "{{time}}"},
+						{"Error", "{{error_message}}"},
+					},
+					Footnote: "Check server logs and the admin dashboard for full diagnostic details.",
+					Closing:  "Regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - Low balance notice",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Quota Warning",
+					Greeting: "Hi {{user_name}},",
+					Paragraphs: []string{
+						"Your remaining balance on <strong>{{system_name}}</strong> has dropped below your alert threshold.",
+						"<strong>Remaining balance:</strong> {{quota_remaining}}. Add funds to keep your API requests running without interruption.",
+					},
+					CTALabel: "ADD BALANCE",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - New support ticket #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - New Support Ticket",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"A new support ticket has been submitted with the following details:",
+					},
+					Details: [][2]string{
+						{"Ticket", "#{{ticket_id}}"},
+						{"Subject", "{{ticket_title}}"},
+						{"User", "{{user_name}} ({{user_email}})"},
+						{"Category / Priority", "{{category}} / {{priority}}"},
+						{"Message", "{{message}}"},
+					},
+					Closing: "Regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - New reply on ticket #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Ticket Reply",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"Our team posted a new reply to your support ticket <strong>#{{ticket_id}} — {{ticket_title}}</strong>:",
+					},
+					Details: [][2]string{
+						{"Reply", "{{reply_message}}"},
+					},
+					CTALabel: "VIEW TICKET",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - Channel disabled (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Channel Disabled",
+					Greeting: "Hi,",
+					Paragraphs: []string{
+						"An upstream API channel was automatically disabled after failing health checks.",
+					},
+					Details: [][2]string{
+						{"Channel", "{{channel_name}} (#{{channel_id}})"},
+						{"Reason", "{{reason}}"},
+						{"Time", "{{time}}"},
+					},
+					Footnote: "Review channel credentials and upstream status in the admin panel.",
+					Closing:  "Regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - Your stored video will expire soon",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Video Expiry Reminder",
+					Greeting: "Hi {{username}},",
+					Paragraphs: []string{
+						"A video stored in your account is scheduled for automatic deletion on <strong>{{expires_at}}</strong>.",
+						"If you want to keep a copy, please download it before the expiration date.",
+					},
+					CTALabel: "OPEN VIDEO",
+					CTAURL:   "{{video_url}}",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - Fine-tuned model expires in {{days_left}} days",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "en",
+					Title:    "{{system_name}} - Fine-Tuning Expiry Reminder",
+					Greeting: "Hi {{username}},",
+					Paragraphs: []string{
+						"Your fine-tuned model <strong>{{model}}</strong> will be removed from server storage in <strong>{{days_left}} days</strong> (<strong>{{expires_at}}</strong>).",
+						"Download the .zip archive before expiration to keep your trained weights, checkpoints, and training logs.",
+					},
+					Details: [][2]string{
+						{"Model", "{{model}}"},
+						{"Job ID", "{{job_id}}"},
+						{"Expires On", "{{expires_at}}"},
+					},
+					CTALabel: "DOWNLOAD MODEL",
+					CTAURL:   "{{download_url}}",
+					Closing:  "Best regards,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"zh_CN": {
+			"verification": {
+				Subject: "{{system_name}} - 邮箱验证码",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 邮箱验证",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"我们收到了您的 <strong>{{system_name}}</strong> 邮箱验证请求。请输入以下验证码完成验证：",
+						"<strong>有效期：</strong>该验证码在 {{valid_minutes}} 分钟内有效。",
+					},
+					Code:     "{{code}}",
+					CTALabel: "打开验证页面",
+					CTAURL:   "{{link}}",
+					Footnote: "如果这不是您本人的操作，请忽略此邮件。",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - 密码重置请求",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 密码重置",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"我们收到了您的 <strong>{{system_name}}</strong> 账户密码重置请求。请点击下方按钮设置新密码。",
+						"<strong>有效期：</strong>为了您的账户安全，该链接将在 {{valid_minutes}} 分钟后失效。",
+					},
+					CTALabel: "重置密码",
+					CTAURL:   "{{link}}",
+					Footnote: "如果按钮无法打开，请复制以下链接到浏览器：{{link}}<br>如非本人操作，您的密码不会发生任何更改。",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - 系统异常通知",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 系统异常",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> 检测到需要处理的系统错误。",
+					},
+					Details: [][2]string{
+						{"时间", "{{time}}"},
+						{"错误信息", "{{error_message}}"},
+					},
+					Footnote: "请前往管理后台和服务端日志查看详细信息。",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - 余额不足提醒",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 余额提醒",
+					Greeting: "您好 {{user_name}}，",
+					Paragraphs: []string{
+						"您的 <strong>{{system_name}}</strong> 账户剩余额度已低于预警阈值。",
+						"<strong>当前剩余额度：</strong>{{quota_remaining}}。为避免 API 请求中断，请及时充值。",
+					},
+					CTALabel: "前往充值",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - 新工单通知 #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 新工单",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"收到一条新的支持工单，详情如下：",
+					},
+					Details: [][2]string{
+						{"工单编号", "#{{ticket_id}}"},
+						{"主题", "{{ticket_title}}"},
+						{"用户", "{{user_name}} ({{user_email}})"},
+						{"分类 / 优先级", "{{category}} / {{priority}}"},
+						{"内容", "{{message}}"},
+					},
+					Closing: "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - 工单 #{{ticket_id}} 有新回复",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 工单回复",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"您的工单 <strong>#{{ticket_id}} — {{ticket_title}}</strong> 收到了新回复：",
+					},
+					Details: [][2]string{
+						{"回复内容", "{{reply_message}}"},
+					},
+					CTALabel: "查看工单",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - 渠道已自动禁用 (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 渠道禁用通知",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"检测到上游 API 渠道异常，系统已自动将其禁用。",
+					},
+					Details: [][2]string{
+						{"渠道", "{{channel_name}} (#{{channel_id}})"},
+						{"原因", "{{reason}}"},
+						{"时间", "{{time}}"},
+					},
+					Footnote: "请在管理后台检查该渠道的密钥与上游状态。",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - 视频文件即将过期",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 视频过期提醒",
+					Greeting: "您好 {{username}}，",
+					Paragraphs: []string{
+						"您存储在服务器上的视频文件将于 <strong>{{expires_at}}</strong> 自动清理。",
+						"如需保留，请在到期前下载到本地。",
+					},
+					CTALabel: "查看视频",
+					CTAURL:   "{{video_url}}",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - 微调模型将在 {{days_left}} 天后清理",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-CN",
+					Title:    "{{system_name}} - 微调模型到期提醒",
+					Greeting: "您好 {{username}}，",
+					Paragraphs: []string{
+						"您的微调模型 <strong>{{model}}</strong> 将在 <strong>{{days_left}} 天</strong> 后（<strong>{{expires_at}}</strong>）从服务器存储中自动删除。",
+						"请在此之前下载 .zip 压缩包以保存权重、检查点和训练日志。",
+					},
+					Details: [][2]string{
+						{"模型", "{{model}}"},
+						{"任务 ID", "{{job_id}}"},
+						{"到期日期", "{{expires_at}}"},
+					},
+					CTALabel: "下载模型",
+					CTAURL:   "{{download_url}}",
+					Closing:  "此致，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"zh_TW": {
+			"verification": {
+				Subject: "{{system_name}} - 電子郵件驗證碼",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 電子郵件驗證",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"我們收到了您的 <strong>{{system_name}}</strong> 電子郵件驗證請求。請輸入以下驗證碼完成驗證：",
+						"<strong>有效期限：</strong>此驗證碼在 {{valid_minutes}} 分鐘內有效。",
+					},
+					Code:     "{{code}}",
+					CTALabel: "開啟驗證頁面",
+					CTAURL:   "{{link}}",
+					Footnote: "若這並非您本人的操作，請放心忽略此郵件。",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - 密碼重設請求",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 密碼重設",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"我們收到了您的 <strong>{{system_name}}</strong> 帳戶密碼重設請求。請點擊下方按鈕設定新密碼。",
+						"<strong>有效期限：</strong>為了保護您的帳戶安全，此連結將於 {{valid_minutes}} 分鐘後失效。",
+					},
+					CTALabel: "重設密碼",
+					CTAURL:   "{{link}}",
+					Footnote: "若按鈕無法開啟，請複製以下連結至瀏覽器：{{link}}<br>如非本人操作，您的密碼不會有任何變更。",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - 系統錯誤通知",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 系統錯誤",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> 偵測到需要檢查的系統錯誤。",
+					},
+					Details: [][2]string{
+						{"時間", "{{time}}"},
+						{"錯誤訊息", "{{error_message}}"},
+					},
+					Footnote: "請查看伺服器日誌與管理後台以取得完整資訊。",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - 餘額不足提醒",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 餘額提醒",
+					Greeting: "您好 {{user_name}}，",
+					Paragraphs: []string{
+						"您的 <strong>{{system_name}}</strong> 帳戶剩餘額度已低於提醒門檻。",
+						"<strong>目前剩餘額度：</strong>{{quota_remaining}}。為避免 API 請求中斷，請儘速儲值。",
+					},
+					CTALabel: "立即儲值",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - 新客服工單 #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 新工單通知",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"系統收到一筆新的客服工單，詳情如下：",
+					},
+					Details: [][2]string{
+						{"工單編號", "#{{ticket_id}}"},
+						{"主旨", "{{ticket_title}}"},
+						{"使用者", "{{user_name}} ({{user_email}})"},
+						{"分類 / 優先級", "{{category}} / {{priority}}"},
+						{"內容", "{{message}}"},
+					},
+					Closing: "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - 工單 #{{ticket_id}} 有新回覆",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 工單回覆",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"您的工單 <strong>#{{ticket_id}} — {{ticket_title}}</strong> 收到了新回覆：",
+					},
+					Details: [][2]string{
+						{"回覆內容", "{{reply_message}}"},
+					},
+					CTALabel: "檢視工單",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - 管道已停用 (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 管道停用通知",
+					Greeting: "您好，",
+					Paragraphs: []string{
+						"上游 API 管道因健康檢查失敗已被自動停用。",
+					},
+					Details: [][2]string{
+						{"管道", "{{channel_name}} (#{{channel_id}})"},
+						{"原因", "{{reason}}"},
+						{"時間", "{{time}}"},
+					},
+					Footnote: "請至管理後台確認管道金鑰與上游狀態。",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - 影片檔案即將到期",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 影片到期提醒",
+					Greeting: "您好 {{username}}，",
+					Paragraphs: []string{
+						"您儲存於伺服器上的影片檔案將於 <strong>{{expires_at}}</strong> 自動刪除。",
+						"若需保留檔案，請於到期日前下載保存。",
+					},
+					CTALabel: "開啟影片",
+					CTAURL:   "{{video_url}}",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - 微調模型將於 {{days_left}} 天後刪除",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "zh-TW",
+					Title:    "{{system_name}} - 微調模型到期提醒",
+					Greeting: "您好 {{username}}，",
+					Paragraphs: []string{
+						"您的微調模型 <strong>{{model}}</strong> 將於 <strong>{{days_left}} 天</strong> 內（<strong>{{expires_at}}</strong>）自伺服器儲存空間自動移除。",
+						"請於到期前下載 .zip 封存檔以保留訓練權重、檢查點與日誌。",
+					},
+					Details: [][2]string{
+						{"模型", "{{model}}"},
+						{"任務 ID", "{{job_id}}"},
+						{"到期日期", "{{expires_at}}"},
+					},
+					CTALabel: "下載模型",
+					CTAURL:   "{{download_url}}",
+					Closing:  "敬上，<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"fr": {
+			"verification": {
+				Subject: "{{system_name}} - Votre code de vérification",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Vérification d'e-mail",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Nous avons reçu une demande de vérification d'adresse e-mail pour votre compte <strong>{{system_name}}</strong>. Saisissez le code ci-dessous pour continuer :",
+						"<strong>Validité :</strong> Ce code expire dans {{valid_minutes}} minutes.",
+					},
+					Code:     "{{code}}",
+					CTALabel: "VÉRIFIER L'E-MAIL",
+					CTAURL:   "{{link}}",
+					Footnote: "Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - Réinitialisation de mot de passe",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Réinitialisation du mot de passe",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Une réinitialisation de mot de passe a été demandée pour votre compte <strong>{{system_name}}</strong>. Cliquez ci-dessous pour définir un nouveau mot de passe.",
+						"<strong>Validité :</strong> Ce lien expire dans {{valid_minutes}} minutes.",
+					},
+					CTALabel: "RÉINITIALISER LE MOT DE PASSE",
+					CTAURL:   "{{link}}",
+					Footnote: "Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur : {{link}}<br>Si vous n'avez pas fait cette demande, votre mot de passe reste inchangé.",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - Alerte d'erreur système",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Erreur système",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Une erreur système a été enregistrée sur <strong>{{system_name}}</strong> et nécessite une vérification.",
+					},
+					Details: [][2]string{
+						{"Heure", "{{time}}"},
+						{"Erreur", "{{error_message}}"},
+					},
+					Footnote: "Consultez les journaux du serveur et le tableau de bord d'administration pour plus de détails.",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - Alerte de solde faible",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Alerte de quota",
+					Greeting: "Bonjour {{user_name}},",
+					Paragraphs: []string{
+						"Le solde restant sur votre compte <strong>{{system_name}}</strong> est passé sous le seuil d'alerte.",
+						"<strong>Solde restant :</strong> {{quota_remaining}}. Rechargez votre compte pour éviter toute interruption de service.",
+					},
+					CTALabel: "RECHARGER MON SOLDE",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - Nouveau ticket #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Nouveau ticket",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Un nouveau ticket d'assistance a été créé :",
+					},
+					Details: [][2]string{
+						{"Ticket", "#{{ticket_id}}"},
+						{"Sujet", "{{ticket_title}}"},
+						{"Utilisateur", "{{user_name}} ({{user_email}})"},
+						{"Catégorie / Priorité", "{{category}} / {{priority}}"},
+						{"Message", "{{message}}"},
+					},
+					Closing: "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - Nouvelle réponse au ticket #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Réponse au ticket",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Une nouvelle réponse a été ajoutée à votre ticket <strong>#{{ticket_id}} — {{ticket_title}}</strong> :",
+					},
+					Details: [][2]string{
+						{"Réponse", "{{reply_message}}"},
+					},
+					CTALabel: "VOIR LE TICKET",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - Canal désactivé (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Canal désactivé",
+					Greeting: "Bonjour,",
+					Paragraphs: []string{
+						"Un canal API amont a été désactivé automatiquement suite à un échec de vérification.",
+					},
+					Details: [][2]string{
+						{"Canal", "{{channel_name}} (#{{channel_id}})"},
+						{"Motif", "{{reason}}"},
+						{"Heure", "{{time}}"},
+					},
+					Footnote: "Vérifiez la configuration et la clé du canal dans le panneau d'administration.",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - Votre vidéo expire bientôt",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Rappel d'expiration vidéo",
+					Greeting: "Bonjour {{username}},",
+					Paragraphs: []string{
+						"Une vidéo stockée sur votre compte sera supprimée automatiquement le <strong>{{expires_at}}</strong>.",
+						"Téléchargez-la avant cette date si vous souhaitez en conserver une copie.",
+					},
+					CTALabel: "OUVRIR LA VIDÉO",
+					CTAURL:   "{{video_url}}",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - Votre modèle affiné expire dans {{days_left}} jours",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "fr",
+					Title:    "{{system_name}} - Expiration du modèle affiné",
+					Greeting: "Bonjour {{username}},",
+					Paragraphs: []string{
+						"Votre modèle affiné <strong>{{model}}</strong> sera supprimé du stockage serveur dans <strong>{{days_left}} jours</strong> (<strong>{{expires_at}}</strong>).",
+						"Téléchargez l'archive .zip avant expiration pour conserver vos poids, points de contrôle et journaux.",
+					},
+					Details: [][2]string{
+						{"Modèle", "{{model}}"},
+						{"ID de tâche", "{{job_id}}"},
+						{"Expiration", "{{expires_at}}"},
+					},
+					CTALabel: "TÉLÉCHARGER LE MODÈLE",
+					CTAURL:   "{{download_url}}",
+					Closing:  "Cordialement,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"ru": {
+			"verification": {
+				Subject: "{{system_name}} - Код подтверждения почты",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Подтверждение почты",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"Мы получили запрос на подтверждение адреса электронной почты для <strong>{{system_name}}</strong>. Введите код ниже:",
+						"<strong>Срок действия:</strong> код действителен в течение {{valid_minutes}} минут.",
+					},
+					Code:     "{{code}}",
+					CTALabel: "ПОДТВЕРДИТЬ ПОЧТУ",
+					CTAURL:   "{{link}}",
+					Footnote: "Если вы не отправляли этот запрос, просто проигнорируйте письмо.",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - Сброс пароля",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Сброс пароля",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"Получен запрос на сброс пароля для вашей учетной записи <strong>{{system_name}}</strong>. Нажмите кнопку ниже, чтобы задать новый пароль.",
+						"<strong>Срок действия:</strong> ссылка действительна {{valid_minutes}} минут.",
+					},
+					CTALabel: "СБРОСИТЬ ПАРОЛЬ",
+					CTAURL:   "{{link}}",
+					Footnote: "Если кнопка не открывается, вставьте ссылку в браузер: {{link}}<br>Если вы не запрашивали сброс, пароль не изменен.",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - Уведомление о системной ошибке",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Системная ошибка",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"На платформе <strong>{{system_name}}</strong> зафиксирована системная ошибка, требующая проверки.",
+					},
+					Details: [][2]string{
+						{"Время", "{{time}}"},
+						{"Ошибка", "{{error_message}}"},
+					},
+					Footnote: "Проверьте журналы сервера и панель администратора для диагностики.",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - Низкий остаток баланса",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Предупреждение о балансе",
+					Greeting: "Здравствуйте, {{user_name}},",
+					Paragraphs: []string{
+						"Остаток баланса в вашем аккаунте <strong>{{system_name}}</strong> опустился ниже заданного порога.",
+						"<strong>Текущий остаток:</strong> {{quota_remaining}}. Пополните баланс, чтобы избежать перебоев в работе API.",
+					},
+					CTALabel: "ПОПОЛНИТЬ БАЛАНС",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - Новое обращение #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Новое обращение",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"Создано новое обращение в поддержку:",
+					},
+					Details: [][2]string{
+						{"Обращение", "#{{ticket_id}}"},
+						{"Тема", "{{ticket_title}}"},
+						{"Пользователь", "{{user_name}} ({{user_email}})"},
+						{"Категория / Приоритет", "{{category}} / {{priority}}"},
+						{"Сообщение", "{{message}}"},
+					},
+					Closing: "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - Новый ответ по обращению #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Ответ поддержки",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"По вашему обращению <strong>#{{ticket_id}} — {{ticket_title}}</strong> получен новый ответ:",
+					},
+					Details: [][2]string{
+						{"Ответ", "{{reply_message}}"},
+					},
+					CTALabel: "ОТКРЫТЬ ОБРАЩЕНИЕ",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - Канал отключен (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Канал отключен",
+					Greeting: "Здравствуйте,",
+					Paragraphs: []string{
+						"Внешний API-канал был автоматически отключен по результатам проверки состояния.",
+					},
+					Details: [][2]string{
+						{"Канал", "{{channel_name}} (#{{channel_id}})"},
+						{"Причина", "{{reason}}"},
+						{"Время", "{{time}}"},
+					},
+					Footnote: "Проверьте настройки канала и API-ключ в панели администратора.",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - Срок хранения видео скоро истекает",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Напоминание о видео",
+					Greeting: "Здравствуйте, {{username}},",
+					Paragraphs: []string{
+						"Видеофайл на сервере будет автоматически удален <strong>{{expires_at}}</strong>.",
+						"Если вы хотите сохранить его, скачайте файл до указанной даты.",
+					},
+					CTALabel: "ОТКРЫТЬ ВИДЕО",
+					CTAURL:   "{{video_url}}",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - Дообученная модель будет удалена через {{days_left}} дн.",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ru",
+					Title:    "{{system_name}} - Срок хранения модели",
+					Greeting: "Здравствуйте, {{username}},",
+					Paragraphs: []string{
+						"Срок хранения дообученной модели <strong>{{model}}</strong> истекает через <strong>{{days_left}} дн.</strong> (<strong>{{expires_at}}</strong>).",
+						"Скачайте архив .zip заранее, чтобы сохранить веса, чекпоинты и журнал обучения.",
+					},
+					Details: [][2]string{
+						{"Модель", "{{model}}"},
+						{"ID задачи", "{{job_id}}"},
+						{"Дата удаления", "{{expires_at}}"},
+					},
+					CTALabel: "СКАЧАТЬ МОДЕЛЬ",
+					CTAURL:   "{{download_url}}",
+					Closing:  "С уважением,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"ja": {
+			"verification": {
+				Subject: "{{system_name}} - メール認証コード",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - メール認証",
+					Greeting: "こんにちは、",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> のメールアドレス認証リクエストを受け付けました。以下のコードを入力してください。",
+						"<strong>有効期限：</strong>このコードは {{valid_minutes}} 分間有効です。",
+					},
+					Code:     "{{code}}",
+					CTALabel: "認証ページを開く",
+					CTAURL:   "{{link}}",
+					Footnote: "心当たりがない場合は、このメールを破棄してください。",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - パスワード再設定のご案内",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - パスワード再設定",
+					Greeting: "こんにちは、",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> アカウントのパスワード再設定がリクエストされました。下のボタンから新しいパスワードを設定できます。",
+						"<strong>有効期限：</strong>セキュリティ保護のため、このリンクは {{valid_minutes}} 分後に失効します。",
+					},
+					CTALabel: "パスワードを再設定",
+					CTAURL:   "{{link}}",
+					Footnote: "ボタンが開かない場合は次のURLをブラウザに貼り付けてください：{{link}}<br>ご本人による操作でない場合、パスワードは変更されません。",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - システムエラー通知",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - システムエラー",
+					Greeting: "管理者様、",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> で確認が必要なシステムエラーが記録されました。",
+					},
+					Details: [][2]string{
+						{"発生時刻", "{{time}}"},
+						{"エラー内容", "{{error_message}}"},
+					},
+					Footnote: "詳細はサーバーログおよび管理画面をご確認ください。",
+					Closing:  "<strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - 残高低下のお知らせ",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - 残高アラート",
+					Greeting: "{{user_name}} 様、",
+					Paragraphs: []string{
+						"<strong>{{system_name}}</strong> アカウントの残高が通知しきい値を下回りました。",
+						"<strong>現在の残高：</strong>{{quota_remaining}}。API利用の中断を防ぐため、必要に応じてチャージしてください。",
+					},
+					CTALabel: "残高をチャージ",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - 新規サポートチケット #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - 新規チケット",
+					Greeting: "管理者様、",
+					Paragraphs: []string{
+						"新しいサポートチケットが作成されました。",
+					},
+					Details: [][2]string{
+						{"チケット番号", "#{{ticket_id}}"},
+						{"件名", "{{ticket_title}}"},
+						{"ユーザー", "{{user_name}} ({{user_email}})"},
+						{"カテゴリ / 優先度", "{{category}} / {{priority}}"},
+						{"内容", "{{message}}"},
+					},
+					Closing: "<strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - チケット #{{ticket_id}} に返信があります",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - チケット返信",
+					Greeting: "こんにちは、",
+					Paragraphs: []string{
+						"サポートチケット <strong>#{{ticket_id}} — {{ticket_title}}</strong> に新しい返信が投稿されました。",
+					},
+					Details: [][2]string{
+						{"返信内容", "{{reply_message}}"},
+					},
+					CTALabel: "チケットを確認",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - チャネルが無効化されました (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - チャネル無効化",
+					Greeting: "管理者様、",
+					Paragraphs: []string{
+						"ヘルスチェック失敗により、アップストリームAPIチャネルが自動的に無効化されました。",
+					},
+					Details: [][2]string{
+						{"チャネル", "{{channel_name}} (#{{channel_id}})"},
+						{"理由", "{{reason}}"},
+						{"時刻", "{{time}}"},
+					},
+					Footnote: "管理画面でチャネル設定とAPIキーをご確認ください。",
+					Closing:  "<strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - 動画ファイルの保管期限が近づいています",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - 動画保管期限リマインダー",
+					Greeting: "{{username}} 様、",
+					Paragraphs: []string{
+						"サーバーに保存されている動画ファイルは <strong>{{expires_at}}</strong> に自動削除されます。",
+						"保持が必要な場合は、期限前にダウンロードしてください。",
+					},
+					CTALabel: "動画を開く",
+					CTAURL:   "{{video_url}}",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - ファインチューニングモデルの期限まで残り {{days_left}} 日",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "ja",
+					Title:    "{{system_name}} - モデル保管期限リマインダー",
+					Greeting: "{{username}} 様、",
+					Paragraphs: []string{
+						"ファインチューニング済みモデル <strong>{{model}}</strong> は、あと <strong>{{days_left}} 日</strong>（<strong>{{expires_at}}</strong>）でサーバーストレージから自動削除されます。",
+						"学習済みウェイト、チェックポイント、ログを保存するため、期限前に .zip アーカイブをダウンロードしてください。",
+					},
+					Details: [][2]string{
+						{"モデル", "{{model}}"},
+						{"ジョブID", "{{job_id}}"},
+						{"削除予定日", "{{expires_at}}"},
+					},
+					CTALabel: "モデルをダウンロード",
+					CTAURL:   "{{download_url}}",
+					Closing:  "よろしくお願いいたします。<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+		"vi": {
+			"verification": {
+				Subject: "{{system_name}} - Mã xác minh email của bạn",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Xác minh email",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Chúng tôi đã nhận được yêu cầu xác minh địa chỉ email cho tài khoản <strong>{{system_name}}</strong> của bạn. Nhập mã bên dưới để tiếp tục:",
+						"<strong>Thời hạn:</strong> Mã có hiệu lực trong {{valid_minutes}} phút.",
+					},
+					Code:     "{{code}}",
+					CTALabel: "XÁC MINH EMAIL",
+					CTAURL:   "{{link}}",
+					Footnote: "Nếu bạn không thực hiện yêu cầu này, bạn có thể bỏ qua email này.",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"password_reset": {
+				Subject: "{{system_name}} - Yêu cầu đặt lại mật khẩu",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Đặt lại mật khẩu",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>{{system_name}}</strong> của bạn. Nhấn vào nút bên dưới để tạo mật khẩu mới.",
+						"<strong>Thời hạn:</strong> Liên kết này sẽ hết hạn sau {{valid_minutes}} phút.",
+					},
+					CTALabel: "ĐẶT LẠI MẬT KHẨU",
+					CTAURL:   "{{link}}",
+					Footnote: "Nếu nút không mở được, hãy dán liên kết này vào trình duyệt: {{link}}<br>Nếu không phải bạn yêu cầu, mật khẩu của bạn sẽ không thay đổi.",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"system_error": {
+				Subject: "{{system_name}} - Cảnh báo lỗi hệ thống",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Lỗi hệ thống",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Hệ thống <strong>{{system_name}}</strong> vừa ghi nhận một lỗi cần được kiểm tra.",
+					},
+					Details: [][2]string{
+						{"Thời gian", "{{time}}"},
+						{"Lỗi", "{{error_message}}"},
+					},
+					Footnote: "Vui lòng kiểm tra nhật ký máy chủ và trang quản trị để biết thêm chi tiết.",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"quota_warning": {
+				Subject: "{{system_name}} - Cảnh báo số dư thấp",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Cảnh báo số dư",
+					Greeting: "Xin chào {{user_name}},",
+					Paragraphs: []string{
+						"Số dư còn lại trong tài khoản <strong>{{system_name}}</strong> của bạn đã giảm xuống dưới ngưỡng cảnh báo.",
+						"<strong>Số dư còn lại:</strong> {{quota_remaining}}. Hãy nạp thêm số dư để tránh gián đoạn yêu cầu API.",
+					},
+					CTALabel: "NẠP SỐ DƯ",
+					CTAURL:   "{{topup_link}}",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_created": {
+				Subject: "{{system_name}} - Yêu cầu hỗ trợ mới #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Yêu cầu hỗ trợ mới",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Một yêu cầu hỗ trợ mới vừa được gửi:",
+					},
+					Details: [][2]string{
+						{"Mã yêu cầu", "#{{ticket_id}}"},
+						{"Tiêu đề", "{{ticket_title}}"},
+						{"Người dùng", "{{user_name}} ({{user_email}})"},
+						{"Danh mục / Ưu tiên", "{{category}} / {{priority}}"},
+						{"Nội dung", "{{message}}"},
+					},
+					Closing: "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"ticket_replied": {
+				Subject: "{{system_name}} - Phản hồi mới cho yêu cầu #{{ticket_id}}",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Phản hồi hỗ trợ",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Đội ngũ hỗ trợ đã phản hồi yêu cầu <strong>#{{ticket_id}} — {{ticket_title}}</strong> của bạn:",
+					},
+					Details: [][2]string{
+						{"Phản hồi", "{{reply_message}}"},
+					},
+					CTALabel: "XEM YÊU CẦU",
+					CTAURL:   "{{dashboard_link}}",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"channel_disabled": {
+				Subject: "{{system_name}} - Kênh đã bị tắt (#{{channel_id}})",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Kênh bị tắt",
+					Greeting: "Xin chào,",
+					Paragraphs: []string{
+						"Một kênh API upstream đã tự động bị tắt do không vượt qua kiểm tra trạng thái.",
+					},
+					Details: [][2]string{
+						{"Kênh", "{{channel_name}} (#{{channel_id}})"},
+						{"Lý do", "{{reason}}"},
+						{"Thời gian", "{{time}}"},
+					},
+					Footnote: "Vui lòng kiểm tra khóa API và cấu hình kênh trong bảng quản trị.",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"video_expiry": {
+				Subject: "{{system_name}} - Video của bạn sắp hết hạn lưu trữ",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Nhắc hết hạn video",
+					Greeting: "Xin chào {{username}},",
+					Paragraphs: []string{
+						"Tệp video lưu trên máy chủ của bạn sẽ tự động bị xóa vào ngày <strong>{{expires_at}}</strong>.",
+						"Nếu muốn giữ lại, hãy tải video về máy trước ngày hết hạn.",
+					},
+					CTALabel: "MỞ VIDEO",
+					CTAURL:   "{{video_url}}",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+			"fine_tuning_expiry": {
+				Subject: "{{system_name}} - Mô hình tinh chỉnh sẽ bị xóa sau {{days_left}} ngày",
+				Body: buildCleanEmailHTML(cleanEmailSpec{
+					Lang:     "vi",
+					Title:    "{{system_name}} - Nhắc hết hạn mô hình tinh chỉnh",
+					Greeting: "Xin chào {{username}},",
+					Paragraphs: []string{
+						"Mô hình tinh chỉnh <strong>{{model}}</strong> của bạn sẽ tự động bị xóa khỏi máy chủ sau <strong>{{days_left}} ngày</strong> (<strong>{{expires_at}}</strong>).",
+						"Hãy tải tệp nén .zip trước thời hạn để lưu trọng số, điểm kiểm tra và nhật ký huấn luyện.",
+					},
+					Details: [][2]string{
+						{"Mô hình", "{{model}}"},
+						{"Mã tác vụ", "{{job_id}}"},
+						{"Ngày hết hạn", "{{expires_at}}"},
+					},
+					CTALabel: "TẢI MÔ HÌNH",
+					CTAURL:   "{{download_url}}",
+					Closing:  "Trân trọng,<br><strong>{{system_name}}</strong>",
+				}),
+			},
+		},
+	}
+}
+
+// NormalizeEmailLang maps frontend/browser language tags to one of our 8 template keys.
+func NormalizeEmailLang(lang string) string {
+	l := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(lang, "_", "-")))
+	switch {
+	case strings.HasPrefix(l, "tr"):
+		return "tr"
+	case l == "zh-tw" || l == "zh-hk" || l == "zh-mo" || l == "zh-hant":
+		return "zh_TW"
+	case strings.HasPrefix(l, "zh"):
+		return "zh_CN"
+	case strings.HasPrefix(l, "fr"):
+		return "fr"
+	case strings.HasPrefix(l, "ru"):
+		return "ru"
+	case strings.HasPrefix(l, "ja"):
+		return "ja"
+	case strings.HasPrefix(l, "vi"):
+		return "vi"
+	default:
+		return "en"
+	}
+}
+
+// RenderEmail resolves the subject and HTML body for a given template and language, replacing variables.
 func RenderEmail(templateType string, lang string, vars map[string]string) (subject string, body string) {
 	normLang := NormalizeEmailLang(lang)
 
@@ -1559,7 +1422,6 @@ func RenderEmail(templateType string, lang string, vars map[string]string) (subj
 		sysName = "New API"
 	}
 
-	// Fallback to built-in defaults
 	if customSubj == "" || customBody == "" {
 		tplMap, ok := defaultEmailTemplates[normLang]
 		if !ok {
@@ -1577,7 +1439,6 @@ func RenderEmail(templateType string, lang string, vars map[string]string) (subj
 		}
 	}
 
-	// Prepare standard placeholders
 	allVars := map[string]string{
 		"system_name":   sysName,
 		"year":          fmt.Sprintf("%d", time.Now().Year()),
@@ -1600,10 +1461,6 @@ func RenderEmail(templateType string, lang string, vars map[string]string) (subj
 		subject = strings.ReplaceAll(subject, placeholder, v)
 		body = strings.ReplaceAll(body, placeholder, html.EscapeString(v))
 	}
-	// For link, allow unescaped in href if replaced
-	if link, ok := allVars["link"]; ok {
-		body = strings.ReplaceAll(body, "{{link}}", link)
-	}
 
 	return subject, body
 }
@@ -1620,139 +1477,4 @@ func GetDefaultEmailTemplate(templateType, lang string) EmailTemplate {
 
 func GetAllDefaultEmailTemplates() map[string]map[string]EmailTemplate {
 	return defaultEmailTemplates
-}
-
-func init() {
-	ftExpiryTemplates := map[string]EmailTemplate{
-		"tr": {
-			Subject: "{{system_name}} - İnce ayarlı modeliniz {{expires_at}} tarihinde silinecek",
-			Body: `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>{{system_name}} Model Süre Hatırlatması</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">İnce ayarlı modeliniz silinmek üzere</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Merhaba <strong>{{username}}</strong>,<br><strong>{{model}}</strong> (<code>{{job_id}}</code>) adlı ince ayarlı model dosyalarınız <strong>{{days_left}} gün</strong> içinde (<strong>{{expires_at}}</strong> tarihinde) sunucudan kalıcı olarak silinecektir.</p>
-<p style="margin:0 0 22px 0;font-size:14px;line-height:22px;color:#64748b;">Modelinizi kaybetmemek için lütfen süre dolmadan indirin:</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Modeli İndir</a></div>
-<p style="margin:0;font-size:12px;color:#94a3b8;">Bu e-posta otomatik olarak gönderilmiştir.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. Tüm hakları saklıdır.</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"en": {
-			Subject: "{{system_name}} - Your fine-tuned model will be deleted on {{expires_at}}",
-			Body: `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>{{system_name}} Fine-Tuned Model Expiry</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.06);border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Your fine-tuned model is expiring soon</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Hello <strong>{{username}}</strong>,<br>Your fine-tuned model <strong>{{model}}</strong> (<code>{{job_id}}</code>) will be permanently deleted from our storage in <strong>{{days_left}} day(s)</strong> on <strong>{{expires_at}}</strong>.</p>
-<p style="margin:0 0 22px 0;font-size:14px;line-height:22px;color:#64748b;">Please download your model archive (.zip) before the retention deadline:</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Download Model</a></div>
-<p style="margin:0;font-size:12px;color:#94a3b8;">This is an automated retention reminder.</p>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}. All rights reserved.</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"zh_CN": {
-			Subject: "{{system_name}} - 您的微调模型将于 {{expires_at}} 删除",
-			Body: `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{{system_name}} 模型过期提醒</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">您的微调模型即将过期</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">您好 <strong>{{username}}</strong>，<br>您的微调模型 <strong>{{model}}</strong>（<code>{{job_id}}</code>）将在 <strong>{{days_left}} 天</strong>后（<strong>{{expires_at}}</strong>）从服务器永久删除。</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">立即下载模型</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"zh_TW": {
-			Subject: "{{system_name}} - 您的微調模型將於 {{expires_at}} 刪除",
-			Body: `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><title>{{system_name}} 模型過期提醒</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">您的微調模型即將過期</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">您好 <strong>{{username}}</strong>，<br>您的微調模型 <strong>{{model}}</strong>（<code>{{job_id}}</code>）將在 <strong>{{days_left}} 天</strong>後（<strong>{{expires_at}}</strong>）從伺服器永久刪除。</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">立即下載模型</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"fr": {
-			Subject: "{{system_name}} - Votre modèle affiné sera supprimé le {{expires_at}}",
-			Body: `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>{{system_name}} Expiration du modèle</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Votre modèle affiné va bientôt expirer</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Bonjour <strong>{{username}}</strong>,<br>Votre modèle affiné <strong>{{model}}</strong> (<code>{{job_id}}</code>) sera définitivement supprimé dans <strong>{{days_left}} jour(s)</strong>, le <strong>{{expires_at}}</strong>.</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Télécharger le modèle</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"ru": {
-			Subject: "{{system_name}} - Ваша дообученная модель будет удалена {{expires_at}}",
-			Body: `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>{{system_name}} Срок хранения модели</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Срок хранения модели истекает</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Здравствуйте, <strong>{{username}}</strong>!<br>Ваша дообученная модель <strong>{{model}}</strong> (<code>{{job_id}}</code>) будет удалена с сервера через <strong>{{days_left}} дн.</strong> (<strong>{{expires_at}}</strong>).</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Скачать модель</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"ja": {
-			Subject: "{{system_name}} - ファインチューニング済みモデルは {{expires_at}} に削除されます",
-			Body: `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>{{system_name}} モデル保管期限のお知らせ</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">モデルの保管期限が近づいています</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;"><strong>{{username}}</strong> 様<br>ファインチューニング済みモデル <strong>{{model}}</strong>（<code>{{job_id}}</code>）は <strong>{{days_left}} 日後</strong>（<strong>{{expires_at}}</strong>）にサーバーから完全に削除されます。</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">モデルをダウンロード</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-		"vi": {
-			Subject: "{{system_name}} - Mô hình tinh chỉnh của bạn sẽ bị xóa vào {{expires_at}}",
-			Body: `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>{{system_name}} Nhắc nhở hết hạn mô hình</title></head>
-<body style="margin:0;padding:0;background-color:#f4f7fb;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f7fb;padding:40px 15px;"><tr><td align="center">
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);padding:28px 40px;text-align:center;"><h1 style="color:#ffffff;margin:0;font-size:22px;">{{system_name}}</h1></td></tr>
-<tr><td style="padding:36px 40px;">
-<h2 style="margin:0 0 16px 0;font-size:19px;color:#0f172a;">Mô hình tinh chỉnh sắp hết hạn lưu trữ</h2>
-<p style="margin:0 0 18px 0;font-size:15px;line-height:24px;color:#475569;">Xin chào <strong>{{username}}</strong>,<br>Mô hình tinh chỉnh <strong>{{model}}</strong> (<code>{{job_id}}</code>) sẽ bị xóa vĩnh viễn sau <strong>{{days_left}} ngày</strong> vào ngày <strong>{{expires_at}}</strong>.</p>
-<div style="text-align:center;margin:20px 0;"><a href="{{download_url}}" style="display:inline-block;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Tải mô hình xuống</a></div>
-</td></tr>
-<tr><td style="background-color:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">© {{year}} {{system_name}}</td></tr>
-</table></td></tr></table></body></html>`,
-		},
-	}
-	for lang, tpl := range ftExpiryTemplates {
-		if _, ok := defaultEmailTemplates[lang]; !ok {
-			defaultEmailTemplates[lang] = map[string]EmailTemplate{}
-		}
-		defaultEmailTemplates[lang]["fine_tuning_expiry"] = tpl
-	}
 }

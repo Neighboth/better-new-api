@@ -2,6 +2,7 @@ package colab
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -719,4 +720,94 @@ func (c *Client) ReadFile(proxyURL, proxyToken, filePath string) (string, error)
 		return nil
 	})
 	return content, err
+}
+
+// UploadBinaryFile uploads raw binary data (base64-encoded via Jupyter Contents API)
+// to the Colab runtime so datasets or local model weights work even when the host
+// server is not publicly reachable.
+func (c *Client) UploadBinaryFile(proxyURL, proxyToken, filePath string, data []byte) error {
+	if strings.TrimSpace(proxyURL) == "" {
+		return fmt.Errorf("colab: empty runtime proxy URL")
+	}
+	target := strings.TrimRight(proxyURL, "/") + "/api/contents/" + strings.TrimLeft(filePath, "/")
+	payload, err := common.Marshal(map[string]any{
+		"type":    "file",
+		"format":  "base64",
+		"content": base64.StdEncoding.EncodeToString(data),
+	})
+	if err != nil {
+		return err
+	}
+	return doWithRetry(func() error {
+		req, err := http.NewRequest(http.MethodPut, target, bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if proxyToken != "" {
+			req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+		}
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			return &APIError{Code: resp.StatusCode, Message: string(raw)}
+		}
+		return nil
+	})
+}
+
+// DownloadBinaryFile downloads a binary file (e.g. output.zip) from the Colab
+// runtime's Jupyter Contents API.
+func (c *Client) DownloadBinaryFile(proxyURL, proxyToken, filePath string) ([]byte, error) {
+	if strings.TrimSpace(proxyURL) == "" {
+		return nil, fmt.Errorf("colab: empty runtime proxy URL")
+	}
+	target := strings.TrimRight(proxyURL, "/") + "/api/contents/" + strings.TrimLeft(filePath, "/") + "?content=1&format=base64"
+	var decoded []byte
+	err := doWithRetry(func() error {
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Colab-Client-Agent", "colab-cli")
+		if proxyToken != "" {
+			req.Header.Set("X-Colab-Runtime-Proxy-Token", proxyToken)
+		}
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return &APIError{Code: resp.StatusCode, Message: strings.TrimSpace(string(raw))}
+		}
+		var out struct {
+			Content string `json:"content"`
+			Format  string `json:"format"`
+		}
+		if err := common.Unmarshal(raw, &out); err != nil {
+			return err
+		}
+		if out.Format == "base64" {
+			b, decErr := base64.StdEncoding.DecodeString(strings.ReplaceAll(out.Content, "\n", ""))
+			if decErr != nil {
+				return decErr
+			}
+			decoded = b
+			return nil
+		}
+		decoded = []byte(out.Content)
+		return nil
+	})
+	return decoded, err
 }

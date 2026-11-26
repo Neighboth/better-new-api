@@ -3,10 +3,8 @@ package service
 import (
 	"archive/zip"
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -24,15 +22,39 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
+type FineTuningDispatchFunc func(ctx context.Context, job *model.FineTuningJob, epochs int) (artifactZipPath string, trainedTokens int64, err error)
+
 var (
 	ftRunnersMu    sync.Mutex
 	ftActiveCancel = map[string]context.CancelFunc{}
+	ftDispatcher   FineTuningDispatchFunc
 
 	ftProviderLeakRe = regexp.MustCompile(`(?i)\b(google\s+colab|colab|modal|kaggle|runpod|hostinger|io\.net|ionet|huggingface\s+spaces|trycloudflare\.com)\b`)
 	ftURLRe          = regexp.MustCompile(`https?://[^\s"']+`)
 	ftIPv4Re         = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b`)
 	ftSecretRe       = regexp.MustCompile(`(?i)(sk-[a-zA-Z0-9_-]{8,}|hf_[a-zA-Z0-9]{8,}|ak-[a-zA-Z0-9_-]{8,}|bearer\s+[a-zA-Z0-9._-]{8,}|token=[a-zA-Z0-9._-]+)`)
 )
+
+// RegisterFineTuningDispatcher sets the real compute provider dispatcher
+// (Modal / Google Colab / Kaggle) invoked when a fine-tuning job starts.
+func RegisterFineTuningDispatcher(fn FineTuningDispatchFunc) {
+	ftRunnersMu.Lock()
+	ftDispatcher = fn
+	ftRunnersMu.Unlock()
+}
+
+// AppendFineTuningLogFromWorker writes a sanitized log line emitted by a remote
+// fine-tuning worker into the job's persistent console log.
+func AppendFineTuningLogFromWorker(userID int, jobID, stage, msg string) {
+	appendFineTuningLog(userID, jobID, stage, msg)
+}
+
+// InspectFineTuningDatasetFile returns sample count, byte size, format, and
+// estimated tokens for an uploaded dataset file on disk.
+func InspectFineTuningDatasetFile(path string, fallbackName string) (samples int64, byteSize int64, format string, estTokens int64) {
+	ds := inspectFineTuningDataset(path, fallbackName)
+	return int64(ds.SampleCount), ds.ByteSize, ds.Format, ds.EstTokens
+}
 
 // SanitizeFineTuningLogLine strips any upstream provider names, URLs, host IPs,
 // and secret tokens so the user-facing console shows detailed training progress
@@ -220,12 +242,6 @@ func StartFineTuningJobRunner(jobID string) {
 	go runFineTuningJob(ctx, jobID)
 }
 
-type epochLossPoint struct {
-	Epoch  int     `json:"epoch"`
-	Loss   float64 `json:"loss"`
-	Tokens int64   `json:"trained_tokens"`
-}
-
 func runFineTuningJob(ctx context.Context, jobID string) {
 	defer func() {
 		ftRunnersMu.Lock()
@@ -262,115 +278,78 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 
 	appendFineTuningLog(userID, jobID, "queue", fmt.Sprintf("Job accepted: task=%s method=%s accelerator=%s epochs=%d", taskType, strings.ToUpper(method), gpuLabel, epochs))
 
-	if !sleepCtx(ctx, 1200*time.Millisecond) {
-		handleRunnerCancelled(userID, jobID)
+	ds := inspectFineTuningDataset(job.TrainingFilePath, job.TrainingFile)
+	appendFineTuningLog(userID, jobID, "dataset", fmt.Sprintf("Dataset verified: %q (%s format, %d samples, %.2f MB)", filepath.Base(job.TrainingFile), strings.ToUpper(ds.Format), ds.SampleCount, float64(ds.ByteSize)/(1024.0*1024.0)))
+
+	ftRunnersMu.Lock()
+	dispatcher := ftDispatcher
+	ftRunnersMu.Unlock()
+
+	if dispatcher == nil {
+		errMsg := "Real fine-tuning compute dispatcher is not initialized. Configure an enabled provider in System Settings > Model Deployment."
+		appendFineTuningLog(userID, jobID, "error", errMsg)
+		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
+			"status":      "failed",
+			"error":       errMsg,
+			"finished_at": time.Now().Unix(),
+			"updated_at":  time.Now().Unix(),
+		})
 		return
 	}
 
 	startedAt := time.Now().Unix()
 	_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
 		"status":     "running",
-		"progress":   5,
+		"progress":   2,
 		"updated_at": startedAt,
 	})
-	appendFineTuningLog(userID, jobID, "alloc", fmt.Sprintf("Allocated compute worker (%s, ram_tier=%s)", gpuLabel, nonEmptyOr(job.RamTier, "normal")))
 
-	// Inspect & validate training dataset
-	ds := inspectFineTuningDataset(job.TrainingFilePath, job.TrainingFile)
-	appendFineTuningLog(userID, jobID, "dataset", fmt.Sprintf("Loaded dataset %q (%s format, %d samples, %.1f KB)", filepath.Base(job.TrainingFile), strings.ToUpper(ds.Format), ds.SampleCount, float64(ds.ByteSize)/1024.0))
-
-	if !sleepCtx(ctx, 1200*time.Millisecond) {
-		handleRunnerCancelled(userID, jobID)
-		return
-	}
-
-	_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
-		"progress":   15,
-		"updated_at": time.Now().Unix(),
-	})
-
-	switch job.ModelSource {
-	case "upload":
-		appendFineTuningLog(userID, jobID, "model", fmt.Sprintf("Loaded uploaded base weights (%s)", filepath.Base(job.Model)))
-	case "url":
-		appendFineTuningLog(userID, jobID, "model", "Fetched base model weights from configured source")
-	default:
-		appendFineTuningLog(userID, jobID, "model", fmt.Sprintf("Initialized base model %s for %s (%s)", job.Model, taskType, strings.ToUpper(method)))
-	}
-
-	if !sleepCtx(ctx, 1200*time.Millisecond) {
-		handleRunnerCancelled(userID, jobID)
-		return
-	}
-
-	storageDir := FineTuningStorageDirForUser(userID, jobID)
-	checkpointsDir := filepath.Join(storageDir, "checkpoints")
-	_ = os.MkdirAll(checkpointsDir, 0o755)
-
-	var totalTokens int64
-	loss := 2.45
-	lastCheckpointPath := ""
-	lossHistory := make([]epochLossPoint, 0, epochs)
-	checkpointFiles := make([]string, 0, epochs)
-
-	for ep := 1; ep <= epochs; ep++ {
-		stepsPerEpoch := 4
-		for step := 1; step <= stepsPerEpoch; step++ {
-			if !sleepCtx(ctx, 900*time.Millisecond) {
-				handleRunnerCancelled(userID, jobID)
-				return
-			}
-			if fresh, gErr := model.GetFineTuningJobByJobID(jobID); gErr == nil && fresh != nil && fresh.Status == "cancelled" {
-				handleRunnerCancelled(userID, jobID)
-				return
-			}
-
-			stepFrac := (float64(ep-1) + float64(step)/float64(stepsPerEpoch)) / float64(epochs)
-			loss = math.Max(0.18, 2.45*math.Exp(-1.8*stepFrac))
-			lr := 2e-4 * (1.0 - 0.85*stepFrac)
-			totalTokens += ds.EstTokens / int64(stepsPerEpoch)
-			pct := 15 + int(stepFrac*75.0)
-			if pct > 90 {
-				pct = 90
-			}
-			_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
-				"progress":       pct,
-				"trained_tokens": totalTokens,
-				"updated_at":     time.Now().Unix(),
-			})
-			appendFineTuningLog(userID, jobID, "train", fmt.Sprintf("Epoch %d/%d | step %d/%d | loss=%.4f | lr=%.2e | tokens=%d", ep, epochs, step, stepsPerEpoch, loss, lr, totalTokens))
+	artifactZipPath, trainedTokens, runErr := dispatcher(ctx, job, epochs)
+	if runErr != nil {
+		if ctx.Err() != nil {
+			handleRunnerCancelled(userID, jobID)
+			return
 		}
-
-		lossHistory = append(lossHistory, epochLossPoint{Epoch: ep, Loss: loss, Tokens: totalTokens})
-		ckptPath := filepath.Join(checkpointsDir, fmt.Sprintf("checkpoint-epoch-%d.json", ep))
-		ckptBytes, _ := common.Marshal(map[string]any{
-			"job_id":         jobID,
-			"epoch":          ep,
-			"total_epochs":   epochs,
-			"loss":           loss,
-			"trained_tokens": totalTokens,
-			"saved_at":       time.Now().Unix(),
+		errMsg := SanitizeFineTuningLogLine(runErr.Error())
+		appendFineTuningLog(userID, jobID, "error", "Real training failed (no balance charged): "+errMsg)
+		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
+			"status":      "failed",
+			"error":       errMsg,
+			"finished_at": time.Now().Unix(),
+			"updated_at":  time.Now().Unix(),
 		})
-		if os.WriteFile(ckptPath, ckptBytes, 0o644) == nil {
-			lastCheckpointPath = ckptPath
-			checkpointFiles = append(checkpointFiles, ckptPath)
-			_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
-				"checkpoint_path": ckptPath,
-				"updated_at":      time.Now().Unix(),
-			})
-			appendFineTuningLog(userID, jobID, "checkpoint", fmt.Sprintf("Saved durable checkpoint epoch-%d (loss=%.4f)", ep, loss))
-		}
+		return
+	}
+
+	if fresh, gErr := model.GetFineTuningJobByJobID(jobID); gErr == nil && fresh != nil && fresh.Status == "cancelled" {
+		handleRunnerCancelled(userID, jobID)
+		return
+	}
+
+	if info, statErr := os.Stat(artifactZipPath); statErr != nil || info.Size() == 0 {
+		errMsg := "Training worker finished without producing a downloadable .zip model archive"
+		appendFineTuningLog(userID, jobID, "error", errMsg)
+		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
+			"status":      "failed",
+			"error":       errMsg,
+			"finished_at": time.Now().Unix(),
+			"updated_at":  time.Now().Unix(),
+		})
+		return
 	}
 
 	finishedAt := time.Now().Unix()
+	elapsedSec := finishedAt - startedAt
+	if elapsedSec < 1 {
+		elapsedSec = 1
+	}
 	retentionDays := GetFineTuningRetentionDays()
 	expiresAt := finishedAt + int64(retentionDays)*86400
 
-	appendFineTuningLog(userID, jobID, "export", "Exporting trained adapter_model.safetensors, checkpoints, training_details.json, and training.log into ZIP archive...")
-
+	actualCostUSD := EstimateFineTuningCostUSDWithRAM(job.GPU, job.RamTier, elapsedSec)
 	billedQuota := int64(0)
-	if job.EstimatedCostUSD > 0 {
-		q := common.QuotaRound(job.EstimatedCostUSD * common.QuotaPerUnit)
+	if actualCostUSD > 0 {
+		q := common.QuotaRound(actualCostUSD * common.QuotaPerUnit)
 		if q > 0 {
 			billedQuota = int64(q)
 			if err := model.DecreaseUserQuota(userID, q, false); err == nil {
@@ -379,44 +358,19 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 		}
 	}
 
-	bundlePath, bErr := writeFineTunedModelZip(
-		storageDir,
-		job,
-		taskType,
-		method,
-		gpuLabel,
-		epochs,
-		ds,
-		totalTokens,
-		loss,
-		lossHistory,
-		checkpointFiles,
-		lastCheckpointPath,
-		finishedAt,
-		expiresAt,
-	)
-	if bErr != nil {
-		appendFineTuningLog(userID, jobID, "error", "Failed to package model archive: "+bErr.Error())
-		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
-			"status":      "failed",
-			"error":       bErr.Error(),
-			"finished_at": time.Now().Unix(),
-			"updated_at":  time.Now().Unix(),
-		})
-		return
-	}
-
 	_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
-		"status":          "succeeded",
-		"progress":        100,
-		"trained_tokens":  totalTokens,
-		"billed_quota":    billedQuota,
-		"model_file_path": bundlePath,
-		"finished_at":     finishedAt,
-		"expires_at":      expiresAt,
-		"updated_at":      finishedAt,
+		"status":             "succeeded",
+		"progress":           100,
+		"trained_tokens":     trainedTokens,
+		"duration_seconds":   elapsedSec,
+		"estimated_cost_usd": actualCostUSD,
+		"billed_quota":       billedQuota,
+		"model_file_path":    artifactZipPath,
+		"finished_at":        finishedAt,
+		"expires_at":         expiresAt,
+		"updated_at":         finishedAt,
 	})
-	appendFineTuningLog(userID, jobID, "done", fmt.Sprintf("Training complete! Model %s ready for download (.zip with adapter_model.safetensors, final_loss=%.4f, trained_tokens=%d, expires=%s).", job.FineTunedModel, loss, totalTokens, time.Unix(expiresAt, 0).UTC().Format("2006-01-02")))
+	appendFineTuningLog(userID, jobID, "done", fmt.Sprintf("Real fine-tuning complete in %ds! Model %s ready for download (.zip, trained_tokens=%d, cost=$%.4f, expires=%s).", elapsedSec, job.FineTunedModel, trainedTokens, actualCostUSD, time.Unix(expiresAt, 0).UTC().Format("2006-01-02")))
 }
 
 func handleRunnerCancelled(userID int, jobID string) {
@@ -428,222 +382,11 @@ func handleRunnerCancelled(userID int, jobID string) {
 	})
 }
 
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
-}
-
 func nonEmptyOr(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
 		return fallback
 	}
 	return v
-}
-
-// buildValidSafetensors produces a binary file strictly compliant with the
-// Hugging Face Safetensors specification:
-//   - 8-byte little-endian uint64 header length N
-//   - N bytes of UTF-8 JSON header mapping tensor names to {dtype, shape, data_offsets}
-//     plus optional __metadata__
-//   - Contiguous raw tensor bytes matching every declared offset range
-func buildValidSafetensors(job *model.FineTuningJob, taskType, method string, seed string, finalLoss float64) ([]byte, error) {
-	type tensorSpec struct {
-		Name  string
-		Rows  int
-		Cols  int
-		Scale float32
-	}
-	specs := []tensorSpec{
-		{Name: "base_model.model.layers.0.self_attn.q_proj.lora_A.weight", Rows: 16, Cols: 64, Scale: 0.02},
-		{Name: "base_model.model.layers.0.self_attn.q_proj.lora_B.weight", Rows: 64, Cols: 16, Scale: 0.01},
-		{Name: "base_model.model.layers.0.self_attn.v_proj.lora_A.weight", Rows: 16, Cols: 64, Scale: 0.02},
-		{Name: "base_model.model.layers.0.self_attn.v_proj.lora_B.weight", Rows: 64, Cols: 16, Scale: 0.01},
-	}
-
-	header := map[string]any{
-		"__metadata__": map[string]string{
-			"format":           "pt",
-			"base_model":       job.Model,
-			"fine_tuned_model": job.FineTunedModel,
-			"task_type":        taskType,
-			"method":           method,
-			"final_loss":       fmt.Sprintf("%.4f", finalLoss),
-		},
-	}
-
-	var rawData bytes.Buffer
-	seedHash := sha256.Sum256([]byte(seed + ":" + job.JobID + ":" + job.Model))
-	state := binary.LittleEndian.Uint64(seedHash[:8])
-	if state == 0 {
-		state = 0x9e3779b97f4a7c15
-	}
-
-	offset := 0
-	for _, spec := range specs {
-		count := spec.Rows * spec.Cols
-		byteLen := count * 4 // F32 = 4 bytes per element
-		header[spec.Name] = map[string]any{
-			"dtype":        "F32",
-			"shape":        []int{spec.Rows, spec.Cols},
-			"data_offsets": []int{offset, offset + byteLen},
-		}
-		for i := 0; i < count; i++ {
-			// xorshift64* deterministic trained adapter weights
-			state ^= state >> 12
-			state ^= state << 25
-			state ^= state >> 27
-			u := (state * 0x2545F4914F6CDD1D) >> 40
-			val := (float32(u)/float32(1<<24)*2.0 - 1.0) * spec.Scale
-			var b [4]byte
-			binary.LittleEndian.PutUint32(b[:], math.Float32bits(val))
-			rawData.Write(b[:])
-		}
-		offset += byteLen
-	}
-
-	headerBytes, err := common.Marshal(header)
-	if err != nil {
-		return nil, err
-	}
-	// Pad JSON header with spaces to 8-byte alignment per Safetensors best practice
-	if rem := len(headerBytes) % 8; rem != 0 {
-		headerBytes = append(headerBytes, bytes.Repeat([]byte{' '}, 8-rem)...)
-	}
-
-	var out bytes.Buffer
-	out.Grow(8 + len(headerBytes) + rawData.Len())
-	var lenBuf [8]byte
-	binary.LittleEndian.PutUint64(lenBuf[:], uint64(len(headerBytes)))
-	out.Write(lenBuf[:])
-	out.Write(headerBytes)
-	out.Write(rawData.Bytes())
-	return out.Bytes(), nil
-}
-
-func writeFineTunedModelZip(
-	storageDir string,
-	job *model.FineTuningJob,
-	taskType string,
-	method string,
-	gpuLabel string,
-	epochs int,
-	ds datasetStats,
-	totalTokens int64,
-	finalLoss float64,
-	lossHistory []epochLossPoint,
-	checkpointFiles []string,
-	lastCheckpointPath string,
-	finishedAt int64,
-	expiresAt int64,
-) (string, error) {
-	safetensorsBytes, err := buildValidSafetensors(job, taskType, method, ds.SHA256, finalLoss)
-	if err != nil {
-		return "", err
-	}
-	// Also keep adapter_model.safetensors alongside the zip inside the job folder
-	safetensorsPath := filepath.Join(storageDir, "adapter_model.safetensors")
-	_ = os.WriteFile(safetensorsPath, safetensorsBytes, 0o644)
-
-	stDigest := sha256.Sum256(safetensorsBytes)
-
-	adapterCfg, _ := common.Marshal(map[string]any{
-		"base_model_name_or_path": job.Model,
-		"fine_tuned_model":        job.FineTunedModel,
-		"task_type":               taskType,
-		"peft_type":               strings.ToUpper(method),
-		"r":                       16,
-		"lora_alpha":              32,
-		"lora_dropout":            0.05,
-		"target_modules":          []string{"q_proj", "v_proj"},
-		"bias":                    "none",
-	})
-
-	detailsJSON, _ := common.Marshal(map[string]any{
-		"job_id":               job.JobID,
-		"user_id":              job.UserId,
-		"base_model":           job.Model,
-		"fine_tuned_model":     job.FineTunedModel,
-		"task_type":            taskType,
-		"method":               method,
-		"accelerator_id":       job.GPU,
-		"accelerator_label":    gpuLabel,
-		"ram_tier":             nonEmptyOr(job.RamTier, "normal"),
-		"epochs":               epochs,
-		"dataset_file":         filepath.Base(job.TrainingFile),
-		"dataset_format":       ds.Format,
-		"dataset_bytes":        ds.ByteSize,
-		"dataset_samples":      ds.SampleCount,
-		"dataset_sha256":       ds.SHA256,
-		"trained_tokens":       totalTokens,
-		"final_loss":           finalLoss,
-		"loss_history":         lossHistory,
-		"latest_checkpoint":    filepath.Base(lastCheckpointPath),
-		"safetensors_file":     "adapter_model.safetensors",
-		"safetensors_bytes":    len(safetensorsBytes),
-		"safetensors_sha256":   hex.EncodeToString(stDigest[:]),
-		"estimated_cost_usd":   job.EstimatedCostUSD,
-		"duration_seconds":     job.DurationSeconds,
-		"created_at":           job.CreatedAt,
-		"finished_at":          finishedAt,
-		"expires_at":           expiresAt,
-		"retention_days":       GetFineTuningRetentionDays(),
-	})
-
-	logContent := ReadFineTuningJobLogs(job.UserId, job.JobID)
-
-	zipPath := filepath.Join(storageDir, job.JobID+".zip")
-	outFile, err := os.Create(zipPath)
-	if err != nil {
-		return "", err
-	}
-	defer outFile.Close()
-
-	zw := zip.NewWriter(outFile)
-
-	writeEntry := func(name string, data []byte) error {
-		w, wErr := zw.Create(name)
-		if wErr != nil {
-			return wErr
-		}
-		_, wErr = w.Write(data)
-		return wErr
-	}
-
-	if err := writeEntry("adapter_model.safetensors", safetensorsBytes); err != nil {
-		_ = zw.Close()
-		return "", err
-	}
-	if err := writeEntry("adapter_config.json", adapterCfg); err != nil {
-		_ = zw.Close()
-		return "", err
-	}
-	if err := writeEntry("training_details.json", detailsJSON); err != nil {
-		_ = zw.Close()
-		return "", err
-	}
-	if err := writeEntry("training.log", []byte(logContent+"\n")); err != nil {
-		_ = zw.Close()
-		return "", err
-	}
-	for _, ckptFile := range checkpointFiles {
-		if b, rErr := os.ReadFile(ckptFile); rErr == nil {
-			if err := writeEntry("checkpoints/"+filepath.Base(ckptFile), b); err != nil {
-				_ = zw.Close()
-				return "", err
-			}
-		}
-	}
-
-	if err := zw.Close(); err != nil {
-		return "", err
-	}
-	return zipPath, nil
 }
 
 // StartFineTuningRetentionWorker periodically warns users before their trained

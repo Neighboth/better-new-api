@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, Loader2, Terminal, Trash2 } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Download, Info, Loader2, Terminal, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -462,6 +463,22 @@ export function FineTuningSettingsSection({
   return (
     <>
       <SettingsSection title={t('Fine-Tuning Settings')}>
+        <div className='bg-muted/40 mb-5 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm'>
+          <Info className='text-primary mt-0.5 h-4 w-4 shrink-0' />
+          <p className='text-muted-foreground leading-relaxed'>
+            {t(
+              'Fine-tuning jobs run on the enabled compute providers and connected accounts configured in Model Deployment settings.'
+            )}{' '}
+            <Link
+              to='/system-settings/models/$section'
+              params={{ section: 'model-deployment' }}
+              className='text-primary font-medium underline underline-offset-4'
+            >
+              {t('Open Model Deployment')}
+            </Link>
+          </p>
+        </div>
+
         <Form {...form}>
           <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
             <FormField
@@ -542,6 +559,73 @@ export function FineTuningSettingsSection({
               )}
             />
 
+            {defaultValues.enabledProviders.colab && (
+              <>
+                <FormField
+                  control={form.control}
+                  name='colabNormalRamMultiplier'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Colab Normal RAM Multiplier')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          step='0.05'
+                          min='0.1'
+                          max='20'
+                          value={field.value ?? 1}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 1
+                                : Math.max(0.1, Number(e.target.value))
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Pricing multiplier applied to standard Colab RAM runtimes (default 1.0x).'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='colabHighRamMultiplier'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Colab High RAM Multiplier')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          step='0.05'
+                          min='0.1'
+                          max='20'
+                          value={field.value ?? 1.5}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 1.5
+                                : Math.max(0.1, Number(e.target.value))
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Pricing multiplier applied when High-RAM is selected on Colab (default 1.5x).'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
             {/* Hardware Pricing Table */}
             <FormItem data-settings-form-span='full' className='space-y-3'>
               <FormLabel>{t('Fine-Tuning Hardware Pricing')}</FormLabel>
@@ -555,7 +639,7 @@ export function FineTuningSettingsSection({
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('Accelerator')}</TableHead>
-                      <TableHead className='w-[200px]'>
+                      <TableHead className='w-[220px]'>
                         {t('Price per Second (USD/s)')}
                       </TableHead>
                       <TableHead className='w-[100px] text-right'>
@@ -578,19 +662,19 @@ export function FineTuningSettingsSection({
                               <Badge
                                 key={p}
                                 variant='secondary'
-                                className='px-1.5 py-0 text-[10px] font-normal'
+                                className='px-1.5 py-0 text-xs font-normal'
                               >
                                 {PROVIDER_LABELS[p] ?? p}
                               </Badge>
                             ))}
                           </div>
-                          <div className='text-muted-foreground font-mono text-[11px]'>
+                          <div className='text-muted-foreground text-xs'>
                             {row.id}
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className='relative flex items-center'>
-                            <span className='text-muted-foreground pointer-events-none absolute left-2.5 text-xs'>
+                            <span className='text-muted-foreground pointer-events-none absolute left-3 text-sm'>
                               $
                             </span>
                             <Input
@@ -607,7 +691,7 @@ export function FineTuningSettingsSection({
                                       : Math.max(0, Number(e.target.value)),
                                 })
                               }}
-                              className='h-8 pl-6 font-mono text-xs'
+                              className='pl-7 tabular-nums'
                             />
                           </div>
                         </TableCell>
@@ -624,75 +708,6 @@ export function FineTuningSettingsSection({
                   </TableBody>
                 </Table>
               </div>
-
-              {defaultValues.enabledProviders.colab && (
-                <div className='bg-muted/20 grid grid-cols-1 gap-4 rounded-lg border p-3.5 sm:grid-cols-2'>
-                  <FormField
-                    control={form.control}
-                    name='colabNormalRamMultiplier'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Colab Normal RAM Multiplier')}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            step='0.05'
-                            min='0.1'
-                            max='20'
-                            value={field.value ?? 1}
-                            onChange={(e) =>
-                              field.onChange(
-                                e.target.value === ''
-                                  ? 1
-                                  : Math.max(0.1, Number(e.target.value))
-                              )
-                            }
-                            className='h-8 font-mono text-xs'
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t(
-                            'Pricing multiplier applied to standard Colab RAM runtimes (default 1.0x).'
-                          )}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name='colabHighRamMultiplier'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Colab High RAM Multiplier')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            step='0.05'
-                            min='0.1'
-                            max='20'
-                            value={field.value ?? 1.5}
-                            onChange={(e) =>
-                              field.onChange(
-                                e.target.value === ''
-                                  ? 1.5
-                                  : Math.max(0.1, Number(e.target.value))
-                              )
-                            }
-                            className='h-8 font-mono text-xs'
-                          />
-                        </FormControl>
-                        <FormDescription className='text-xs'>
-                          {t(
-                            'Pricing multiplier applied when High-RAM is selected on Colab (default 1.5x).'
-                          )}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
             </FormItem>
 
             <SettingsPageFormActions
@@ -711,10 +726,10 @@ export function FineTuningSettingsSection({
         <Card>
           <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <div>
-              <CardTitle className='text-base'>
+              <CardTitle className='text-base font-medium'>
                 {t('Fine-Tuning Jobs Management')}
               </CardTitle>
-              <CardDescription className='mt-1 text-xs'>
+              <CardDescription>
                 {t(
                   'Monitor all user fine-tuning jobs, revenue, training logs, model archives, and storage cleanup.'
                 )}
@@ -767,23 +782,23 @@ export function FineTuningSettingsSection({
                   ) : (
                     (jobsData?.jobs ?? []).map((job) => (
                       <TableRow key={job.job_id}>
-                        <TableCell className='text-xs'>
+                        <TableCell className='text-sm'>
                           <div className='font-medium'>
                             {job.username || `#${job.user_id}`}
                           </div>
-                          <div className='text-muted-foreground font-mono text-[11px]'>
+                          <div className='text-muted-foreground text-xs'>
                             #{job.user_id}
                           </div>
                         </TableCell>
-                        <TableCell className='font-mono text-xs'>
+                        <TableCell className='text-sm'>
                           <div className='max-w-[240px] truncate font-medium'>
                             {job.fine_tuned_model || job.job_id}
                           </div>
-                          <div className='text-muted-foreground text-[11px]'>
+                          <div className='text-muted-foreground text-xs'>
                             {job.job_id}
                           </div>
                         </TableCell>
-                        <TableCell className='text-xs'>
+                        <TableCell className='text-sm'>
                           {job.gpu || 'CPU'}
                         </TableCell>
                         <TableCell>
@@ -804,10 +819,10 @@ export function FineTuningSettingsSection({
                                 )}
                           </Badge>
                         </TableCell>
-                        <TableCell className='font-mono text-xs tabular-nums'>
+                        <TableCell className='text-sm tabular-nums'>
                           {formatCurrencyFromUSD(job.estimated_cost_usd)}
                         </TableCell>
-                        <TableCell className='text-muted-foreground text-xs whitespace-nowrap'>
+                        <TableCell className='text-muted-foreground text-sm whitespace-nowrap'>
                           {job.files_purged_at
                             ? t('Expired')
                             : job.expires_at

@@ -18,13 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { AlertCircle, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
+import { AlertCircle, KeyRound, Languages, Loader2, MessageSquare, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Markdown } from '@/components/ui/markdown'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
+import { ScopedApiDialog } from '@/components/scoped-api-dialog'
+import { BlogMarkdown } from '@/features/blog/components/blog-markdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -104,6 +105,7 @@ export function BlogManager() {
   const researchLogRef = useRef<HTMLDivElement | null>(null)
   const [activeLanguage, setActiveLanguage] = useState('en')
   const [commentsPostId, setCommentsPostId] = useState<number | null>(null)
+  const [isBlogApiOpen, setIsBlogApiOpen] = useState(false)
   const [isAiOpen, setIsAiOpen] = useState(false)
   const [isAiGenerated, setIsAiGenerated] = useState(false)
   const [isRefineOpen, setIsRefineOpen] = useState(false)
@@ -1221,6 +1223,16 @@ CRITICAL RULES:
           </div>
         </div>
         <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto'>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            className='w-full sm:w-auto justify-center'
+            onClick={() => setIsBlogApiOpen(true)}
+          >
+            <KeyRound className='me-1 h-4 w-4' />
+            {t('Blog API')}
+          </Button>
           <Button type='button' size='sm' variant='outline' className='w-full sm:w-auto justify-center' onClick={() => { setEditingPost(null); setPostForm(emptyBlogPostForm()); setActiveLanguage('en'); setIsAiOpen(true); }}>
             <Sparkles className='me-1 h-4 w-4' />
             {t('Generate with AI')}
@@ -1645,6 +1657,12 @@ CRITICAL RULES:
         postId={commentsPostId}
         onClose={() => setCommentsPostId(null)}
       />
+
+      <ScopedApiDialog
+        scope='blog'
+        open={isBlogApiOpen}
+        onOpenChange={setIsBlogApiOpen}
+      />
     </div>
   )
 }
@@ -1805,7 +1823,7 @@ function PostLanguageFields(props: {
         </div>
         {isPreview ? (
           <div className='min-h-[200px] max-h-[500px] overflow-y-auto rounded-md border p-4 bg-muted/20'>
-            <Markdown>{props.form.contents[props.langCode] ?? ''}</Markdown>
+            <BlogMarkdown content={props.form.contents[props.langCode] ?? ''} />
           </div>
         ) : (
           <Textarea

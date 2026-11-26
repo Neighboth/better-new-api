@@ -24,13 +24,13 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { RichContent } from '@/components/rich-content'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useStatus } from '@/hooks/use-status'
 
 import { fetchBlogPost } from './api'
 import { BlogAds } from './components/blog-ads-block'
+import { BlogMarkdown } from './components/blog-markdown'
 import { BlogComments } from './components/comments'
 import { ReactionButtons } from './components/reaction-buttons'
 import { useSeoMeta } from '@/hooks/use-seo-meta'
@@ -147,11 +147,7 @@ export function BlogPostPage(props: BlogPostPageProps) {
           />
         ) : null}
 
-        <RichContent
-          content={post.content}
-          mode='markdown'
-          className='max-w-none'
-        />
+        <BlogMarkdown content={post.content} />
 
         <div className='flex items-center gap-2 border-y py-3'>
           <ReactionButtons

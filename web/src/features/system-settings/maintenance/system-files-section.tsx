@@ -21,6 +21,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  KeyRound,
   Lock,
   Pencil,
   Shield,
@@ -33,6 +34,8 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
+import { ScopedApiDialog } from '@/components/scoped-api-dialog'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -117,6 +120,7 @@ export function SystemFilesSection() {
   const isCurrentFolderReadOnly = currentFolder === 'uploads' || currentFolder.startsWith('uploads/')
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [apiDialogOpen, setApiDialogOpen] = useState(false)
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorPath, setEditorPath] = useState('')
@@ -590,7 +594,16 @@ export function SystemFilesSection() {
             )}
           </div>
 
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => setApiDialogOpen(true)}
+            >
+              <KeyRound className='me-1 h-4 w-4' />
+              {t('File Manager API')}
+            </Button>
             <Button
               type='button'
               variant='outline'
@@ -1149,6 +1162,12 @@ export function SystemFilesSection() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ScopedApiDialog
+        scope='file_manager'
+        open={apiDialogOpen}
+        onOpenChange={setApiDialogOpen}
+      />
     </SettingsSection>
   )
 }

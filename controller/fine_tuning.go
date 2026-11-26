@@ -158,7 +158,20 @@ type fineTuningWorkerCallbackRequest struct {
 	Status         string `json:"status"`
 	FineTunedModel string `json:"fine_tuned_model"`
 	TrainedTokens  int64  `json:"trained_tokens"`
+	Progress       *int   `json:"progress,omitempty"`
+	LogLine        string `json:"log_line,omitempty"`
 	Error          string `json:"error"`
+}
+
+func verifyFineTuningWorkerToken(c *gin.Context, job *model.FineTuningJob, bodyToken string) bool {
+	token := strings.TrimSpace(bodyToken)
+	if token == "" {
+		token = strings.TrimSpace(c.Query("token"))
+	}
+	if token == "" {
+		token = strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
+	}
+	return job.CallbackToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(job.CallbackToken)) == 1
 }
 
 func FineTuningWorkerCallback(c *gin.Context) {
@@ -173,15 +186,31 @@ func FineTuningWorkerCallback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid payload"})
 		return
 	}
-	token := strings.TrimSpace(req.Token)
-	if token == "" {
-		token = strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-	}
-	if job.CallbackToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(job.CallbackToken)) != 1 {
+	if !verifyFineTuningWorkerToken(c, job, req.Token) {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
 		return
 	}
+	if strings.TrimSpace(req.LogLine) != "" {
+		service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "train", req.LogLine)
+	}
+	if req.Progress != nil {
+		pct := *req.Progress
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		_ = model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
+			"progress":   pct,
+			"updated_at": time.Now().Unix(),
+		})
+	}
 	status := strings.ToLower(strings.TrimSpace(req.Status))
+	if status == "" {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
 	switch status {
 	case "queued", "running", "succeeded", "failed", "cancelled":
 	default:
@@ -193,6 +222,108 @@ func FineTuningWorkerCallback(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// FineTuningWorkerDownloadDataset streams the uploaded training dataset to the
+// remote fine-tuning worker using per-job callback-token authentication.
+func FineTuningWorkerDownloadDataset(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, "") {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+	if job.TrainingFilePath == "" {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Dataset file not found"})
+		return
+	}
+	if _, statErr := os.Stat(job.TrainingFilePath); statErr != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Dataset file missing on disk"})
+		return
+	}
+	c.File(job.TrainingFilePath)
+}
+
+// FineTuningWorkerDownloadBaseModel streams locally uploaded base weights to the
+// remote fine-tuning worker using per-job callback-token authentication.
+func FineTuningWorkerDownloadBaseModel(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, "") {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+	if job.BaseModelFilePath == "" {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Base model file not found"})
+		return
+	}
+	if _, statErr := os.Stat(job.BaseModelFilePath); statErr != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Base model file missing on disk"})
+		return
+	}
+	c.File(job.BaseModelFilePath)
+}
+
+// FineTuningWorkerUploadArtifact receives the real trained .zip archive from the
+// remote fine-tuning worker and persists it into uploads/fine_tuning/<user>/<job>/.
+func FineTuningWorkerUploadArtifact(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, c.PostForm("token")) {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+	fh, err := c.FormFile("file")
+	if err != nil || fh == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file is required"})
+		return
+	}
+	storageDir := service.FineTuningStorageDirForUser(job.UserId, job.JobID)
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	destZip := filepath.Join(storageDir, job.JobID+".zip")
+	src, err := fh.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	defer src.Close()
+	out, err := os.Create(destZip)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	written, copyErr := io.Copy(out, src)
+	_ = out.Close()
+	if copyErr != nil || written == 0 {
+		_ = os.Remove(destZip)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to store artifact"})
+		return
+	}
+
+	updates := map[string]any{
+		"model_file_path": destZip,
+		"updated_at":      time.Now().Unix(),
+	}
+	if tt, pErr := strconv.ParseInt(strings.TrimSpace(c.PostForm("trained_tokens")), 10, 64); pErr == nil && tt > 0 {
+		updates["trained_tokens"] = tt
+	}
+	_ = model.UpdateFineTuningJobStatus(job.JobID, updates)
+	c.JSON(http.StatusOK, gin.H{"success": true, "bytes": written})
 }
 
 func populateFineTuningFileFlags(jobs []model.FineTuningJob) {
@@ -516,8 +647,26 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 
-	// Calculate dataset-size-aware duration & estimated cost
-	estimatedSec := service.EstimateFineTuningDurationSeconds(gpu, taskType, epochs, datasetBytes)
+	// Calculate realistic duration & estimated cost from model size, counted dataset samples, bytes, epochs, method, and accelerator speed
+	var modelFileBytes int64
+	if baseModelFilePath != "" {
+		if fi, sErr := os.Stat(baseModelFilePath); sErr == nil {
+			modelFileBytes = fi.Size()
+		}
+	}
+	dsSamples, _, _, _ := service.InspectFineTuningDatasetFile(trainingFilePath, trainingFile)
+	modelParamHint := strings.TrimSpace(c.PostForm("model_param_size"))
+	estimatedSec := service.EstimateFineTuningDurationRealistic(service.FineTuningEstimateInput{
+		GPU:            gpu,
+		TaskType:       taskType,
+		Method:         method,
+		Epochs:         epochs,
+		DatasetBytes:   datasetBytes,
+		DatasetSamples: dsSamples,
+		ModelName:      baseModel,
+		ModelParamHint: modelParamHint,
+		ModelFileBytes: modelFileBytes,
+	})
 	estCost := service.EstimateFineTuningCostUSDWithRAM(gpu, ramTier, estimatedSec)
 
 	// Verify user balance covers estimated fine-tuning cost

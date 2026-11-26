@@ -553,30 +553,35 @@ func RenameManagedFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// serveManagedContent writes the stored bytes of a managed file with a
-// content type derived from the file extension, falling back to the
-// detector when the extension is unknown.
+// serveManagedContent writes the stored bytes of a managed file using
+// http.ServeContent so Range seeking (videos/audio) and MIME types work cleanly.
 func serveManagedContent(c *gin.Context, cleanPath string, content []byte) {
-	contentType := http.DetectContentType(content)
+	lower := strings.ToLower(cleanPath)
 	switch {
-	case strings.HasSuffix(cleanPath, ".css"):
-		contentType = "text/css; charset=utf-8"
-	case strings.HasSuffix(cleanPath, ".js"):
-		contentType = "application/javascript; charset=utf-8"
-	case strings.HasSuffix(cleanPath, ".html"):
-		contentType = "text/html; charset=utf-8"
-	case strings.HasSuffix(cleanPath, ".svg"):
-		contentType = "image/svg+xml"
-	case strings.HasSuffix(cleanPath, ".png"):
-		contentType = "image/png"
-	case strings.HasSuffix(cleanPath, ".jpg"), strings.HasSuffix(cleanPath, ".jpeg"):
-		contentType = "image/jpeg"
-	case strings.HasSuffix(cleanPath, ".webp"):
-		contentType = "image/webp"
-	case strings.HasSuffix(cleanPath, ".gif"):
-		contentType = "image/gif"
+	case strings.HasSuffix(lower, ".css"):
+		c.Header("Content-Type", "text/css; charset=utf-8")
+	case strings.HasSuffix(lower, ".js"):
+		c.Header("Content-Type", "application/javascript; charset=utf-8")
+	case strings.HasSuffix(lower, ".html"):
+		c.Header("Content-Type", "text/html; charset=utf-8")
+	case strings.HasSuffix(lower, ".svg"):
+		c.Header("Content-Type", "image/svg+xml")
+	case strings.HasSuffix(lower, ".png"):
+		c.Header("Content-Type", "image/png")
+	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
+		c.Header("Content-Type", "image/jpeg")
+	case strings.HasSuffix(lower, ".webp"):
+		c.Header("Content-Type", "image/webp")
+	case strings.HasSuffix(lower, ".gif"):
+		c.Header("Content-Type", "image/gif")
+	case strings.HasSuffix(lower, ".mp4"), strings.HasSuffix(lower, ".m4v"):
+		c.Header("Content-Type", "video/mp4")
+	case strings.HasSuffix(lower, ".webm"):
+		c.Header("Content-Type", "video/webm")
+	case strings.HasSuffix(lower, ".mov"):
+		c.Header("Content-Type", "video/quicktime")
 	}
-	c.Data(http.StatusOK, contentType, content)
+	http.ServeContent(c.Writer, c.Request, filepath.Base(cleanPath), time.Time{}, bytes.NewReader(content))
 	c.Abort()
 }
 

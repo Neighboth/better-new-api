@@ -1,15 +1,59 @@
 package controller
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
+
+type siteStatsCacheEntry struct {
+	payload   gin.H
+	expiresAt time.Time
+}
+
+var (
+	siteStatsCacheMu sync.RWMutex
+	siteStatsCache   = map[string]siteStatsCacheEntry{}
+)
+
+const siteStatsCacheTTL = 30 * time.Second
+
+func getCachedSiteStats(key string) (gin.H, bool) {
+	siteStatsCacheMu.RLock()
+	entry, ok := siteStatsCache[key]
+	siteStatsCacheMu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.payload, true
+}
+
+func setCachedSiteStats(key string, payload gin.H) {
+	siteStatsCacheMu.Lock()
+	if len(siteStatsCache) >= 64 {
+		now := time.Now()
+		for k, v := range siteStatsCache {
+			if now.After(v.expiresAt) {
+				delete(siteStatsCache, k)
+			}
+		}
+		if len(siteStatsCache) >= 64 {
+			siteStatsCache = map[string]siteStatsCacheEntry{}
+		}
+	}
+	siteStatsCache[key] = siteStatsCacheEntry{
+		payload:   payload,
+		expiresAt: time.Now().Add(siteStatsCacheTTL),
+	}
+	siteStatsCacheMu.Unlock()
+}
 
 // The site wide statistics of the administration.
 //
@@ -261,11 +305,101 @@ func GetSiteStatistics(c *gin.Context) {
 	sortKey := strings.ToLower(strings.TrimSpace(c.DefaultQuery("sort", "requests")))
 	order := strings.ToLower(strings.TrimSpace(c.DefaultQuery("order", "desc")))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	bypassCache := strings.EqualFold(strings.TrimSpace(c.Query("refresh")), "true")
 
-	// The series of the requests. The hour and the day granularity come from
-	// one grouped query, the week and the month granularity come from the
-	// pairs of the days and the users so that the count of the distinct users
-	// of a long bucket is the real count and not the sum of the days.
+	cacheKey := fmt.Sprintf("%s|%d|%d|%s|%d|%s|%s|%s|%d|%s|%s|%s|%d",
+		preset, start, end, granularity, tzOffsetMin,
+		c.Query("user_ids"), c.Query("exclude_user_ids"),
+		filter.ModelName, filter.ChannelId, filter.Group,
+		sortKey, order, limit,
+	)
+	if !bypassCache {
+		if cached, ok := getCachedSiteStats(cacheKey); ok {
+			common.ApiSuccess(c, cached)
+			return
+		}
+	}
+
+	// Execute all independent database queries concurrently with bounded
+	// parallelism so the page loads in a fraction of sequential latency across
+	// SQLite, MySQL, and PostgreSQL.
+	var (
+		seriesRows       []model.SiteStatsBucket
+		seriesPairs      []model.SiteStatsDayUser
+		seriesErr        error
+		errorRows        []model.SiteStatsCount
+		registrationRows []model.SiteStatsCount
+		hourRows         []model.SiteStatsCount
+		dayRows          []model.SiteStatsCount
+		deviceTypes      []model.SiteStatsNameCount
+		countries        []model.SiteStatsNameCount
+		topUsers         []model.SiteStatsTopUser
+		topModels        []model.SiteStatsTopModel
+		topChannels      []model.SiteStatsTopChannel
+		topClients       []model.SiteStatsTopClient
+		topTokens        []model.SiteStatsTopToken
+		topGroups        []model.SiteStatsTopGroup
+		topIps           []model.SiteStatsTopIp
+		topByogNodes     []model.SiteStatsByogNodeRank
+		logTypes         []model.SiteStatsLogTypeCount
+		summaryRow       *model.SiteStatsSummary
+		globalCounters   *model.SiteStatsGlobalCounters
+		byogOnlineCount  int64
+	)
+
+	errorDiv := bucketSize
+	if granularity == "week" || granularity == "month" {
+		errorDiv = 86400
+	}
+
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	run := func(fn func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			fn()
+		}()
+	}
+
+	run(func() {
+		if granularity == "hour" || granularity == "day" {
+			seriesRows, seriesErr = model.GetSiteStatsSeries(filter, bucketSize)
+		} else {
+			seriesPairs, seriesErr = model.GetSiteStatsDayUserPairs(filter)
+		}
+	})
+	run(func() { errorRows, _ = model.GetSiteStatsErrorSeries(filter, errorDiv) })
+	run(func() { registrationRows, _ = model.GetSiteStatsRegistrationSeries(filter, errorDiv) })
+	run(func() { hourRows, _ = model.GetSiteStatsHourOfDay(filter) })
+	if granularity != "day" {
+		// When granularity == "day", weekday distribution is derived directly from seriesRows.
+		run(func() { dayRows, _ = model.GetSiteStatsDayCounts(filter) })
+	}
+	run(func() { deviceTypes, _ = model.GetSiteStatsByogDeviceTypes() })
+	run(func() { countries, _ = model.GetSiteStatsByogCountries(12) })
+	run(func() { topUsers, _ = model.GetSiteStatsTopUsers(filter, sortKey, order, limit) })
+	run(func() { topModels, _ = model.GetSiteStatsTopModels(filter, sortKey, order, limit) })
+	run(func() { topChannels, _ = model.GetSiteStatsTopChannels(filter, sortKey, order, limit) })
+	run(func() { topClients, _ = model.GetSiteStatsTopClients(filter, sortKey, order, limit) })
+	run(func() { topTokens, _ = model.GetSiteStatsTopTokens(filter, sortKey, order, limit) })
+	run(func() { topGroups, _ = model.GetSiteStatsTopGroups(filter, sortKey, order, limit) })
+	run(func() { topIps, _ = model.GetSiteStatsTopIps(filter, limit) })
+	run(func() { topByogNodes, _ = model.GetSiteStatsTopByogNodes(limit) })
+	run(func() { logTypes, _ = model.GetSiteStatsLogTypeCounts(filter) })
+	run(func() { summaryRow, _ = model.GetSiteStatsSummary(filter) })
+	run(func() { globalCounters, _ = model.GetSiteStatsGlobalCounters() })
+	run(func() { byogOnlineCount, _ = model.CountSiteStatsByogOnlineNodes(time.Now().Unix() - 180) })
+
+	wg.Wait()
+
+	if seriesErr != nil {
+		common.ApiError(c, seriesErr)
+		return
+	}
+
 	seriesMap := make(map[int64]*siteStatsSeriesPoint)
 	orderKeys := make([]int64, 0, 64)
 	addPoint := func(bucket int64) *siteStatsSeriesPoint {
@@ -279,12 +413,7 @@ func GetSiteStatistics(c *gin.Context) {
 	}
 
 	if granularity == "hour" || granularity == "day" {
-		rows, err := model.GetSiteStatsSeries(filter, bucketSize)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		for _, row := range rows {
+		for _, row := range seriesRows {
 			point := addPoint(row.Bucket)
 			point.Requests = row.Requests
 			point.Tokens = row.Tokens
@@ -295,13 +424,8 @@ func GetSiteStatistics(c *gin.Context) {
 			point.ByogRequests = row.ByogRequests
 		}
 	} else {
-		pairs, err := model.GetSiteStatsDayUserPairs(filter)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
 		userSets := make(map[int64]map[int]bool)
-		for _, pair := range pairs {
+		for _, pair := range seriesPairs {
 			localDay := pair.Bucket + tzSec
 			var bucket int64
 			if granularity == "week" {
@@ -330,9 +454,6 @@ func GetSiteStatistics(c *gin.Context) {
 		}
 	}
 
-	// The errors and the registrations join the buckets of the requests. For
-	// the week and the month granularity they arrive as days and are merged
-	// into the long buckets.
 	mergeCounts := func(rows []model.SiteStatsCount, apply func(point *siteStatsSeriesPoint, count int64)) {
 		for _, row := range rows {
 			bucket := row.Bucket
@@ -348,21 +469,13 @@ func GetSiteStatistics(c *gin.Context) {
 		}
 	}
 
-	errorDiv := bucketSize
-	if granularity == "week" || granularity == "month" {
-		errorDiv = 86400
-	}
-	errorRows, err := model.GetSiteStatsErrorSeries(filter, errorDiv)
-	if err == nil {
-		mergeCounts(errorRows, func(point *siteStatsSeriesPoint, count int64) { point.Errors += count })
-	}
-	registrationRows, err := model.GetSiteStatsRegistrationSeries(filter, errorDiv)
-	if err == nil {
-		mergeCounts(registrationRows, func(point *siteStatsSeriesPoint, count int64) { point.Registrations += count })
-	}
+	mergeCounts(errorRows, func(point *siteStatsSeriesPoint, count int64) { point.Errors += count })
+	var totalRegistrations int64
+	mergeCounts(registrationRows, func(point *siteStatsSeriesPoint, count int64) {
+		point.Registrations += count
+		totalRegistrations += count
+	})
 
-	// The axis of the chart is complete, a bucket without traffic is an
-	// honest zero and not a hole in the line.
 	axis := make([]int64, 0, len(orderKeys))
 	if granularity == "hour" || granularity == "day" {
 		localStart := start + tzSec
@@ -404,22 +517,26 @@ func GetSiteStatistics(c *gin.Context) {
 		}
 	}
 
-	// The distributions of the hour of the day and of the weekday.
 	distributions := siteStatsDistributions{
-		HourOfDay: make([]int64, 24),
-		Weekday:   make([]int64, 7),
+		HourOfDay:       make([]int64, 24),
+		Weekday:         make([]int64, 7),
+		ByogDeviceTypes: deviceTypes,
+		ByogCountries:   countries,
 	}
-	hourRows, err := model.GetSiteStatsHourOfDay(filter)
-	if err == nil {
-		for _, row := range hourRows {
-			index := row.Bucket / 3600
-			if index >= 0 && index < 24 {
-				distributions.HourOfDay[index] = row.Count
-			}
+	for _, row := range hourRows {
+		index := row.Bucket / 3600
+		if index >= 0 && index < 24 {
+			distributions.HourOfDay[index] = row.Count
 		}
 	}
-	dayRows, err := model.GetSiteStatsDayCounts(filter)
-	if err == nil {
+	if granularity == "day" {
+		for _, row := range seriesRows {
+			index := buildSiteStatsWeekdayIndex(row.Bucket + tzSec)
+			if index >= 0 && index < 7 {
+				distributions.Weekday[index] += row.Requests
+			}
+		}
+	} else {
 		for _, row := range dayRows {
 			index := buildSiteStatsWeekdayIndex(row.Bucket + tzSec)
 			if index >= 0 && index < 7 {
@@ -427,24 +544,19 @@ func GetSiteStatistics(c *gin.Context) {
 			}
 		}
 	}
-	if deviceTypes, err := model.GetSiteStatsByogDeviceTypes(); err == nil {
-		distributions.ByogDeviceTypes = deviceTypes
-	}
-	if countries, err := model.GetSiteStatsByogCountries(12); err == nil {
-		distributions.ByogCountries = countries
-	}
 
-	// The rankings.
-	rankings := siteStatsRankings{}
-	if users, err := model.GetSiteStatsTopUsers(filter, sortKey, order, limit); err == nil {
-		rankings.Users = users
+	rankings := siteStatsRankings{
+		Users:    topUsers,
+		Models:   topModels,
+		Clients:  topClients,
+		Tokens:   topTokens,
+		Groups:   topGroups,
+		Ips:      topIps,
+		LogTypes: logTypes,
 	}
-	if models_, err := model.GetSiteStatsTopModels(filter, sortKey, order, limit); err == nil {
-		rankings.Models = models_
-	}
-	if channels, err := model.GetSiteStatsTopChannels(filter, sortKey, order, limit); err == nil {
-		ids := make([]int, 0, len(channels))
-		for _, row := range channels {
+	if len(topChannels) > 0 {
+		ids := make([]int, 0, len(topChannels))
+		for _, row := range topChannels {
 			if row.ChannelId > 0 {
 				ids = append(ids, row.ChannelId)
 			}
@@ -453,12 +565,10 @@ func GetSiteStatistics(c *gin.Context) {
 		if nameErr != nil {
 			names = map[int]string{}
 		}
-		rankings.Channels = make([]siteStatsChannelRank, 0, len(channels))
-		for _, row := range channels {
+		rankings.Channels = make([]siteStatsChannelRank, 0, len(topChannels))
+		for _, row := range topChannels {
 			name := names[row.ChannelId]
 			if row.ChannelId == 0 {
-				// The requests of the BYOG nodes and of the local relay do
-				// not belong to an upstream channel.
 				name = "BYOG"
 			} else if name == "" {
 				name = "#" + strconv.Itoa(row.ChannelId)
@@ -472,21 +582,9 @@ func GetSiteStatistics(c *gin.Context) {
 			})
 		}
 	}
-	if clients, err := model.GetSiteStatsTopClients(filter, sortKey, order, limit); err == nil {
-		rankings.Clients = clients
-	}
-	if tokens, err := model.GetSiteStatsTopTokens(filter, sortKey, order, limit); err == nil {
-		rankings.Tokens = tokens
-	}
-	if groups, err := model.GetSiteStatsTopGroups(filter, sortKey, order, limit); err == nil {
-		rankings.Groups = groups
-	}
-	if ips, err := model.GetSiteStatsTopIps(filter, limit); err == nil {
-		rankings.Ips = ips
-	}
-	if nodes, err := model.GetSiteStatsTopByogNodes(limit); err == nil {
-		ids := make([]int, 0, len(nodes))
-		for _, node := range nodes {
+	if len(topByogNodes) > 0 {
+		ids := make([]int, 0, len(topByogNodes))
+		for _, node := range topByogNodes {
 			if node.UserId > 0 {
 				ids = append(ids, node.UserId)
 			}
@@ -495,55 +593,49 @@ func GetSiteStatistics(c *gin.Context) {
 		if nameErr != nil {
 			names = map[int]string{}
 		}
-		rankings.ByogNodes = make([]siteStatsByogNodeRank, 0, len(nodes))
-		for _, node := range nodes {
+		rankings.ByogNodes = make([]siteStatsByogNodeRank, 0, len(topByogNodes))
+		for _, node := range topByogNodes {
 			rankings.ByogNodes = append(rankings.ByogNodes, siteStatsByogNodeRank{
 				SiteStatsByogNodeRank: node,
 				Username:              names[node.UserId],
 			})
 		}
 	}
-	if logTypes, err := model.GetSiteStatsLogTypeCounts(filter); err == nil {
-		rankings.LogTypes = logTypes
-	}
 
-	// The summary of the range and the counters of the whole installation.
-	summary := siteStatsSummary{}
-	if row, err := model.GetSiteStatsSummary(filter); err == nil && row != nil {
-		summary.Requests = row.Requests
-		summary.Tokens = row.Tokens
-		summary.PromptTokens = row.PromptTokens
-		summary.CompletionTokens = row.CompletionTokens
-		summary.Quota = row.Quota
-		summary.UniqueUsers = row.UniqueUsers
-		summary.ByogRequests = row.ByogRequests
-		summary.UpstreamRequests = row.Requests - row.ByogRequests
-		// The average of an empty range is not a number on some engines, the
-		// answer carries a clean zero instead of a NaN that breaks the JSON.
-		if math.IsNaN(row.AvgUseTimeSecond) || math.IsInf(row.AvgUseTimeSecond, 0) {
-			row.AvgUseTimeSecond = 0
+	summary := siteStatsSummary{
+		Registrations: totalRegistrations,
+	}
+	if summaryRow != nil {
+		summary.Requests = summaryRow.Requests
+		summary.Tokens = summaryRow.Tokens
+		summary.PromptTokens = summaryRow.PromptTokens
+		summary.CompletionTokens = summaryRow.CompletionTokens
+		summary.Quota = summaryRow.Quota
+		summary.UniqueUsers = summaryRow.UniqueUsers
+		summary.ByogRequests = summaryRow.ByogRequests
+		summary.UpstreamRequests = summaryRow.Requests - summaryRow.ByogRequests
+		if math.IsNaN(summaryRow.AvgUseTimeSecond) || math.IsInf(summaryRow.AvgUseTimeSecond, 0) {
+			summaryRow.AvgUseTimeSecond = 0
 		}
-		summary.AvgUseTimeSecond = math.Round(row.AvgUseTimeSecond*100) / 100
+		summary.AvgUseTimeSecond = math.Round(summaryRow.AvgUseTimeSecond*100) / 100
 	}
-	if errors, err := model.CountSiteStatsLogs(filter, model.LogTypeError); err == nil {
-		summary.Errors = errors
-	}
-	if logins, err := model.CountSiteStatsLogs(filter, model.LogTypeLogin); err == nil {
-		summary.Logins = logins
-	}
-	if registrations, err := model.CountSiteStatsRegistrations(filter); err == nil {
-		summary.Registrations = registrations
+	// Derive error & login totals directly from logTypes (avoids 2 extra full logs table scans)
+	for _, lt := range logTypes {
+		switch lt.Type {
+		case model.LogTypeError:
+			summary.Errors = lt.Count
+		case model.LogTypeLogin:
+			summary.Logins = lt.Count
+		}
 	}
 
 	counters := model.SiteStatsGlobalCounters{}
-	if row, err := model.GetSiteStatsGlobalCounters(); err == nil && row != nil {
-		counters = *row
+	if globalCounters != nil {
+		counters = *globalCounters
 	}
-	if online, err := model.CountSiteStatsByogOnlineNodes(time.Now().Unix() - 180); err == nil {
-		counters.ByogNodesOnline = online
-	}
+	counters.ByogNodesOnline = byogOnlineCount
 
-	common.ApiSuccess(c, gin.H{
+	payload := gin.H{
 		"range": siteStatsRangeInfo{
 			Start:       start,
 			End:         end,
@@ -557,5 +649,7 @@ func GetSiteStatistics(c *gin.Context) {
 		"series":        series,
 		"distributions": distributions,
 		"rankings":      rankings,
-	})
+	}
+	setCachedSiteStats(cacheKey, payload)
+	common.ApiSuccess(c, payload)
 }

@@ -3,8 +3,10 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -336,64 +338,302 @@ func GetFineTuningExpiryWarningDays() int {
 	return days
 }
 
-// acceleratorSpeedFactor returns relative training throughput used to estimate
-// realistic training duration alongside dataset size and epochs.
-func acceleratorSpeedFactor(gpuID string) float64 {
-	upper := strings.ToUpper(strings.TrimSpace(gpuID))
+var modelSizeBillionsRe = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])(\d+(?:\.\d+)?)\s*([bm])(?:[^a-z]|$)`)
+
+// ParseModelBillions extracts an approximate parameter count (in billions) from
+// explicit HF metadata, a model repository/filename string, or uploaded file
+// size in bytes (~2 bytes/param for FP16/BF16).
+func ParseModelBillions(modelName string, paramSizeHint string, modelFileBytes int64) float64 {
+	parseHint := func(raw string) float64 {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			return 0
+		}
+		if matches := modelSizeBillionsRe.FindAllStringSubmatch(s, -1); len(matches) > 0 {
+			best := 0.0
+			for _, m := range matches {
+				v, err := strconv.ParseFloat(m[1], 64)
+				if err != nil || v <= 0 {
+					continue
+				}
+				if strings.EqualFold(m[2], "m") {
+					v = v / 1000.0
+				}
+				if v > best && v <= 2000 {
+					best = v
+				}
+			}
+			if best > 0 {
+				return best
+			}
+		}
+		return 0
+	}
+
+	if v := parseHint(paramSizeHint); v > 0 {
+		return v
+	}
+	if v := parseHint(modelName); v > 0 {
+		return v
+	}
+	lower := strings.ToLower(modelName)
 	switch {
-	case strings.Contains(upper, "B300"), strings.Contains(upper, "B200"), strings.Contains(upper, "H200"), strings.Contains(upper, "H100"):
-		return 5.5
-	case strings.Contains(upper, "A100"), strings.Contains(upper, "RTX-PRO-6000"), strings.Contains(upper, "RTX_PRO_6000"):
-		return 3.5
-	case strings.Contains(upper, "L40S"), strings.Contains(upper, "4090"):
-		return 2.6
-	case strings.Contains(upper, "TPU"):
+	case strings.Contains(lower, "deepseek-r1"), strings.Contains(lower, "deepseek-v3"):
+		if !strings.Contains(lower, "distill") {
+			return 671.0
+		}
+	case strings.Contains(lower, "deepseek-v2.5"), strings.Contains(lower, "deepseek-v2"):
+		if !strings.Contains(lower, "lite") {
+			return 236.0
+		}
+		return 16.0
+	case strings.Contains(lower, "flux"):
+		return 12.0
+	case strings.Contains(lower, "sdxl"), strings.Contains(lower, "xl"):
+		return 6.5
+	case strings.Contains(lower, "sd3"):
+		return 8.0
+	case strings.Contains(lower, "stable-diffusion"), strings.Contains(lower, "cyberrealistic"), strings.Contains(lower, "sd1.5"):
+		return 1.2
+	case strings.Contains(lower, "whisper-large"):
+		return 1.55
+	}
+	if modelFileBytes > 0 {
+		// FP16/BF16 weights are ~2 bytes per parameter
+		est := float64(modelFileBytes) / 2_000_000_000.0
+		if est < 0.25 {
+			est = 0.25
+		}
+		if est > 700 {
+			est = 700
+		}
+		return est
+	}
+	return 7.0
+}
+
+// GetAcceleratorSpeedFactor returns relative training throughput compared to
+// 1x NVIDIA Tesla T4 (1.0x), accurately reflecting GPU tier and multi-GPU counts
+// (e.g. Kaggle NvidiaTeslaT4 = 2x T4 = 1.85x vs 1x T4 = 1.0x).
+func GetAcceleratorSpeedFactor(gpuID string) float64 {
+	trimmed := strings.TrimSpace(gpuID)
+	switch trimmed {
+	case "NvidiaTeslaT4": // Kaggle T4 x2
+		return 1.85
+	case "t4-medium":
+		return 1.35
+	case "T4", "NVIDIA_TESLA_T4", "t4-small":
+		return 1.0
+	case "l4x4":
+		return 7.8
+	case "L4", "NVIDIA_L4", "NvidiaL4", "l4x1":
+		return 2.1
+	case "a10g-large":
+		return 3.4
+	case "A10G", "NVIDIA_A10G", "a10g-small":
 		return 2.4
+	case "RTX-3090":
+		return 2.3
+	case "RTX-4090":
+		return 4.0
+	case "l40sx4":
+		return 15.5
+	case "L40S", "l40sx1":
+		return 4.2
+	case "A100-40GB", "NVIDIA_TESLA_A100":
+		return 5.4
+	case "A100-80GB", "NVIDIA_TESLA_A100_80GB", "A100", "a100-large":
+		return 6.2
+	case "a100x2":
+		return 12.0
+	case "a100x4":
+		return 23.0
+	case "a100x8":
+		return 44.0
+	case "RTX-PRO-6000", "NVIDIA_RTX_PRO_6000":
+		return 7.0
+	case "H100", "H100-SXM", "H100-80GB", "NVIDIA_H100_80GB", "h100x1":
+		return 12.0
+	case "h100x4":
+		return 45.0
+	case "h100x8":
+		return 85.0
+	case "H200", "h200x1":
+		return 14.5
+	case "h200x8":
+		return 105.0
+	case "B200":
+		return 18.0
+	case "B300":
+		return 24.0
+	case "TPU_V2_8":
+		return 3.6
+	case "TPU_V5E_1":
+		return 3.0
+	case "TPU_V6E_1":
+		return 4.2
+	case "TpuV5E8":
+		return 10.5
+	case "TpuV6E8":
+		return 16.0
+	case "cpu-upgrade":
+		return 0.12
+	case "CPU", "cpu-basic":
+		return 0.07
+	}
+
+	upper := strings.ToUpper(trimmed)
+	switch {
+	case strings.Contains(upper, "B300"):
+		return 24.0
+	case strings.Contains(upper, "B200"):
+		return 18.0
+	case strings.Contains(upper, "H200"):
+		return 14.5
+	case strings.Contains(upper, "H100"):
+		return 12.0
+	case strings.Contains(upper, "A100"):
+		return 5.8
+	case strings.Contains(upper, "RTX-PRO-6000"), strings.Contains(upper, "RTX_PRO_6000"):
+		return 7.0
+	case strings.Contains(upper, "L40S"):
+		return 4.2
+	case strings.Contains(upper, "4090"):
+		return 4.0
+	case strings.Contains(upper, "TPU"):
+		return 3.5
 	case strings.Contains(upper, "A10G"), strings.Contains(upper, "3090"):
-		return 2.0
+		return 2.4
 	case strings.Contains(upper, "L4"):
-		return 1.6
+		return 2.1
 	case strings.Contains(upper, "T4"):
 		return 1.0
 	case strings.Contains(upper, "CPU"):
-		return 0.35
+		return 0.07
 	default:
 		return 1.0
 	}
 }
 
-// EstimateFineTuningDurationSeconds computes estimated training duration in
-// seconds accounting for dataset file size, epochs, task modality, and
-// accelerator throughput.
-func EstimateFineTuningDurationSeconds(gpuID string, taskType string, epochs int, datasetBytes int64) int64 {
+// FineTuningEstimateInput holds all real workload factors affecting training time.
+type FineTuningEstimateInput struct {
+	GPU            string
+	TaskType       string
+	Method         string
+	Epochs         int
+	DatasetBytes   int64
+	DatasetSamples int64 // exact non-empty lines/records when known
+	ModelName      string
+	ModelParamHint string
+	ModelFileBytes int64
+}
+
+// EstimateFineTuningDurationRealistic computes realistic training duration in
+// seconds from model parameter count (billions), dataset sample count & bytes,
+// optimizer gradient steps, method overhead, task modality, and hardware speed.
+func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
+	epochs := in.Epochs
 	if epochs < 1 {
 		epochs = 1
 	}
+	datasetBytes := in.DatasetBytes
 	if datasetBytes < 0 {
 		datasetBytes = 0
 	}
-	datasetMB := float64(datasetBytes) / (1024.0 * 1024.0)
+
+	modelB := ParseModelBillions(in.ModelName, in.ModelParamHint, in.ModelFileBytes)
+	speed := GetAcceleratorSpeedFactor(in.GPU)
+	if speed <= 0 {
+		speed = 1.0
+	}
+
 	taskFactor := 1.0
-	switch strings.ToLower(strings.TrimSpace(taskType)) {
+	switch strings.ToLower(strings.TrimSpace(in.TaskType)) {
 	case "image":
-		taskFactor = 1.8
+		taskFactor = 1.85
 	case "vision":
-		taskFactor = 1.6
+		taskFactor = 1.60
 	case "audio":
-		taskFactor = 1.3
+		taskFactor = 1.35
 	default:
 		taskFactor = 1.0
 	}
-	speed := acceleratorSpeedFactor(gpuID)
-	basePerEpochSec := 45.0 + datasetMB*90.0
-	est := int64((basePerEpochSec * taskFactor / speed) * float64(epochs))
-	if est < 30 {
-		est = 30
+
+	methodFactor := 1.0
+	switch strings.ToLower(strings.TrimSpace(in.Method)) {
+	case "full":
+		methodFactor = 2.2
+	case "dpo":
+		methodFactor = 1.65
+	case "dreambooth":
+		methodFactor = 1.45
+	case "sft":
+		methodFactor = 1.15
+	case "qlora":
+		methodFactor = 1.10
+	default:
+		methodFactor = 1.0
 	}
-	if est > 7*86400 {
-		est = 7 * 86400
+
+	samples := in.DatasetSamples
+	if samples <= 0 {
+		if datasetBytes > 0 {
+			samples = datasetBytes / 180
+			if samples < 16 {
+				samples = 16
+			}
+		} else {
+			samples = 100
+		}
 	}
-	return est
+
+	// Effective tokens per epoch: account for tokenization, chat templates, and padding
+	tokensFromBytes := float64(datasetBytes) / 4.0
+	tokensFromSamples := float64(samples) * 24.0
+	if strings.EqualFold(in.TaskType, "image") {
+		tokensFromSamples = float64(samples) * 320.0
+	}
+	estTokensPerEpoch := math.Max(tokensFromBytes, tokensFromSamples)
+
+	// Setup/download/model load time scales with model size
+	setupSec := 60.0 + modelB*18.0
+	if setupSec > 2400.0 {
+		setupSec = 2400.0
+	}
+
+	// Token FLOPs compute time: ~650 tok/s for 7B LoRA on 1x T4
+	tokenComputePerEpoch := (estTokensPerEpoch / 650.0) * (modelB / 7.0) * methodFactor * taskFactor / speed
+
+	// Per-optimizer-step kernel & gradient overhead (critical for many short samples like 65k rows)
+	const effectiveBatchSize = 16.0
+	stepsPerEpoch := math.Ceil(float64(samples) / effectiveBatchSize)
+	stepOverheadPerEpoch := stepsPerEpoch * (0.28 + 0.09*modelB) * taskFactor / math.Sqrt(speed)
+
+	exportSec := 30.0 + modelB*3.0
+	if exportSec > 600.0 {
+		exportSec = 600.0
+	}
+
+	total := int64(math.Round(setupSec + float64(epochs)*(tokenComputePerEpoch+stepOverheadPerEpoch) + exportSec))
+	if total < 45 {
+		total = 45
+	}
+	if total > 14*86400 {
+		total = 14 * 86400
+	}
+	return total
+}
+
+// EstimateFineTuningDurationSeconds keeps backward compatibility for callers that
+// only pass GPU, task type, epochs, and dataset byte size.
+func EstimateFineTuningDurationSeconds(gpuID string, taskType string, epochs int, datasetBytes int64) int64 {
+	return EstimateFineTuningDurationRealistic(FineTuningEstimateInput{
+		GPU:          gpuID,
+		TaskType:     taskType,
+		Method:       "lora",
+		Epochs:       epochs,
+		DatasetBytes: datasetBytes,
+	})
 }
 
 func parseSavedFineTuningPricing() map[string]FineTuningGPUOption {

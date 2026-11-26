@@ -64,6 +64,8 @@ export interface SiteStatsQuery {
   order?: 'asc' | 'desc'
   /** Ranking length, capped to 100 by the server. */
   limit?: number
+  /** Bypass short-lived server-side stats cache when explicitly refreshing. */
+  refresh?: boolean
 }
 
 export interface SiteStatsRangeInfo {

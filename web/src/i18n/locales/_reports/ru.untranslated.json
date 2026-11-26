@@ -126,7 +126,6 @@
   "Generated Codes": "Generated Codes",
   "Generating…": "Generating…",
   "Google AI Subscription Plan:": "Google AI Subscription Plan:",
-  "Google Analytics & Search Console": "Google Analytics & Search Console",
   "Google Analytics ID": "Google Analytics ID",
   "Google Analytics Measurement ID": "Google Analytics Measurement ID",
   "Google reCAPTCHA v2": "Google reCAPTCHA v2",
@@ -135,7 +134,6 @@
   "Higher priority is tried first, the weight splits the load.": "Higher priority is tried first, the weight splits the load.",
   "Home Page Custom Content": "Home Page Custom Content",
   "Hostinger GPU VPS": "Hostinger GPU VPS",
-  "Inactive": "Inactive",
   "Insufficient balance to create these codes.": "Insufficient balance to create these codes.",
   "Invitation revenue (all time)": "Invitation revenue (all time)",
   "Invited by": "Invited by",
@@ -150,6 +148,7 @@
   "Leave empty to disable. Injects Microsoft Clarity analytics script into public pages.": "Leave empty to disable. Injects Microsoft Clarity analytics script into public pages.",
   "Leave empty to disable. Privacy-friendly self-hosted or cloud Umami website ID.": "Leave empty to disable. Privacy-friendly self-hosted or cloud Umami website ID.",
   "Link Device": "Link Device",
+  "Linux.do": "Linux.do",
   "List of redemption cards generated from your reseller balance.": "List of redemption cards generated from your reseller balance.",
   "Loading user…": "Loading user…",
   "Manage your active login sessions": "Aktif oturumlarınızı yönetin",
@@ -407,6 +406,5 @@
   "pools active": "pools active",
   "redemption rate": "redemption rate",
   "requests": "requests",
-  "shpat_xxx": "shpat_xxx",
-  "Linux.do": "Linux.do"
+  "shpat_xxx": "shpat_xxx"
 }

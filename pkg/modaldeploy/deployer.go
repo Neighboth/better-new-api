@@ -1177,3 +1177,195 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 	}
 	return fmt.Errorf("modal app stop failed: %v: %s", stopErr, msg)
 }
+
+// FineTuneConfig configures a one-shot real PyTorch fine-tuning job on Modal.
+type FineTuneConfig struct {
+	AppName          string
+	Accelerator      string
+	TokenID          string
+	TokenSecret      string
+	SharedVolumePath string
+	TrainScript      string
+	DatasetPath      string
+	DatasetName      string
+	BaseModelPath    string // optional local uploaded weights file
+	OutputZipPath    string // local destination path where trained .zip is written
+}
+
+// RunFineTuneWithLogger executes a real GPU/CPU PyTorch fine-tuning script on Modal
+// via `modal run`, streaming container logs live to onLog and saving the trained
+// .zip archive directly to cfg.OutputZipPath.
+func RunFineTuneWithLogger(ctx context.Context, cfg FineTuneConfig, onLog func(string)) error {
+	cmdSpec, err := findOrBootstrapModalCommand(ctx)
+	if err != nil {
+		return err
+	}
+	acc := strings.TrimSpace(cfg.Accelerator)
+	gpuArg := "None"
+	if acc != "" && !strings.EqualFold(acc, "CPU") {
+		gpuArg = pyQuote(acc)
+	}
+	volPath := strings.TrimSpace(cfg.SharedVolumePath)
+	if volPath == "" {
+		volPath = "/vol/models"
+	}
+	appName := strings.TrimSpace(cfg.AppName)
+	if appName == "" {
+		appName = "newapi-finetune"
+	}
+
+	tmpDir, err := os.MkdirTemp("", "modal-ft-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	trainPyPath := filepath.Join(tmpDir, "train_inner.py")
+	if err := os.WriteFile(trainPyPath, []byte(cfg.TrainScript), 0o600); err != nil {
+		return err
+	}
+
+	wrapper := fmt.Sprintf(`import os
+import subprocess
+import sys
+from pathlib import Path
+import modal
+
+app = modal.App(%s)
+vol = modal.Volume.from_name("newapi-model-cache", create_if_missing=True)
+
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install(
+        "torch",
+        "transformers",
+        "peft",
+        "accelerate",
+        "safetensors",
+        "datasets",
+        "huggingface_hub",
+        "bitsandbytes",
+        "diffusers",
+        "Pillow",
+    )
+)
+
+@app.function(
+    image=image,
+    gpu=%s,
+    timeout=14400,
+    volumes={%s: vol},
+)
+def run_train_remote(train_script: str, dataset_bytes: bytes, dataset_name: str, base_model_bytes: bytes, base_model_name: str) -> bytes:
+    os.environ["HF_HOME"] = %s + "/hf_cache"
+    work = Path("/tmp/ft_run")
+    work.mkdir(parents=True, exist_ok=True)
+    os.chdir(work)
+    script_file = work / "train.py"
+    script_file.write_text(train_script, encoding="utf-8")
+
+    # Patch local dataset & optional base model file paths when uploaded inline
+    if dataset_bytes:
+        ds_local = work / (dataset_name or "dataset.jsonl")
+        ds_local.write_bytes(dataset_bytes)
+        os.environ["FT_LOCAL_DATASET"] = str(ds_local)
+    if base_model_bytes:
+        bm_local = work / (base_model_name or "base_model.safetensors")
+        bm_local.write_bytes(base_model_bytes)
+        os.environ["FT_LOCAL_BASE_MODEL"] = str(bm_local)
+
+    proc = subprocess.Popen(
+        [sys.executable, "-u", str(script_file)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+    rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"Fine-tuning process exited with code {rc}")
+    out_zip = work / "output.zip"
+    if not out_zip.exists():
+        raise RuntimeError("Fine-tuning completed without producing output.zip")
+    return out_zip.read_bytes()
+
+@app.local_entrypoint()
+def main():
+    script_txt = Path(%s).read_text(encoding="utf-8")
+    ds_path = %s
+    ds_bytes = Path(ds_path).read_bytes() if (ds_path and os.path.exists(ds_path)) else b""
+    bm_path = %s
+    bm_bytes = Path(bm_path).read_bytes() if (bm_path and os.path.exists(bm_path)) else b""
+    bm_name = os.path.basename(bm_path) if bm_path else ""
+    zip_bytes = run_train_remote.remote(script_txt, ds_bytes, %s, bm_bytes, bm_name)
+    out_path = Path(%s)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(zip_bytes)
+    print(f"[modal-ft] Saved trained archive ({len(zip_bytes)} bytes)", flush=True)
+`,
+		pyQuote(appName),
+		gpuArg,
+		pyQuote(volPath),
+		pyQuote(volPath),
+		pyQuote(trainPyPath),
+		pyQuote(cfg.DatasetPath),
+		pyQuote(cfg.BaseModelPath),
+		pyQuote(cfg.DatasetName),
+		pyQuote(cfg.OutputZipPath),
+	)
+
+	wrapperPath := filepath.Join(tmpDir, "modal_ft_app.py")
+	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o600); err != nil {
+		return err
+	}
+
+	cmd := cmdSpec.command(ctx, "run", wrapperPath)
+	cmd.Env = append(os.Environ(),
+		"MODAL_TOKEN_ID="+strings.TrimSpace(cfg.TokenID),
+		"MODAL_TOKEN_SECRET="+strings.TrimSpace(cfg.TokenSecret),
+		"PYTHONIOENCODING=utf-8",
+		"COLUMNS=500",
+		"NO_COLOR=1",
+		"FORCE_COLOR=0",
+		"TERM=dumb",
+	)
+
+	stdout, pipeErr := cmd.StdoutPipe()
+	var outBuf strings.Builder
+	var runErr error
+	if pipeErr == nil {
+		cmd.Stderr = cmd.Stdout
+		if startErr := cmd.Start(); startErr != nil {
+			runErr = startErr
+		} else {
+			scanner := bufio.NewScanner(stdout)
+			scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+			for scanner.Scan() {
+				rawLine := scanner.Text()
+				outBuf.WriteString(rawLine)
+				outBuf.WriteByte('\n')
+				clean := strings.TrimSpace(ansiEscapeRegex.ReplaceAllString(rawLine, ""))
+				if clean != "" && onLog != nil {
+					onLog(clean)
+				}
+			}
+			runErr = cmd.Wait()
+		}
+	} else {
+		var outBytes []byte
+		outBytes, runErr = cmd.CombinedOutput()
+		outBuf.Write(outBytes)
+	}
+
+	if runErr != nil {
+		msg := strings.TrimSpace(outBuf.String())
+		if len(msg) > 600 {
+			msg = msg[len(msg)-600:]
+		}
+		return fmt.Errorf("modal fine-tuning failed: %v: %s", runErr, msg)
+	}
+	return nil
+}

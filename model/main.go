@@ -308,6 +308,7 @@ func migrateDB() error {
 		&BlogPost{},
 		&BlogComment{},
 		&BlogReaction{},
+		&ScopedAPIKey{},
 		&NotebookDeployment{},
 		&FineTuningJob{},
 		&UserModelAlias{},

@@ -504,32 +504,45 @@ type SiteStatsGlobalCounters struct {
 }
 
 // GetSiteStatsGlobalCounters returns the counters of the tables of the
-// installation.
+// installation using single-pass conditional aggregates per table (cross-DB
+// compatible across SQLite, MySQL, and PostgreSQL).
 func GetSiteStatsGlobalCounters() (*SiteStatsGlobalCounters, error) {
 	counters := &SiteStatsGlobalCounters{}
-	if err := DB.Table("users").Count(&counters.TotalUsers).Error; err != nil {
-		return nil, err
+	type totalActiveRow struct {
+		Total  int64 `gorm:"column:total"`
+		Active int64 `gorm:"column:active"`
 	}
-	if err := DB.Table("users").Where("status = ?", 1).Count(&counters.ActiveUsers).Error; err != nil {
-		return nil, err
+	countTable := func(table string) (totalActiveRow, error) {
+		var r totalActiveRow
+		err := DB.Table(table).
+			Select("COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END), 0) AS active").
+			Scan(&r).Error
+		return r, err
 	}
-	if err := DB.Table("channels").Count(&counters.TotalChannels).Error; err != nil {
+
+	if r, err := countTable("users"); err != nil {
 		return nil, err
+	} else {
+		counters.TotalUsers = r.Total
+		counters.ActiveUsers = r.Active
 	}
-	if err := DB.Table("channels").Where("status = ?", 1).Count(&counters.ActiveChannels).Error; err != nil {
+	if r, err := countTable("channels"); err != nil {
 		return nil, err
+	} else {
+		counters.TotalChannels = r.Total
+		counters.ActiveChannels = r.Active
 	}
-	if err := DB.Table("tokens").Count(&counters.TotalApiTokens).Error; err != nil {
+	if r, err := countTable("tokens"); err != nil {
 		return nil, err
+	} else {
+		counters.TotalApiTokens = r.Total
+		counters.ActiveApiTokens = r.Active
 	}
-	if err := DB.Table("tokens").Where("status = ?", 1).Count(&counters.ActiveApiTokens).Error; err != nil {
+	if r, err := countTable("redemptions"); err != nil {
 		return nil, err
-	}
-	if err := DB.Table("redemptions").Count(&counters.TotalRedemptions).Error; err != nil {
-		return nil, err
-	}
-	if err := DB.Table("redemptions").Where("status = ?", 1).Count(&counters.UnusedRedemptions).Error; err != nil {
-		return nil, err
+	} else {
+		counters.TotalRedemptions = r.Total
+		counters.UnusedRedemptions = r.Active
 	}
 	if err := DB.Table("byog_nodes").Count(&counters.ByogNodesTotal).Error; err != nil {
 		// The BYOG module can be switched off, the counters of the nodes stay

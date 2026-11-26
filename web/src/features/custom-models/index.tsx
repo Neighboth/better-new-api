@@ -252,52 +252,236 @@ const KNOWN_HW_LABELS: Record<string, string> = {
   TpuV6E8: 'TPU: v6e-8',
 }
 
+function parseModelBillions(
+  modelName: string,
+  paramSizeHint?: string,
+  modelFileBytes = 0
+): number {
+  const re = /(?:^|[^0-9a-z])(\d+(?:\.\d+)?)\s*([bm])(?:[^a-z]|$)/gi
+  const parseHint = (raw?: string): number => {
+    const s = (raw ?? '').trim()
+    if (!s) return 0
+    let best = 0
+    let m: RegExpExecArray | null
+    re.lastIndex = 0
+    while ((m = re.exec(s)) !== null) {
+      let v = Number(m[1])
+      if (!Number.isFinite(v) || v <= 0) continue
+      if (m[2].toLowerCase() === 'm') v /= 1000
+      if (v > best && v <= 2000) best = v
+    }
+    return best
+  }
+  const fromParam = parseHint(paramSizeHint)
+  if (fromParam > 0) return fromParam
+  const fromName = parseHint(modelName)
+  if (fromName > 0) return fromName
+  const lower = modelName.toLowerCase()
+  if ((lower.includes('deepseek-r1') || lower.includes('deepseek-v3')) && !lower.includes('distill')) {
+    return 671
+  }
+  if (lower.includes('deepseek-v2.5') || lower.includes('deepseek-v2')) {
+    return lower.includes('lite') ? 16 : 236
+  }
+  if (lower.includes('flux')) return 12
+  if (lower.includes('sdxl') || lower.includes('xl')) return 6.5
+  if (lower.includes('sd3')) return 8
+  if (lower.includes('stable-diffusion') || lower.includes('cyberrealistic') || lower.includes('sd1.5')) return 1.2
+  if (lower.includes('whisper-large')) return 1.55
+  if (modelFileBytes > 0) {
+    return Math.min(700, Math.max(0.25, modelFileBytes / 2_000_000_000))
+  }
+  return 7
+}
+
 function getAcceleratorSpeedFactor(gpuId: string): number {
-  const upper = gpuId.trim().toUpperCase()
-  if (
-    upper.includes('B300') ||
-    upper.includes('B200') ||
-    upper.includes('H200') ||
-    upper.includes('H100')
-  ) {
-    return 5.5
+  const trimmed = gpuId.trim()
+  const exact: Record<string, number> = {
+    NvidiaTeslaT4: 1.85, // Kaggle T4 x2
+    't4-medium': 1.35,
+    T4: 1.0,
+    NVIDIA_TESLA_T4: 1.0,
+    't4-small': 1.0,
+    l4x4: 7.8,
+    L4: 2.1,
+    NVIDIA_L4: 2.1,
+    NvidiaL4: 2.1,
+    l4x1: 2.1,
+    'a10g-large': 3.4,
+    A10G: 2.4,
+    NVIDIA_A10G: 2.4,
+    'a10g-small': 2.4,
+    'RTX-3090': 2.3,
+    'RTX-4090': 4.0,
+    l40sx4: 15.5,
+    L40S: 4.2,
+    l40sx1: 4.2,
+    'A100-40GB': 5.4,
+    NVIDIA_TESLA_A100: 5.4,
+    'A100-80GB': 6.2,
+    NVIDIA_TESLA_A100_80GB: 6.2,
+    A100: 6.2,
+    'a100-large': 6.2,
+    a100x2: 12.0,
+    a100x4: 23.0,
+    a100x8: 44.0,
+    'RTX-PRO-6000': 7.0,
+    NVIDIA_RTX_PRO_6000: 7.0,
+    H100: 12.0,
+    'H100-SXM': 12.0,
+    'H100-80GB': 12.0,
+    NVIDIA_H100_80GB: 12.0,
+    h100x1: 12.0,
+    h100x4: 45.0,
+    h100x8: 85.0,
+    H200: 14.5,
+    h200x1: 14.5,
+    h200x8: 105.0,
+    B200: 18.0,
+    B300: 24.0,
+    TPU_V2_8: 3.6,
+    TPU_V5E_1: 3.0,
+    TPU_V6E_1: 4.2,
+    TpuV5E8: 10.5,
+    TpuV6E8: 16.0,
+    'cpu-upgrade': 0.12,
+    CPU: 0.07,
+    'cpu-basic': 0.07,
   }
-  if (
-    upper.includes('A100') ||
-    upper.includes('RTX-PRO-6000') ||
-    upper.includes('RTX_PRO_6000')
-  ) {
-    return 3.5
-  }
-  if (upper.includes('L40S') || upper.includes('4090')) return 2.6
-  if (upper.includes('TPU')) return 2.4
-  if (upper.includes('A10G') || upper.includes('3090')) return 2.0
-  if (upper.includes('L4')) return 1.6
+  if (trimmed in exact) return exact[trimmed]
+  const upper = trimmed.toUpperCase()
+  if (upper.includes('B300')) return 24.0
+  if (upper.includes('B200')) return 18.0
+  if (upper.includes('H200')) return 14.5
+  if (upper.includes('H100')) return 12.0
+  if (upper.includes('A100')) return 5.8
+  if (upper.includes('RTX-PRO-6000') || upper.includes('RTX_PRO_6000')) return 7.0
+  if (upper.includes('L40S')) return 4.2
+  if (upper.includes('4090')) return 4.0
+  if (upper.includes('TPU')) return 3.5
+  if (upper.includes('A10G') || upper.includes('3090')) return 2.4
+  if (upper.includes('L4')) return 2.1
   if (upper.includes('T4')) return 1.0
-  if (upper.includes('CPU')) return 0.35
+  if (upper.includes('CPU')) return 0.07
   return 1.0
 }
 
-function estimateDurationSeconds(
-  gpuId: string,
-  taskType: FineTuningTaskType,
-  epochs: number,
+function estimateDurationSeconds(params: {
+  gpuId: string
+  taskType: FineTuningTaskType
+  method: string
+  epochs: number
   datasetBytes: number
-): number {
-  const safeEpochs = Math.max(1, epochs)
-  const datasetMB = Math.max(0, datasetBytes) / (1024 * 1024)
+  datasetSamples: number
+  modelName: string
+  modelParamHint?: string
+  modelFileBytes?: number
+}): number {
+  const safeEpochs = Math.max(1, params.epochs)
+  const datasetBytes = Math.max(0, params.datasetBytes)
+  const modelB = parseModelBillions(
+    params.modelName,
+    params.modelParamHint,
+    params.modelFileBytes ?? 0
+  )
+  const speed = getAcceleratorSpeedFactor(params.gpuId)
   const taskFactor =
-    taskType === 'image'
-      ? 1.8
-      : taskType === 'vision'
+    params.taskType === 'image'
+      ? 1.85
+      : params.taskType === 'vision'
         ? 1.6
-        : taskType === 'audio'
-          ? 1.3
+        : params.taskType === 'audio'
+          ? 1.35
           : 1.0
-  const speed = getAcceleratorSpeedFactor(gpuId)
-  const basePerEpochSec = 45 + datasetMB * 90
-  const est = Math.round(((basePerEpochSec * taskFactor) / speed) * safeEpochs)
-  return Math.min(7 * 86400, Math.max(30, est))
+  const methodFactor =
+    params.method === 'full'
+      ? 2.2
+      : params.method === 'dpo'
+        ? 1.65
+        : params.method === 'dreambooth'
+          ? 1.45
+          : params.method === 'sft'
+            ? 1.15
+            : params.method === 'qlora'
+              ? 1.1
+              : 1.0
+
+  const samples =
+    params.datasetSamples > 0
+      ? params.datasetSamples
+      : datasetBytes > 0
+        ? Math.max(16, Math.floor(datasetBytes / 180))
+        : 100
+
+  const tokensFromBytes = datasetBytes / 4
+  const tokensFromSamples =
+    params.taskType === 'image' ? samples * 320 : samples * 24
+  const estTokensPerEpoch = Math.max(tokensFromBytes, tokensFromSamples)
+
+  const setupSec = Math.min(2400, 60 + modelB * 18)
+  const tokenComputePerEpoch =
+    ((estTokensPerEpoch / 650) * (modelB / 7) * methodFactor * taskFactor) /
+    speed
+  const stepsPerEpoch = Math.ceil(samples / 16)
+  const stepOverheadPerEpoch =
+    (stepsPerEpoch * (0.28 + 0.09 * modelB) * taskFactor) / Math.sqrt(speed)
+  const exportSec = Math.min(600, 30 + modelB * 3)
+
+  const total = Math.round(
+    setupSec + safeEpochs * (tokenComputePerEpoch + stepOverheadPerEpoch) + exportSec
+  )
+  return Math.min(14 * 86400, Math.max(45, total))
+}
+
+function formatDurationEstimate(totalSeconds: number, t: (key: string, opts?: any) => string): string {
+  const mins = Math.max(1, Math.round(totalSeconds / 60))
+  if (mins < 60) {
+    return `${mins} ${t('min')}`
+  }
+  const hours = Math.floor(mins / 60)
+  const remMins = mins % 60
+  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`
+}
+
+async function countDatasetSamplesFromFile(file: File): Promise<number> {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+  if (!['jsonl', 'csv', 'txt', 'json'].includes(ext)) {
+    return Math.max(16, Math.floor(file.size / 256))
+  }
+  // Stream-scan up to 64MB in chunks to count exact lines without blowing browser RAM
+  const limitBytes = Math.min(file.size, 64 * 1024 * 1024)
+  if (ext === 'json' && file.size <= 16 * 1024 * 1024) {
+    try {
+      const parsed = JSON.parse(await file.text())
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.length
+    } catch {
+      // fall back to newline count
+    }
+  }
+  const chunkSize = 2 * 1024 * 1024
+  let offset = 0
+  let nonEmptyLines = 0
+  let sawCharsOnLine = false
+  while (offset < limitBytes) {
+    const slice = file.slice(offset, Math.min(limitBytes, offset + chunkSize))
+    const buf = new Uint8Array(await slice.arrayBuffer())
+    for (let i = 0; i < buf.length; i++) {
+      const b = buf[i]
+      if (b === 10) {
+        if (sawCharsOnLine) nonEmptyLines++
+        sawCharsOnLine = false
+      } else if (b !== 13 && b !== 32 && b !== 9) {
+        sawCharsOnLine = true
+      }
+    }
+    offset += chunkSize
+  }
+  if (sawCharsOnLine) nonEmptyLines++
+  if (ext === 'csv' && nonEmptyLines > 1) nonEmptyLines--
+  if (limitBytes < file.size && nonEmptyLines > 0) {
+    nonEmptyLines = Math.round(nonEmptyLines * (file.size / limitBytes))
+  }
+  return Math.max(1, nonEmptyLines)
 }
 
 function formatBytesHuman(bytes: number): string {
@@ -321,6 +505,7 @@ export function CustomModelsPage() {
   const [hfPickerOpen, setHfPickerOpen] = useState(false)
   const [ftTaskType, setFtTaskType] = useState<FineTuningTaskType>('text')
   const [ftBaseModel, setFtBaseModel] = useState('')
+  const [ftModelParamSize, setFtModelParamSize] = useState('')
   const [stagedUpload, setStagedUpload] = useState<StagedModelUpload | null>(
     null
   )
@@ -332,6 +517,7 @@ export function CustomModelsPage() {
   const [ftRamTier, setFtRamTier] = useState<'normal' | 'high'>('normal')
   const [ftEpochs, setFtEpochs] = useState(3)
   const [ftFile, setFtFile] = useState<File | null>(null)
+  const [ftDatasetSamples, setFtDatasetSamples] = useState(0)
   const [deleteFtTarget, setDeleteFtTarget] =
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
@@ -491,17 +677,42 @@ export function CustomModelsPage() {
       : colabNormalMult
     : 1
   const datasetBytes = ftFile?.size ?? 0
-  const estimatedDurationSeconds = estimateDurationSeconds(
-    ftGpu || 'CPU',
-    ftTaskType,
-    ftEpochs,
-    datasetBytes
+  const activeModelName = stagedUpload?.filename || ftBaseModel.trim()
+  const estimatedModelBillions = parseModelBillions(
+    activeModelName,
+    ftModelParamSize,
+    stagedUpload?.size ?? 0
   )
+  const estimatedDurationSeconds = estimateDurationSeconds({
+    gpuId: ftGpu || 'CPU',
+    taskType: ftTaskType,
+    method: ftMethod,
+    epochs: ftEpochs,
+    datasetBytes,
+    datasetSamples: ftDatasetSamples,
+    modelName: activeModelName,
+    modelParamHint: ftModelParamSize,
+    modelFileBytes: stagedUpload?.size ?? 0,
+  })
   const effectivePricePerSecond =
     (selectedGpuObj?.price_per_second ?? 0.0015) * activeRamMultiplier
   const estimatedRatePerMin = effectivePricePerSecond * 60
   const estimatedTotalCostUSD =
     effectivePricePerSecond * estimatedDurationSeconds
+
+  const handleDatasetFileSelected = async (file: File | null) => {
+    setFtFile(file)
+    if (!file) {
+      setFtDatasetSamples(0)
+      return
+    }
+    try {
+      const count = await countDatasetSamplesFromFile(file)
+      setFtDatasetSamples(count)
+    } catch {
+      setFtDatasetSamples(Math.max(16, Math.floor(file.size / 180)))
+    }
+  }
 
   const handleLocalModelSelected = async (file: File | null) => {
     if (!file) return
@@ -516,6 +727,7 @@ export function CustomModelsPage() {
     // Clear any previously entered/selected model and delete any earlier staged upload
     const prevUploadId = stagedUpload?.upload_id
     setFtBaseModel('')
+    setFtModelParamSize('')
     setStagedUpload(null)
     if (prevUploadId) {
       void cleanupStagedUpload(prevUploadId)
@@ -592,6 +804,9 @@ export function CustomModelsPage() {
         }
         formData.append('model', trimmed)
       }
+      if (ftModelParamSize.trim()) {
+        formData.append('model_param_size', ftModelParamSize.trim())
+      }
       if (ftFile) {
         formData.append('file', ftFile)
       }
@@ -610,8 +825,10 @@ export function CustomModelsPage() {
       setStagedUpload(null)
       setFtCreateOpen(false)
       setFtBaseModel('')
+      setFtModelParamSize('')
       setFtSuffix('')
       setFtFile(null)
+      setFtDatasetSamples(0)
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
@@ -754,13 +971,8 @@ export function CustomModelsPage() {
     setFtBaseModel(
       picked.filename ? `${picked.repoId}/${picked.filename}` : picked.repoId
     )
-    if (picked.taskType === 'image') {
-      setFtTaskType('image')
-    } else if (picked.taskType === 'audio') {
-      setFtTaskType('audio')
-    } else {
-      setFtTaskType('text')
-    }
+    setFtModelParamSize(picked.parameterSize ?? '')
+    // Never overwrite the user's chosen task type when picking a model
     setHfPickerOpen(false)
   }
 
@@ -1132,6 +1344,7 @@ export function CustomModelsPage() {
                       void cleanupStagedUpload(stagedUpload.upload_id)
                       setStagedUpload(null)
                     }
+                    setFtModelParamSize('')
                     setFtBaseModel(e.target.value)
                   }}
                 />
@@ -1332,15 +1545,19 @@ export function CustomModelsPage() {
                 type='file'
                 disabled={uploadingModel}
                 accept={taskCfg.datasetAccept}
-                onChange={(e) => setFtFile(e.target.files?.[0] ?? null)}
+                onChange={(e) =>
+                  void handleDatasetFileSelected(e.target.files?.[0] ?? null)
+                }
               />
               <p className='text-muted-foreground text-xs'>
                 {t(taskCfg.datasetHintKey)}
-                {ftFile ? ` · ${formatBytesHuman(ftFile.size)}` : ''}
+                {ftFile
+                  ? ` · ${formatBytesHuman(ftFile.size)}${ftDatasetSamples > 0 ? ` · ${ftDatasetSamples.toLocaleString()} ${t('samples')}` : ''}`
+                  : ''}
               </p>
             </div>
 
-            {/* Dataset-Size-Aware Live Estimated Total Cost */}
+            {/* Dataset-Size & Model-Size Aware Live Estimated Total Cost */}
             <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>
               <div className='space-y-0.5'>
                 <div className='text-xs font-medium'>
@@ -1348,13 +1565,19 @@ export function CustomModelsPage() {
                 </div>
                 <div className='text-muted-foreground text-[11px]'>
                   {t(
-                    '{{rate}} / min · ~{{mins}} min ({{epochs}} epochs, {{dataset}})',
+                    '{{rate}} / min · ~{{duration}} (~{{model}}B, {{epochs}} epochs, {{dataset}})',
                     {
                       rate: formatCurrencyFromUSD(estimatedRatePerMin),
-                      mins: Math.max(1, Math.round(estimatedDurationSeconds / 60)),
+                      duration: formatDurationEstimate(estimatedDurationSeconds, t),
+                      model:
+                        estimatedModelBillions >= 10
+                          ? Math.round(estimatedModelBillions)
+                          : Number(estimatedModelBillions.toFixed(1)),
                       epochs: ftEpochs,
                       dataset: ftFile
-                        ? formatBytesHuman(ftFile.size)
+                        ? ftDatasetSamples > 0
+                          ? `${ftDatasetSamples.toLocaleString()} ${t('samples')} (${formatBytesHuman(ftFile.size)})`
+                          : formatBytesHuman(ftFile.size)
                         : t('no dataset selected'),
                     }
                   )}

@@ -621,9 +621,13 @@ export function EmailSettingsSection({
             </div>
 
             <Tabs defaultValue='verification' className='w-full'>
-              <TabsList className='mb-4 flex h-auto flex-wrap'>
+              <TabsList className='mb-4 flex !h-auto w-full flex-wrap justify-start gap-1 p-1'>
                 {emailTemplateTypes.map((type) => (
-                  <TabsTrigger key={type} value={type} className='text-xs'>
+                  <TabsTrigger
+                    key={type}
+                    value={type}
+                    className='flex-none px-2.5 py-1.5 text-xs'
+                  >
                     {t(
                       {
                         verification: 'Verification Code Email',

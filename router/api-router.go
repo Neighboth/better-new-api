@@ -388,6 +388,7 @@ func SetApiRouter(router *gin.Engine) {
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		registerProxyPoolRoutes(apiRouter)
+		registerScopedAPIRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())
 		{
@@ -588,6 +589,9 @@ func SetApiRouter(router *gin.Engine) {
 		// Public deployment callback (authenticated via per-deployment callback token)
 		apiRouter.POST("/deployments/notebooks/:id/callback", controller.NotebookDeploymentCallback)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/callback", controller.FineTuningWorkerCallback)
+		apiRouter.GET("/deployments/fine_tuning/:job_id/dataset", controller.FineTuningWorkerDownloadDataset)
+		apiRouter.GET("/deployments/fine_tuning/:job_id/base_model", controller.FineTuningWorkerDownloadBaseModel)
+		apiRouter.POST("/deployments/fine_tuning/:job_id/artifact", controller.FineTuningWorkerUploadArtifact)
 
 		// Fine-tuning admin management & statistics
 		fineTuningAdminRoute := apiRouter.Group("/fine_tuning/admin")
