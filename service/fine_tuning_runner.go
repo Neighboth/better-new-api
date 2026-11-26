@@ -22,17 +22,32 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
-type FineTuningDispatchFunc func(ctx context.Context, job *model.FineTuningJob, epochs int) (artifactZipPath string, trainedTokens int64, err error)
+// FineTuningDispatchResult reports execution telemetry from a remote provider
+// run so billing can distinguish pre-compute provisioning failures ($0) from
+// mid-training OOM / runtime errors (billed for actual consumed compute time).
+type FineTuningDispatchResult struct {
+	ArtifactZipPath       string
+	TrainedTokens         int64
+	ComputeStarted        bool
+	ElapsedComputeSeconds int64
+	BilledOnFailure       bool
+}
+
+type FineTuningDispatchFunc func(ctx context.Context, job *model.FineTuningJob, epochs int) (FineTuningDispatchResult, error)
 
 var (
 	ftRunnersMu    sync.Mutex
 	ftActiveCancel = map[string]context.CancelFunc{}
 	ftDispatcher   FineTuningDispatchFunc
 
+	ftLogMu          sync.Mutex
+	ftRecentLogLines = map[string][]string{}
+
 	ftProviderLeakRe = regexp.MustCompile(`(?i)\b(google\s+colab|colab|modal|kaggle|runpod|hostinger|io\.net|ionet|huggingface\s+spaces|trycloudflare\.com)\b`)
 	ftURLRe          = regexp.MustCompile(`https?://[^\s"']+`)
 	ftIPv4Re         = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b`)
 	ftSecretRe       = regexp.MustCompile(`(?i)(sk-[a-zA-Z0-9_-]{8,}|hf_[a-zA-Z0-9]{8,}|ak-[a-zA-Z0-9_-]{8,}|bearer\s+[a-zA-Z0-9._-]{8,}|token=[a-zA-Z0-9._-]+)`)
+	ftStampedLineRe  = regexp.MustCompile(`^\d{2}:\d{2}:\d{2}\s+\[[^\]]+\]\s+`)
 )
 
 // RegisterFineTuningDispatcher sets the real compute provider dispatcher
@@ -71,16 +86,56 @@ func FineTuningLogPath(userID int, jobID string) string {
 	return filepath.Join(FineTuningStorageDirForUser(userID, jobID), "train.log")
 }
 
+// FineTuningCheckpointZipPath returns the canonical path where the latest
+// resumable training checkpoint archive is persisted on the server.
+func FineTuningCheckpointZipPath(userID int, jobID string) string {
+	return filepath.Join(FineTuningStorageDirForUser(userID, jobID), "checkpoint_latest.zip")
+}
+
 func appendFineTuningLog(userID int, jobID, stage, msg string) {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed == "" {
+		return
+	}
+	sanitized := SanitizeFineTuningLogLine(trimmed)
+	var formatted string
+	// Avoid double timestamps / double tags when the remote script already formatted "HH:MM:SS [stage] ..."
+	if ftStampedLineRe.MatchString(sanitized) {
+		formatted = sanitized
+	} else {
+		ts := time.Now().UTC().Format("15:04:05")
+		formatted = fmt.Sprintf("%s [%s] %s", ts, stage, sanitized)
+	}
+
+	// Deduplicate identical lines that arrive via both HTTP callback and stdout polling
+	dedupKey := formatted
+	if ftStampedLineRe.MatchString(dedupKey) {
+		// Strip leading timestamp so a 1-second skew between callback and stdout still deduplicates
+		dedupKey = strings.TrimSpace(dedupKey[8:])
+	}
+
+	ftLogMu.Lock()
+	recent := ftRecentLogLines[jobID]
+	for _, prev := range recent {
+		if prev == dedupKey {
+			ftLogMu.Unlock()
+			return
+		}
+	}
+	recent = append(recent, dedupKey)
+	if len(recent) > 24 {
+		recent = recent[len(recent)-24:]
+	}
+	ftRecentLogLines[jobID] = recent
+	ftLogMu.Unlock()
+
 	dir := FineTuningStorageDirForUser(userID, jobID)
 	_ = os.MkdirAll(dir, 0o755)
-	ts := time.Now().UTC().Format("15:04:05")
-	line := fmt.Sprintf("%s [%s] %s\n", ts, stage, SanitizeFineTuningLogLine(msg))
 	f, err := os.OpenFile(FineTuningLogPath(userID, jobID), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
-	_, _ = f.WriteString(line)
+	_, _ = f.WriteString(formatted + "\n")
 	_ = f.Close()
 }
 
@@ -247,6 +302,9 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 		ftRunnersMu.Lock()
 		delete(ftActiveCancel, jobID)
 		ftRunnersMu.Unlock()
+		ftLogMu.Lock()
+		delete(ftRecentLogLines, jobID)
+		ftLogMu.Unlock()
 	}()
 
 	job, err := model.GetFineTuningJobByJobID(jobID)
@@ -304,22 +362,77 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 		"updated_at": startedAt,
 	})
 
-	artifactZipPath, trainedTokens, runErr := dispatcher(ctx, job, epochs)
+	billConsumedCompute := func(elapsedSec int64) (float64, int64) {
+		if elapsedSec <= 0 {
+			return 0, 0
+		}
+		costUSD := EstimateFineTuningCostUSDWithRAM(job.GPU, job.RamTier, elapsedSec)
+		if costUSD <= 0 {
+			return 0, 0
+		}
+		q := common.QuotaRound(costUSD * common.QuotaPerUnit)
+		if q <= 0 {
+			return costUSD, 0
+		}
+		// Never underflow user quota below zero when billing partial OOM/failure compute
+		if avail, qErr := model.GetUserQuota(userID, false); qErr == nil && avail > 0 && q > avail {
+			q = avail
+		}
+		if err := model.DecreaseUserQuota(userID, q, false); err == nil {
+			model.UpdateUserUsedQuotaAndRequestCount(userID, q)
+			return costUSD, int64(q)
+		}
+		return costUSD, 0
+	}
+
+	dispatchRes, runErr := dispatcher(ctx, job, epochs)
 	if runErr != nil {
 		if ctx.Err() != nil {
 			handleRunnerCancelled(userID, jobID)
 			return
 		}
+		finishedAt := time.Now().Unix()
 		errMsg := SanitizeFineTuningLogLine(runErr.Error())
-		appendFineTuningLog(userID, jobID, "error", "Real training failed (no balance charged): "+errMsg)
+
+		// If training compute actually started and failed due to OOM / runtime
+		// error (especially after acknowledging a hardware compatibility warning),
+		// charge for the consumed compute time instead of giving free GPU time.
+		shouldBill := dispatchRes.ComputeStarted && (dispatchRes.BilledOnFailure || job.CompatWarningAcknowledged)
+		if shouldBill {
+			billedSec := dispatchRes.ElapsedComputeSeconds
+			if billedSec < 1 {
+				billedSec = finishedAt - startedAt
+			}
+			if billedSec < 1 {
+				billedSec = 1
+			}
+			costUSD, billedQuota := billConsumedCompute(billedSec)
+			appendFineTuningLog(userID, jobID, "error", fmt.Sprintf("Training failed after %ds of compute (charged $%.4f for consumed compute): %s", billedSec, costUSD, errMsg))
+			_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
+				"status":             "failed",
+				"error":              errMsg,
+				"duration_seconds":   billedSec,
+				"billed_seconds":     billedSec,
+				"estimated_cost_usd": costUSD,
+				"billed_quota":       billedQuota,
+				"finished_at":        finishedAt,
+				"updated_at":         finishedAt,
+			})
+			return
+		}
+
+		appendFineTuningLog(userID, jobID, "error", "Real training failed before compute started (no balance charged): "+errMsg)
 		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
 			"status":      "failed",
 			"error":       errMsg,
-			"finished_at": time.Now().Unix(),
-			"updated_at":  time.Now().Unix(),
+			"finished_at": finishedAt,
+			"updated_at":  finishedAt,
 		})
 		return
 	}
+
+	artifactZipPath := dispatchRes.ArtifactZipPath
+	trainedTokens := dispatchRes.TrainedTokens
 
 	if fresh, gErr := model.GetFineTuningJobByJobID(jobID); gErr == nil && fresh != nil && fresh.Status == "cancelled" {
 		handleRunnerCancelled(userID, jobID)
@@ -339,30 +452,24 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 	}
 
 	finishedAt := time.Now().Unix()
-	elapsedSec := finishedAt - startedAt
+	elapsedSec := dispatchRes.ElapsedComputeSeconds
+	if elapsedSec < 1 {
+		elapsedSec = finishedAt - startedAt
+	}
 	if elapsedSec < 1 {
 		elapsedSec = 1
 	}
 	retentionDays := GetFineTuningRetentionDays()
 	expiresAt := finishedAt + int64(retentionDays)*86400
 
-	actualCostUSD := EstimateFineTuningCostUSDWithRAM(job.GPU, job.RamTier, elapsedSec)
-	billedQuota := int64(0)
-	if actualCostUSD > 0 {
-		q := common.QuotaRound(actualCostUSD * common.QuotaPerUnit)
-		if q > 0 {
-			billedQuota = int64(q)
-			if err := model.DecreaseUserQuota(userID, q, false); err == nil {
-				model.UpdateUserUsedQuotaAndRequestCount(userID, q)
-			}
-		}
-	}
+	actualCostUSD, billedQuota := billConsumedCompute(elapsedSec)
 
 	_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
 		"status":             "succeeded",
 		"progress":           100,
 		"trained_tokens":     trainedTokens,
 		"duration_seconds":   elapsedSec,
+		"billed_seconds":     elapsedSec,
 		"estimated_cost_usd": actualCostUSD,
 		"billed_quota":       billedQuota,
 		"model_file_path":    artifactZipPath,

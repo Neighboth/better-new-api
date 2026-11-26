@@ -7,8 +7,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,7 +47,6 @@ func setupScopedAPITestEnv(t *testing.T) *gin.Engine {
 		blogExt.PUT("/posts/:id", BlogAPIUpdatePost)
 		blogExt.PATCH("/posts/:id", BlogAPIUpdatePost)
 		blogExt.DELETE("/posts/:id", BlogAPIDeletePost)
-		blogExt.POST("/upload", BlogAPIUploadMedia)
 	}
 
 	filesExt := r.Group("/api/v1/files")
@@ -163,37 +160,7 @@ func TestBlogExternalAPIFullFlowAndAuthIsolation(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), createdResp.Data.URL)
 
-	// 7. Upload banner image via Blog API
-	var mp bytes.Buffer
-	mw := multipart.NewWriter(&mp)
-	fw, err := mw.CreateFormFile("file", "my banner.png")
-	require.NoError(t, err)
-	_, err = fw.Write([]byte("\x89PNG\r\n\x1a\nfake-png-bytes"))
-	require.NoError(t, err)
-	require.NoError(t, mw.WriteField("filename", "custom-hero.png"))
-	require.NoError(t, mw.Close())
-
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/blog/upload", &mp)
-	req.Header.Set("Authorization", "Bearer "+blogKey)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
-
-	var uploadResp struct {
-		Success bool `json:"success"`
-		Data    struct {
-			URL  string `json:"url"`
-			Path string `json:"path"`
-		} `json:"data"`
-	}
-	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &uploadResp))
-	assert.True(t, strings.HasPrefix(uploadResp.Data.URL, "https://example.test/uploads/blog/"))
-	t.Cleanup(func() {
-		_ = os.Remove(filepath.FromSlash(strings.TrimPrefix(uploadResp.Data.Path, "/")))
-	})
-
-	// 8. Delete post
+	// 7. Delete post
 	req = httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/blog/posts/%d", createdResp.Data.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+blogKey)
 	w = httptest.NewRecorder()

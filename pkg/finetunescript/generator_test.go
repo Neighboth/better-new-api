@@ -37,6 +37,11 @@ func TestGenerateFineTuneScriptContainsRealTrainingPipeline(t *testing.T) {
 	assert.Contains(t, script, "training_details.json")
 	assert.Contains(t, script, "FT_LOCAL_DATASET")
 	assert.Contains(t, script, "FT_LOCAL_BASE_MODEL")
+	assert.Contains(t, script, "FT_LOCAL_RESUME_CHECKPOINT")
+	assert.Contains(t, script, "split_hf_repo_and_file")
+	assert.Contains(t, script, "save_and_upload_checkpoint")
+	assert.Contains(t, script, "restore_resume_checkpoint")
+	assert.Contains(t, script, "checkpoint_latest.zip")
 	assert.Contains(t, script, "train_image_diffusion")
 }
 

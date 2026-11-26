@@ -185,12 +185,19 @@ export function EmailSettingsSection({
       .replaceAll('{{year}}', new Date().getFullYear().toString())
       .replaceAll('{{valid_minutes}}', '10')
       .replaceAll('{{reset_url}}', 'https://example.com/reset-password')
-      .replaceAll('{{link}}', 'https://example.com/reset-password')
+      .replaceAll(
+        '{{link}}',
+        type === 'verification'
+          ? 'https://example.com/verify-code?code=849201'
+          : 'https://example.com/reset-password'
+      )
       .replaceAll('{{username}}', 'alex')
       .replaceAll('{{model}}', 'Qwen/Qwen2.5-7B-Instruct')
       .replaceAll('{{job_id}}', 'ftjob-1234567890')
+      .replaceAll('{{file_name}}', 'promo-render-4k.mp4')
+      .replaceAll('{{video_url}}', 'https://example.com/uploads/videos/1/promo-render-4k.mp4')
       .replaceAll('{{days_left}}', '3')
-      .replaceAll('{{expires_at}}', '2026-12-31 23:59 UTC')
+      .replaceAll('{{expires_at}}', '2026-12-31')
       .replaceAll('{{download_url}}', 'https://example.com/custom-models')
   }
 
@@ -682,7 +689,7 @@ export function EmailSettingsSection({
                           'system_name',
                           'year',
                           'valid_minutes',
-                          'code',
+                          'link',
                         ],
                         password_reset: [
                           'system_name',
@@ -734,8 +741,10 @@ export function EmailSettingsSection({
                           'system_name',
                           'year',
                           'username',
-                          'video_url',
+                          'file_name',
+                          'days_left',
                           'expires_at',
+                          'video_url',
                         ],
                         fine_tuning_expiry: [
                           'system_name',

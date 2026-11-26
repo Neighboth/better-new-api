@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -272,6 +273,99 @@ func FineTuningWorkerDownloadBaseModel(c *gin.Context) {
 	c.File(job.BaseModelFilePath)
 }
 
+// FineTuningWorkerUploadCheckpoint atomically persists the latest resumable
+// training checkpoint (.zip) uploaded periodically during training so another
+// compute provider can seamlessly resume if the current worker disconnects.
+func FineTuningWorkerUploadCheckpoint(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, c.PostForm("token")) {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+	fh, err := c.FormFile("file")
+	if err != nil || fh == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file is required"})
+		return
+	}
+	destPath := service.FineTuningCheckpointZipPath(job.UserId, job.JobID)
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	tmpPath := destPath + ".tmp"
+	src, err := fh.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	defer src.Close()
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	written, copyErr := io.Copy(out, src)
+	_ = out.Close()
+	if copyErr != nil || written == 0 {
+		_ = os.Remove(tmpPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to store checkpoint"})
+		return
+	}
+	if rErr := os.Rename(tmpPath, destPath); rErr != nil {
+		_ = os.Remove(tmpPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": rErr.Error()})
+		return
+	}
+
+	updates := map[string]any{
+		"checkpoint_path": destPath,
+		"updated_at":      time.Now().Unix(),
+	}
+	if ep, pErr := strconv.Atoi(strings.TrimSpace(c.PostForm("epoch"))); pErr == nil && ep >= 0 {
+		updates["checkpoint_epoch"] = ep
+	}
+	if st, pErr := strconv.Atoi(strings.TrimSpace(c.PostForm("step"))); pErr == nil && st >= 0 {
+		updates["checkpoint_step"] = st
+	}
+	if tt, pErr := strconv.ParseInt(strings.TrimSpace(c.PostForm("trained_tokens")), 10, 64); pErr == nil && tt > 0 {
+		updates["trained_tokens"] = tt
+	}
+	if pct, pErr := strconv.Atoi(strings.TrimSpace(c.PostForm("progress"))); pErr == nil && pct >= 0 && pct <= 100 {
+		updates["progress"] = pct
+	}
+	_ = model.UpdateFineTuningJobStatus(job.JobID, updates)
+	c.JSON(http.StatusOK, gin.H{"success": true, "bytes": written})
+}
+
+// FineTuningWorkerDownloadCheckpoint streams the latest saved checkpoint archive
+// so a newly allocated compute node can resume training from the last step.
+func FineTuningWorkerDownloadCheckpoint(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, "") {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+	ckptPath := strings.TrimSpace(job.CheckpointPath)
+	if ckptPath == "" {
+		ckptPath = service.FineTuningCheckpointZipPath(job.UserId, job.JobID)
+	}
+	if info, statErr := os.Stat(ckptPath); statErr != nil || info.Size() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Checkpoint not found"})
+		return
+	}
+	c.File(ckptPath)
+}
+
 // FineTuningWorkerUploadArtifact receives the real trained .zip archive from the
 // remote fine-tuning worker and persists it into uploads/fine_tuning/<user>/<job>/.
 func FineTuningWorkerUploadArtifact(c *gin.Context) {
@@ -446,9 +540,11 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, taskType, ramTier, modelSource, modelSourceURL, stagedUploadID string
+	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, taskType, ramTier, modelSource, modelSourceURL, stagedUploadID, modelParamHint string
 	epochs := 3
 	var datasetBytes int64
+	var clientModelFileBytes int64
+	var ackCompatWarning bool
 
 	ct := c.GetHeader("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
@@ -464,24 +560,32 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		modelSource = strings.ToLower(strings.TrimSpace(c.PostForm("model_source")))
 		modelSourceURL = strings.TrimSpace(c.PostForm("model_url"))
 		stagedUploadID = strings.TrimSpace(c.PostForm("staged_upload_id"))
+		modelParamHint = strings.TrimSpace(c.PostForm("model_param_size"))
+		if mb, err := strconv.ParseInt(strings.TrimSpace(c.PostForm("model_file_bytes")), 10, 64); err == nil && mb > 0 {
+			clientModelFileBytes = mb
+		}
+		ackCompatWarning = strings.EqualFold(strings.TrimSpace(c.PostForm("acknowledge_compat_warning")), "true")
 		if ep, err := strconv.Atoi(c.PostForm("epochs")); err == nil && ep > 0 && ep <= 50 {
 			epochs = ep
 		}
 	} else {
 		var req struct {
-			Model          string `json:"model"`
-			TrainingFile   string `json:"training_file"`
-			TrainingData   string `json:"training_data"`
-			GPU            string `json:"gpu"`
-			Provider       string `json:"provider"`
-			Suffix         string `json:"suffix"`
-			Method         string `json:"method"`
-			TaskType       string `json:"task_type"`
-			RamTier        string `json:"ram_tier"`
-			ModelSource    string `json:"model_source"`
-			ModelURL       string `json:"model_url"`
-			StagedUploadID string `json:"staged_upload_id"`
-			Epochs         int    `json:"epochs"`
+			Model                    string `json:"model"`
+			TrainingFile             string `json:"training_file"`
+			TrainingData             string `json:"training_data"`
+			GPU                      string `json:"gpu"`
+			Provider                 string `json:"provider"`
+			Suffix                   string `json:"suffix"`
+			Method                   string `json:"method"`
+			TaskType                 string `json:"task_type"`
+			RamTier                  string `json:"ram_tier"`
+			ModelSource              string `json:"model_source"`
+			ModelURL                 string `json:"model_url"`
+			StagedUploadID           string `json:"staged_upload_id"`
+			ModelParamSize           string `json:"model_param_size"`
+			ModelFileBytes           int64  `json:"model_file_bytes"`
+			AcknowledgeCompatWarning bool   `json:"acknowledge_compat_warning"`
+			Epochs                   int    `json:"epochs"`
 		}
 		if err := common.DecodeJson(c.Request.Body, &req); err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
@@ -499,6 +603,9 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		modelSource = strings.ToLower(strings.TrimSpace(req.ModelSource))
 		modelSourceURL = strings.TrimSpace(req.ModelURL)
 		stagedUploadID = strings.TrimSpace(req.StagedUploadID)
+		modelParamHint = strings.TrimSpace(req.ModelParamSize)
+		clientModelFileBytes = req.ModelFileBytes
+		ackCompatWarning = req.AcknowledgeCompatWarning
 		if req.Epochs > 0 && req.Epochs <= 50 {
 			epochs = req.Epochs
 		}
@@ -578,13 +685,14 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			}
 		}
 		if fh, fErr := c.FormFile("file"); fErr == nil && fh != nil {
+			origName := filepath.Base(fh.Filename)
+			if err := service.ValidateFineTuningDatasetFile(taskType, origName, nil); err != nil {
+				service.CleanupFineTuningStorageForUser(userId, jobID)
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+				return
+			}
 			if err := os.MkdirAll(storageDir, 0o755); err == nil {
-				ext := strings.ToLower(filepath.Ext(fh.Filename))
-				switch ext {
-				case ".jsonl", ".json", ".parquet", ".csv", ".zip", ".tar", ".gz", ".txt":
-				default:
-					ext = ".jsonl"
-				}
+				ext := strings.ToLower(filepath.Ext(origName))
 				dst := filepath.Join(storageDir, "train"+ext)
 				if src, oErr := fh.Open(); oErr == nil {
 					if out, cErr := os.Create(dst); cErr == nil {
@@ -593,7 +701,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 						trainingFilePath = dst
 						datasetBytes = written
 						if trainingFile == "" {
-							trainingFile = fh.Filename
+							trainingFile = origName
 						}
 					}
 					_ = src.Close()
@@ -647,17 +755,34 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 
-	// Calculate realistic duration & estimated cost from model size, counted dataset samples, bytes, epochs, method, and accelerator speed
-	var modelFileBytes int64
+	// Strictly inspect dataset file extension + magic bytes so disguised archives/binaries are rejected
+	var headBytes []byte
+	if trainingFilePath != "" {
+		if f, oErr := os.Open(trainingFilePath); oErr == nil {
+			buf := make([]byte, 512)
+			if n, _ := f.Read(buf); n > 0 {
+				headBytes = buf[:n]
+			}
+			_ = f.Close()
+		}
+	}
+	if vErr := service.ValidateFineTuningDatasetFile(taskType, trainingFile, headBytes); vErr != nil {
+		service.CleanupFineTuningStorageForUser(userId, jobID)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": vErr.Error()})
+		return
+	}
+
+	// Calculate realistic duration, hardware compatibility & estimated cost
+	modelFileBytes := clientModelFileBytes
 	if baseModelFilePath != "" {
-		if fi, sErr := os.Stat(baseModelFilePath); sErr == nil {
+		if fi, sErr := os.Stat(baseModelFilePath); sErr == nil && fi.Size() > 0 {
 			modelFileBytes = fi.Size()
 		}
 	}
 	dsSamples, _, _, _ := service.InspectFineTuningDatasetFile(trainingFilePath, trainingFile)
-	modelParamHint := strings.TrimSpace(c.PostForm("model_param_size"))
-	estimatedSec := service.EstimateFineTuningDurationRealistic(service.FineTuningEstimateInput{
+	estInput := service.FineTuningEstimateInput{
 		GPU:            gpu,
+		RamTier:        ramTier,
 		TaskType:       taskType,
 		Method:         method,
 		Epochs:         epochs,
@@ -666,7 +791,9 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		ModelName:      baseModel,
 		ModelParamHint: modelParamHint,
 		ModelFileBytes: modelFileBytes,
-	})
+	}
+	compat := service.CheckFineTuningHardwareCompat(estInput)
+	estimatedSec := service.EstimateFineTuningDurationRealistic(estInput)
 	estCost := service.EstimateFineTuningCostUSDWithRAM(gpu, ramTier, estimatedSec)
 
 	// Verify user balance covers estimated fine-tuning cost
@@ -680,14 +807,15 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	}
 
 	hyperBytes, _ := common.Marshal(map[string]any{
-		"n_epochs":      epochs,
-		"suffix":        suffix,
-		"method":        method,
-		"task_type":     taskType,
-		"ram_tier":      ramTier,
-		"model_source":  modelSource,
-		"model_url":     modelSourceURL,
-		"dataset_bytes": datasetBytes,
+		"n_epochs":         epochs,
+		"suffix":           suffix,
+		"method":           method,
+		"task_type":        taskType,
+		"ram_tier":         ramTier,
+		"model_source":     modelSource,
+		"model_url":        modelSourceURL,
+		"model_file_bytes": modelFileBytes,
+		"dataset_bytes":    datasetBytes,
 	})
 	now := time.Now().Unix()
 	ftName := "ft:" + baseModel
@@ -698,28 +826,30 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	}
 
 	job := &model.FineTuningJob{
-		JobID:             jobID,
-		UserId:            userId,
-		Model:             baseModel,
-		FineTunedModel:    ftName,
-		TrainingFile:      trainingFile,
-		TrainingFilePath:  trainingFilePath,
-		BaseModelFilePath: baseModelFilePath,
-		Hyperparameters:   string(hyperBytes),
-		Status:            "queued",
-		Provider:          provider,
-		GPU:               gpu,
-		Method:            method,
-		TaskType:          taskType,
-		RamTier:           ramTier,
-		ModelSource:       modelSource,
-		ModelSourceURL:    modelSourceURL,
-		DurationSeconds:   estimatedSec,
-		DatasetBytes:      datasetBytes,
-		EstimatedCostUSD:  estCost,
-		CallbackToken:     common.GetUUID(),
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		JobID:                     jobID,
+		UserId:                    userId,
+		Model:                     baseModel,
+		FineTunedModel:            ftName,
+		TrainingFile:              trainingFile,
+		TrainingFilePath:          trainingFilePath,
+		BaseModelFilePath:         baseModelFilePath,
+		Hyperparameters:           string(hyperBytes),
+		Status:                    "queued",
+		Provider:                  provider,
+		GPU:                       gpu,
+		Method:                    method,
+		TaskType:                  taskType,
+		RamTier:                   ramTier,
+		ModelSource:               modelSource,
+		ModelSourceURL:            modelSourceURL,
+		DurationSeconds:           estimatedSec,
+		DatasetBytes:              datasetBytes,
+		EstimatedCostUSD:          estCost,
+		CompatWarningAcknowledged: ackCompatWarning || !compat.Compatible,
+		CompatWarningReason:       compat.Reason,
+		CallbackToken:             common.GetUUID(),
+		CreatedAt:                 now,
+		UpdatedAt:                 now,
 	}
 	if err := model.CreateFineTuningJob(job); err != nil {
 		service.CleanupFineTuningStorageForUser(userId, jobID)
@@ -881,10 +1011,28 @@ func AdminDeleteFineTuningJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+var (
+	ftStatsCacheMu  sync.Mutex
+	ftStatsCacheVal gin.H
+	ftStatsCacheExp time.Time
+)
+
 // AdminGetFineTuningStats aggregates site-wide Fine-Tuning metrics, 30-day
 // trend series, accelerator breakdown, and task-type distribution for the
-// Site Statistics dashboard.
+// Site Statistics dashboard. Cached for 30s to keep Site Statistics instant.
 func AdminGetFineTuningStats(c *gin.Context) {
+	forceRefresh := strings.EqualFold(c.Query("refresh"), "true") || c.Query("refresh") == "1"
+	if !forceRefresh {
+		ftStatsCacheMu.Lock()
+		if ftStatsCacheVal != nil && time.Now().Before(ftStatsCacheExp) {
+			cached := ftStatsCacheVal
+			ftStatsCacheMu.Unlock()
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": cached})
+			return
+		}
+		ftStatsCacheMu.Unlock()
+	}
+
 	jobs, err := model.ListAllFineTuningJobs(500)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
@@ -933,6 +1081,9 @@ func AdminGetFineTuningStats(c *gin.Context) {
 			runningJobs++
 		case "failed":
 			failedJobs++
+			if j.BilledQuota > 0 {
+				totalCostUSD += j.EstimatedCostUSD
+			}
 		}
 		totalTokens += j.TrainedTokens
 		totalBilledQ += j.BilledQuota
@@ -941,7 +1092,7 @@ func AdminGetFineTuningStats(c *gin.Context) {
 		day := time.Unix(j.CreatedAt, 0).UTC().Format("2006-01-02")
 		cur := dailyMap[day]
 		cur.Jobs++
-		if j.Status == "succeeded" {
+		if j.Status == "succeeded" || j.BilledQuota > 0 {
 			cur.RevenueUSD += j.EstimatedCostUSD
 		}
 		cur.Tokens += j.TrainedTokens
@@ -957,7 +1108,7 @@ func AdminGetFineTuningStats(c *gin.Context) {
 			accelMap[gpuKey] = as
 		}
 		as.Jobs++
-		if j.Status == "succeeded" {
+		if j.Status == "succeeded" || j.BilledQuota > 0 {
 			as.RevenueUSD += j.EstimatedCostUSD
 		}
 		as.Tokens += j.TrainedTokens
@@ -991,20 +1142,27 @@ func AdminGetFineTuningStats(c *gin.Context) {
 		byAccel = append(byAccel, *v)
 	}
 
+	payload := gin.H{
+		"total_jobs":           totalJobs,
+		"succeeded_jobs":       succeededJobs,
+		"running_jobs":         runningJobs,
+		"failed_jobs":          failedJobs,
+		"total_trained_tokens": totalTokens,
+		"total_revenue_usd":    totalCostUSD,
+		"total_billed_quota":   totalBilledQ,
+		"total_dataset_mb":     totalDatasetMB,
+		"daily_history":        dailyHistory,
+		"by_accelerator":       byAccel,
+		"by_task_type":         taskMap,
+	}
+
+	ftStatsCacheMu.Lock()
+	ftStatsCacheVal = payload
+	ftStatsCacheExp = time.Now().Add(30 * time.Second)
+	ftStatsCacheMu.Unlock()
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"total_jobs":           totalJobs,
-			"succeeded_jobs":       succeededJobs,
-			"running_jobs":         runningJobs,
-			"failed_jobs":          failedJobs,
-			"total_trained_tokens": totalTokens,
-			"total_revenue_usd":    totalCostUSD,
-			"total_billed_quota":   totalBilledQ,
-			"total_dataset_mb":     totalDatasetMB,
-			"daily_history":        dailyHistory,
-			"by_accelerator":       byAccel,
-			"by_task_type":         taskMap,
-		},
+		"data":    payload,
 	})
 }

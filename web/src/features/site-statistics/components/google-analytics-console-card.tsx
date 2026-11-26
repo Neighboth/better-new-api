@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock,
   Eye,
+  FileText,
   MousePointerClick,
   Search,
   TrendingUp,
@@ -13,12 +14,10 @@ import {
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -38,8 +37,7 @@ import {
   getGoogleAnalyticsReport,
   getGoogleSearchConsoleReport,
 } from '../api'
-
-const CHANNEL_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+import { SITE_STATS_KPI_GRID_CLASS, SiteStatCard } from './stat-card'
 
 export function GoogleAnalyticsConsoleCard() {
   const { t } = useTranslation()
@@ -67,7 +65,7 @@ export function GoogleAnalyticsConsoleCard() {
 
   if (gaQuery.isLoading && gscQuery.isLoading) {
     return (
-      <div className='grid grid-cols-2 gap-3 lg:grid-cols-5'>
+      <div className={SITE_STATS_KPI_GRID_CLASS}>
         {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} className='h-28' />
         ))}
@@ -82,101 +80,56 @@ export function GoogleAnalyticsConsoleCard() {
           <CardTitle className='text-base'>
             {t('Google Analytics & Search Console')}
           </CardTitle>
-          <CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className='text-muted-foreground text-sm'>
             {t(
               'Configure Google Analytics GA4 and Search Console credentials in System Settings > SEO to enable search terms, rankings, and traffic analytics.'
             )}
-          </CardDescription>
-        </CardHeader>
+          </p>
+        </CardContent>
       </Card>
     )
   }
 
   const ga = gaQuery.data
   const gsc = gscQuery.data
+  const gaChannels = ga?.acquisition_channels || []
+  const gaPages = ga?.top_landing_pages || []
+  const maxChannelUsers = Math.max(1, ...gaChannels.map((c) => c.users))
+  const maxLandingViews = Math.max(1, ...gaPages.map((p) => p.views))
 
   return (
     <div className='space-y-4'>
-      {/* Google Analytics 4 */}
       {ga?.configured && ga.summary && (
         <div className='space-y-4'>
-          <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Users className='size-4 shrink-0 text-blue-500' />
-                  <span className='truncate'>{t('Active Users')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {formatNumber(ga.summary.active_users)}
-                </div>
-                <p className='text-muted-foreground mt-1 truncate text-xs'>
-                  +{formatNumber(ga.summary.new_users)} {t('New')}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Activity className='size-4 shrink-0 text-indigo-500' />
-                  <span className='truncate'>{t('Total Sessions')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {formatNumber(ga.summary.sessions)}
-                </div>
-                <p className='text-muted-foreground mt-1 truncate text-xs'>
-                  GA4 {ga.property_id ? `#${ga.property_id}` : ga.ga_id}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Eye className='size-4 shrink-0 text-emerald-500' />
-                  <span className='truncate'>{t('Page Views')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {formatNumber(ga.summary.page_views)}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Clock className='size-4 shrink-0 text-amber-500' />
-                  <span className='truncate'>{t('Avg. Session Duration')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {Math.floor(ga.summary.average_session_duration_s / 60)}m{' '}
-                  {ga.summary.average_session_duration_s % 60}s
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <TrendingUp className='size-4 shrink-0 text-violet-500' />
-                  <span className='truncate'>{t('Bounce Rate')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {ga.summary.bounce_rate_percentage}%
-                </div>
-              </CardContent>
-            </Card>
+          <div className={SITE_STATS_KPI_GRID_CLASS}>
+            <SiteStatCard
+              icon={<Users className='size-4 text-blue-500' />}
+              label={t('Active Users')}
+              value={formatNumber(ga.summary.active_users)}
+              description={`+${formatNumber(ga.summary.new_users)} ${t('New')}`}
+            />
+            <SiteStatCard
+              icon={<Activity className='size-4 text-indigo-500' />}
+              label={t('Total Sessions')}
+              value={formatNumber(ga.summary.sessions)}
+            />
+            <SiteStatCard
+              icon={<Eye className='size-4 text-emerald-500' />}
+              label={t('Page Views')}
+              value={formatNumber(ga.summary.page_views)}
+            />
+            <SiteStatCard
+              icon={<Clock className='size-4 text-amber-500' />}
+              label={t('Avg. Session Duration')}
+              value={`${Math.floor(ga.summary.average_session_duration_s / 60)}m ${ga.summary.average_session_duration_s % 60}s`}
+            />
+            <SiteStatCard
+              icon={<TrendingUp className='size-4 text-violet-500' />}
+              label={t('Bounce Rate')}
+              value={`${ga.summary.bounce_rate_percentage}%`}
+            />
           </div>
 
           <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
@@ -185,46 +138,56 @@ export function GoogleAnalyticsConsoleCard() {
                 <CardTitle className='text-base'>
                   {t('Traffic Acquisition Channels')}
                 </CardTitle>
-                <CardDescription>
-                  {t(
-                    'Active users, session duration, bounce rate, and acquisition traffic channels.'
-                  )}
-                </CardDescription>
               </CardHeader>
               <CardContent className='overflow-x-auto'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('Channel')}</TableHead>
-                      <TableHead className='text-right'>{t('Users')}</TableHead>
-                      <TableHead className='text-right'>{t('Share')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(ga.acquisition_channels || []).map((ch, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className='font-medium'>
-                          <span className='inline-flex items-center gap-2'>
-                            <span
-                              className='size-2 rounded-full'
-                              style={{
-                                backgroundColor:
-                                  CHANNEL_COLORS[idx % CHANNEL_COLORS.length],
-                              }}
-                            />
-                            {ch.channel}
-                          </span>
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          {formatNumber(ch.users)}
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          <Badge variant='outline'>{ch.percentage}%</Badge>
-                        </TableCell>
+                {gaChannels.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className='w-12'>#</TableHead>
+                        <TableHead>{t('Channel')}</TableHead>
+                        <TableHead className='w-44'>{t('Users')}</TableHead>
+                        <TableHead className='w-28 text-right'>
+                          {t('Share')}
+                        </TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {gaChannels.map((ch, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className='text-muted-foreground tabular-nums'>
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell className='font-medium'>
+                            {ch.channel}
+                          </TableCell>
+                          <TableCell>
+                            <div className='flex items-center gap-2'>
+                              <div className='bg-muted h-1.5 w-20 shrink-0 overflow-hidden rounded-full'>
+                                <div
+                                  className='h-full rounded-full bg-blue-500'
+                                  style={{
+                                    width: `${(ch.users / maxChannelUsers) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className='tabular-nums'>
+                                {formatNumber(ch.users)}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {ch.percentage}%
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className='text-muted-foreground py-8 text-center text-sm'>
+                    {t('No Data')}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -235,113 +198,97 @@ export function GoogleAnalyticsConsoleCard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className='overflow-x-auto'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('Page')}</TableHead>
-                      <TableHead className='text-right'>{t('Views')}</TableHead>
-                      <TableHead className='text-right'>
-                        {t('Avg. Duration')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(ga.top_landing_pages || []).map((p, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className='max-w-56 truncate font-medium'>
-                          {p.page}
-                        </TableCell>
-                        <TableCell className='text-right tabular-nums'>
-                          {formatNumber(p.views)}
-                        </TableCell>
-                        <TableCell className='text-muted-foreground text-right tabular-nums'>
-                          {p.avg_duration_s}s
-                        </TableCell>
+                {gaPages.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className='w-12'>#</TableHead>
+                        <TableHead>{t('Page')}</TableHead>
+                        <TableHead className='w-44'>{t('Views')}</TableHead>
+                        <TableHead className='w-28 text-right'>
+                          {t('Avg. Duration')}
+                        </TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {gaPages.map((p, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className='text-muted-foreground tabular-nums'>
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell className='max-w-56 truncate font-medium'>
+                            {p.page}
+                          </TableCell>
+                          <TableCell>
+                            <div className='flex items-center gap-2'>
+                              <div className='bg-muted h-1.5 w-20 shrink-0 overflow-hidden rounded-full'>
+                                <div
+                                  className='h-full rounded-full bg-blue-500'
+                                  style={{
+                                    width: `${(p.views / maxLandingViews) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className='tabular-nums'>
+                                {formatNumber(p.views)}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className='text-right tabular-nums'>
+                            {p.avg_duration_s}s
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className='text-muted-foreground py-8 text-center text-sm'>
+                    {t('No Data')}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
       )}
 
-      {/* Google Search Console */}
       {gsc?.configured && gsc.summary && (
         <div className='space-y-4'>
-          <div className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <MousePointerClick className='size-4 shrink-0 text-blue-500' />
-                  <span className='truncate'>{t('Total Clicks')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {formatNumber(gsc.summary.total_clicks)}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Eye className='size-4 shrink-0 text-emerald-500' />
-                  <span className='truncate'>{t('Total Impressions')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {formatNumber(gsc.summary.total_impressions)}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <TrendingUp className='size-4 shrink-0 text-amber-500' />
-                  <span className='truncate'>{t('Average CTR')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  {gsc.summary.average_ctr}%
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-                  <Search className='size-4 shrink-0 text-violet-500' />
-                  <span className='truncate'>{t('Average Position')}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='truncate text-2xl font-bold tabular-nums'>
-                  #{gsc.summary.average_position}
-                </div>
-              </CardContent>
-            </Card>
+          <div className={SITE_STATS_KPI_GRID_CLASS}>
+            <SiteStatCard
+              icon={<MousePointerClick className='size-4 text-blue-500' />}
+              label={t('Total Clicks')}
+              value={formatNumber(gsc.summary.total_clicks)}
+            />
+            <SiteStatCard
+              icon={<Eye className='size-4 text-emerald-500' />}
+              label={t('Total Impressions')}
+              value={formatNumber(gsc.summary.total_impressions)}
+            />
+            <SiteStatCard
+              icon={<TrendingUp className='size-4 text-amber-500' />}
+              label={t('Average CTR')}
+              value={`${gsc.summary.average_ctr}%`}
+            />
+            <SiteStatCard
+              icon={<Search className='size-4 text-violet-500' />}
+              label={t('Average Position')}
+              value={`#${gsc.summary.average_position}`}
+            />
+            <SiteStatCard
+              icon={<FileText className='size-4 text-cyan-500' />}
+              label={t('Google Search Queries')}
+              value={formatNumber(gsc.queries?.total_count ?? 0)}
+            />
           </div>
 
           <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
             <Card>
               <CardHeader>
                 <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                  <div>
-                    <CardTitle className='text-base'>
-                      {t('Google Search Queries')}
-                    </CardTitle>
-                    <CardDescription>
-                      {t(
-                        'Exact search terms used by visitors finding your site via Google Search.'
-                      )}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className='text-base'>
+                    {t('Google Search Queries')}
+                  </CardTitle>
                   <div className='w-full sm:w-56'>
                     <Input
                       placeholder={t('Filter search query...')}
@@ -358,6 +305,7 @@ export function GoogleAnalyticsConsoleCard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className='w-12'>#</TableHead>
                       <TableHead>{t('Search Query')}</TableHead>
                       <TableHead className='text-right'>{t('Clicks')}</TableHead>
                       <TableHead className='text-right'>
@@ -372,17 +320,20 @@ export function GoogleAnalyticsConsoleCard() {
                   <TableBody>
                     {(gsc.queries?.items || []).map((q, idx) => (
                       <TableRow key={idx}>
+                        <TableCell className='text-muted-foreground tabular-nums'>
+                          {(queryPage - 1) * 6 + idx + 1}
+                        </TableCell>
                         <TableCell className='font-medium'>{q.query}</TableCell>
                         <TableCell className='text-right tabular-nums'>
                           {formatNumber(q.clicks)}
                         </TableCell>
-                        <TableCell className='text-muted-foreground text-right tabular-nums'>
+                        <TableCell className='text-right tabular-nums'>
                           {formatNumber(q.impressions)}
                         </TableCell>
                         <TableCell className='text-right tabular-nums'>
                           {q.ctr}%
                         </TableCell>
-                        <TableCell className='text-right font-medium tabular-nums'>
+                        <TableCell className='text-right tabular-nums'>
                           #{q.position}
                         </TableCell>
                       </TableRow>
@@ -430,16 +381,16 @@ export function GoogleAnalyticsConsoleCard() {
                   <CardTitle className='text-base'>
                     {t('Top Clicked Pages')}
                   </CardTitle>
-                  {gsc.site_url && (
-                    <CardDescription>{gsc.site_url}</CardDescription>
-                  )}
                 </CardHeader>
                 <CardContent className='overflow-x-auto'>
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className='w-12'>#</TableHead>
                         <TableHead>{t('Landing Page URL')}</TableHead>
-                        <TableHead className='text-right'>{t('Clicks')}</TableHead>
+                        <TableHead className='text-right'>
+                          {t('Clicks')}
+                        </TableHead>
                         <TableHead className='text-right'>
                           {t('Impressions')}
                         </TableHead>
@@ -452,19 +403,22 @@ export function GoogleAnalyticsConsoleCard() {
                     <TableBody>
                       {(gsc.top_search_pages || []).map((p, idx) => (
                         <TableRow key={idx}>
+                          <TableCell className='text-muted-foreground tabular-nums'>
+                            {idx + 1}
+                          </TableCell>
                           <TableCell className='max-w-56 truncate font-medium'>
                             {p.page}
                           </TableCell>
                           <TableCell className='text-right tabular-nums'>
                             {formatNumber(p.clicks)}
                           </TableCell>
-                          <TableCell className='text-muted-foreground text-right tabular-nums'>
+                          <TableCell className='text-right tabular-nums'>
                             {formatNumber(p.impressions)}
                           </TableCell>
                           <TableCell className='text-right tabular-nums'>
                             {p.ctr}%
                           </TableCell>
-                          <TableCell className='text-right font-medium tabular-nums'>
+                          <TableCell className='text-right tabular-nums'>
                             #{p.position}
                           </TableCell>
                         </TableRow>

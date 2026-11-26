@@ -29,6 +29,7 @@ export type HfTaskType = 'text' | 'image' | 'video' | 'audio' | 'embeddings'
 export interface HfPickedModel {
   repoId: string
   filename?: string
+  fileSize?: number
   downloadUrl?: string
   pipelineTag?: string
   parameterSize?: string
@@ -174,6 +175,17 @@ export function HfModelPickerDialog({
     }
   }
 
+  function resolveFileBytes(f: HfFileResult): number {
+    if (typeof f.size === 'number' && f.size > 0) return f.size
+    if (typeof f.size_gb === 'number' && f.size_gb > 0) {
+      return Math.round(f.size_gb * 1024 * 1024 * 1024)
+    }
+    if (typeof f.size_mb === 'number' && f.size_mb > 0) {
+      return Math.round(f.size_mb * 1024 * 1024)
+    }
+    return 0
+  }
+
   function handleSelectRepoDirectly(repo: HfRepoResult) {
     if (repo.gated && !hfToken.trim()) {
       toast.error(
@@ -181,8 +193,24 @@ export function HfModelPickerDialog({
       )
       return
     }
+    let repoWeightBytes: number | undefined
+    if (selectedRepo?.id === repo.id && files.length > 0) {
+      const weightFiles = files.filter((f) => {
+        const low = f.filename.toLowerCase()
+        if (excludeGguf && low.endsWith('.gguf')) return false
+        return (
+          low.endsWith('.safetensors') ||
+          low.endsWith('.bin') ||
+          low.endsWith('.pt') ||
+          low.endsWith('.ckpt')
+        )
+      })
+      const summed = weightFiles.reduce((acc, f) => acc + resolveFileBytes(f), 0)
+      if (summed > 0) repoWeightBytes = summed
+    }
     const picked: HfPickedModel = {
       repoId: repo.id,
+      fileSize: repoWeightBytes,
       pipelineTag: repo.pipeline_tag,
       parameterSize: repo.parameter_size,
       taskType: mapPipelineTagToTask(repo.pipeline_tag),
@@ -211,9 +239,11 @@ export function HfModelPickerDialog({
       )
       return
     }
+    const bytes = resolveFileBytes(file)
     const picked: HfPickedModel = {
       repoId: selectedRepo.id,
       filename: file.filename,
+      fileSize: bytes > 0 ? bytes : undefined,
       downloadUrl: file.download_url,
       pipelineTag: selectedRepo.pipeline_tag,
       parameterSize: selectedRepo.parameter_size,

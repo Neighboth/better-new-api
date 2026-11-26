@@ -39,7 +39,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -112,6 +111,10 @@ import { ClarityStatsCard } from './components/clarity-stats-card'
 import { FineTuningStatsCard } from './components/fine-tuning-stats-card'
 import { GoogleAnalyticsConsoleCard } from './components/google-analytics-console-card'
 import { ProxyPoolStatsCard } from './components/proxy-pool-stats-card'
+import {
+  SITE_STATS_KPI_GRID_CLASS,
+  SiteStatCard as StatCard,
+} from './components/stat-card'
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
 
@@ -175,36 +178,6 @@ function formatUptime(seconds: number): string {
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
-}
-
-interface StatCardProps {
-  icon: ReactNode
-  label: string
-  value: string
-  description?: string
-}
-
-function StatCard({ icon, label, value, description }: StatCardProps) {
-  return (
-    <Card>
-      <CardHeader className='pb-2'>
-        <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-          <span className='flex size-4 shrink-0 items-center justify-center'>
-            {icon}
-          </span>
-          <span className='truncate'>{label}</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className='truncate text-2xl font-bold tabular-nums'>{value}</div>
-        {description ? (
-          <p className='text-muted-foreground mt-1 truncate text-xs'>
-            {description}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-  )
 }
 
 interface RankRow {
@@ -880,7 +853,7 @@ export function SiteStatistics() {
           >
             {/* Summary of the range */}
             {summary ? (
-              <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
+              <div className={SITE_STATS_KPI_GRID_CLASS}>
                 <StatCard
                   icon={<Activity className='size-4 text-blue-500' />}
                   label={t('Requests')}
@@ -951,7 +924,7 @@ export function SiteStatistics() {
 
             {/* Global counters */}
             {counters ? (
-              <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
+              <div className={SITE_STATS_KPI_GRID_CLASS}>
                 <StatCard
                   icon={<Users className='text-muted-foreground size-4' />}
                   label={t('Total Users')}

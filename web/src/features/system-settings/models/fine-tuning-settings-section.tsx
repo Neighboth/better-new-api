@@ -254,6 +254,7 @@ export function FineTuningSettingsSection({
   })
 
   const { isDirty, isSubmitting } = form.formState
+  const isFineTuningEnabled = Boolean(form.watch('fineTuningEnabled'))
   const savedGpuRows = form.watch('fineTuningGpuRows') ?? DEFAULT_FT_GPU_ROWS
   const [accountsByProvider, setAccountsByProvider] = useState<
     Record<string, DeploymentAccountSummary[]>
@@ -463,22 +464,6 @@ export function FineTuningSettingsSection({
   return (
     <>
       <SettingsSection title={t('Fine-Tuning Settings')}>
-        <div className='bg-muted/40 mb-5 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm'>
-          <Info className='text-primary mt-0.5 h-4 w-4 shrink-0' />
-          <p className='text-muted-foreground leading-relaxed'>
-            {t(
-              'Fine-tuning jobs run on the enabled compute providers and connected accounts configured in Model Deployment settings.'
-            )}{' '}
-            <Link
-              to='/system-settings/models/$section'
-              params={{ section: 'model-deployment' }}
-              className='text-primary font-medium underline underline-offset-4'
-            >
-              {t('Open Model Deployment')}
-            </Link>
-          </p>
-        </div>
-
         <Form {...form}>
           <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
             <FormField
@@ -504,211 +489,244 @@ export function FineTuningSettingsSection({
               )}
             />
 
-            {/* Storage Retention & Pre-Expiry Email Warning */}
-            <FormField
-              control={form.control}
-              name='retentionDays'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Model Retention Period (Days)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={365}
-                      value={field.value ?? 30}
-                      onChange={(e) =>
-                        field.onChange(Math.max(1, Number(e.target.value) || 30))
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Trained model archives are automatically purged from server storage after this many days (default: 30 days).'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='expiryWarningDays'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Expiry Reminder Email (Days Before)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      max={60}
-                      value={field.value ?? 3}
-                      onChange={(e) =>
-                        field.onChange(Math.max(0, Number(e.target.value) || 0))
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Send a download reminder email this many days before deletion (default: 3 days). Customize the template in SMTP Email settings.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {defaultValues.enabledProviders.colab && (
+            {isFineTuningEnabled && (
               <>
-                <FormField
-                  control={form.control}
-                  name='colabNormalRamMultiplier'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Colab Normal RAM Multiplier')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          step='0.05'
-                          min='0.1'
-                          max='20'
-                          value={field.value ?? 1}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value === ''
-                                ? 1
-                                : Math.max(0.1, Number(e.target.value))
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Pricing multiplier applied to standard Colab RAM runtimes (default 1.0x).'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='colabHighRamMultiplier'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Colab High RAM Multiplier')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          step='0.05'
-                          min='0.1'
-                          max='20'
-                          value={field.value ?? 1.5}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value === ''
-                                ? 1.5
-                                : Math.max(0.1, Number(e.target.value))
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Pricing multiplier applied when High-RAM is selected on Colab (default 1.5x).'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </>
-            )}
+                <div
+                  data-settings-form-span='full'
+                  className='bg-muted/40 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm'
+                >
+                  <Info className='text-primary mt-0.5 h-4 w-4 shrink-0' />
+                  <p className='text-muted-foreground leading-relaxed'>
+                    {t(
+                      'Fine-tuning jobs run on the enabled compute providers and connected accounts configured in Model Deployment settings.'
+                    )}{' '}
+                    <Link
+                      to='/system-settings/models/$section'
+                      params={{ section: 'model-deployment' }}
+                      className='text-primary font-medium underline underline-offset-4'
+                    >
+                      {t('Open Model Deployment')}
+                    </Link>
+                  </p>
+                </div>
 
-            {/* Hardware Pricing Table */}
-            <FormItem data-settings-form-span='full' className='space-y-3'>
-              <FormLabel>{t('Fine-Tuning Hardware Pricing')}</FormLabel>
-              <FormDescription>
-                {t(
-                  'Configure per-second USD pricing and toggle availability for CPU, GPU, and TPU options unlocked by your enabled deployment accounts.'
-                )}
-              </FormDescription>
-              <div className='overflow-x-auto rounded-lg border'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('Accelerator')}</TableHead>
-                      <TableHead className='w-[220px]'>
-                        {t('Price per Second (USD/s)')}
-                      </TableHead>
-                      <TableHead className='w-[100px] text-right'>
-                        {t('Enabled')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {gpuRows.map((row) => (
-                      <TableRow
-                        key={row.id}
-                        className={!row.enabled ? 'opacity-55' : undefined}
-                      >
-                        <TableCell>
-                          <div className='flex flex-wrap items-center gap-1.5'>
-                            <span className='text-sm font-medium'>
-                              {row.label}
-                            </span>
-                            {row.providers?.map((p) => (
-                              <Badge
-                                key={p}
-                                variant='secondary'
-                                className='px-1.5 py-0 text-xs font-normal'
-                              >
-                                {PROVIDER_LABELS[p] ?? p}
-                              </Badge>
-                            ))}
-                          </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {row.id}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className='relative flex items-center'>
-                            <span className='text-muted-foreground pointer-events-none absolute left-3 text-sm'>
-                              $
-                            </span>
+                {/* Storage Retention & Pre-Expiry Email Warning */}
+                <FormField
+                  control={form.control}
+                  name='retentionDays'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Model Retention Period (Days)')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={1}
+                          max={365}
+                          value={field.value ?? 30}
+                          onChange={(e) =>
+                            field.onChange(
+                              Math.max(1, Number(e.target.value) || 30)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Trained model archives are automatically purged from server storage after this many days (default: 30 days).'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='expiryWarningDays'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {t('Expiry Reminder Email (Days Before)')}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          max={60}
+                          value={field.value ?? 3}
+                          onChange={(e) =>
+                            field.onChange(
+                              Math.max(0, Number(e.target.value) || 0)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Send a download reminder email this many days before deletion (default: 3 days). Customize the template in SMTP Email settings.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {defaultValues.enabledProviders.colab && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name='colabNormalRamMultiplier'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Colab Normal RAM Multiplier')}
+                          </FormLabel>
+                          <FormControl>
                             <Input
                               type='number'
-                              step='0.0001'
-                              min='0'
-                              disabled={!row.enabled}
-                              value={row.price_per_second}
-                              onChange={(e) => {
-                                updateGpuRow(row.id, {
-                                  price_per_second:
-                                    e.target.value === ''
-                                      ? 0
-                                      : Math.max(0, Number(e.target.value)),
-                                })
-                              }}
-                              className='pl-7 tabular-nums'
+                              step='0.05'
+                              min='0.1'
+                              max='20'
+                              value={field.value ?? 1}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? 1
+                                    : Math.max(0.1, Number(e.target.value))
+                                )
+                              }
                             />
-                          </div>
-                        </TableCell>
-                        <TableCell className='text-right'>
-                          <Switch
-                            checked={row.enabled}
-                            onCheckedChange={(checked) => {
-                              updateGpuRow(row.id, { enabled: checked })
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </FormItem>
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Pricing multiplier applied to standard Colab RAM runtimes (default 1.0x).'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='colabHighRamMultiplier'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Colab High RAM Multiplier')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              step='0.05'
+                              min='0.1'
+                              max='20'
+                              value={field.value ?? 1.5}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? 1.5
+                                    : Math.max(0.1, Number(e.target.value))
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Pricing multiplier applied when High-RAM is selected on Colab (default 1.5x).'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+
+                {/* Hardware Pricing Table */}
+                <FormItem data-settings-form-span='full' className='space-y-3'>
+                  <FormLabel>{t('Fine-Tuning Hardware Pricing')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Configure per-second USD pricing and toggle availability for CPU, GPU, and TPU options unlocked by your enabled deployment accounts.'
+                    )}
+                  </FormDescription>
+                  <div className='overflow-x-auto rounded-lg border'>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('Accelerator')}</TableHead>
+                          <TableHead className='w-[220px]'>
+                            {t('Price per Second (USD/s)')}
+                          </TableHead>
+                          <TableHead className='w-[100px] text-right'>
+                            {t('Enabled')}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {gpuRows.map((row) => (
+                          <TableRow
+                            key={row.id}
+                            className={!row.enabled ? 'opacity-55' : undefined}
+                          >
+                            <TableCell>
+                              <div className='flex flex-wrap items-center gap-1.5'>
+                                <span className='text-sm font-medium'>
+                                  {row.label}
+                                </span>
+                                {row.providers?.map((p) => (
+                                  <Badge
+                                    key={p}
+                                    variant='secondary'
+                                    className='px-1.5 py-0 text-xs font-normal'
+                                  >
+                                    {PROVIDER_LABELS[p] ?? p}
+                                  </Badge>
+                                ))}
+                              </div>
+                              <div className='text-muted-foreground text-xs'>
+                                {row.id}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className='relative flex items-center'>
+                                <span className='text-muted-foreground pointer-events-none absolute left-3 text-sm'>
+                                  $
+                                </span>
+                                <Input
+                                  type='number'
+                                  step='0.0001'
+                                  min='0'
+                                  disabled={!row.enabled}
+                                  value={row.price_per_second}
+                                  onChange={(e) => {
+                                    updateGpuRow(row.id, {
+                                      price_per_second:
+                                        e.target.value === ''
+                                          ? 0
+                                          : Math.max(0, Number(e.target.value)),
+                                    })
+                                  }}
+                                  className='pl-7 tabular-nums'
+                                />
+                              </div>
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              <Switch
+                                checked={row.enabled}
+                                onCheckedChange={(checked) => {
+                                  updateGpuRow(row.id, { enabled: checked })
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </FormItem>
+              </>
+            )}
 
             <SettingsPageFormActions
               onSave={form.handleSubmit(onSubmit)}
@@ -720,157 +738,163 @@ export function FineTuningSettingsSection({
           </SettingsForm>
         </Form>
 
-        <Separator className='my-6' />
+        {isFineTuningEnabled && (
+          <>
+            <Separator className='my-6' />
 
-        {/* Mini Admin Fine-Tuning Management Panel */}
-        <Card>
-          <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-            <div>
-              <CardTitle className='text-base font-medium'>
-                {t('Fine-Tuning Jobs Management')}
-              </CardTitle>
-              <CardDescription>
-                {t(
-                  'Monitor all user fine-tuning jobs, revenue, training logs, model archives, and storage cleanup.'
-                )}
-              </CardDescription>
-            </div>
-            <div className='flex flex-wrap items-center gap-2'>
-              <Badge variant='outline'>
-                {t('Jobs')}: {jobsData?.total_jobs ?? 0}
-              </Badge>
-              <Badge variant='secondary'>
-                {t('Revenue')}:{' '}
-                {formatCurrencyFromUSD(jobsData?.total_revenue_usd ?? 0)}
-              </Badge>
-              <Badge variant='outline'>
-                {t('Trained Tokens')}:{' '}
-                {formatTokens(jobsData?.total_trained_tokens ?? 0)}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className='overflow-x-auto'>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('User')}</TableHead>
-                    <TableHead>{t('Model')}</TableHead>
-                    <TableHead>{t('Accelerator')}</TableHead>
-                    <TableHead>{t('Status')}</TableHead>
-                    <TableHead>{t('Revenue')}</TableHead>
-                    <TableHead>{t('Expires')}</TableHead>
-                    <TableHead className='text-right'>{t('Actions')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {adminJobsQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className='py-8 text-center'>
-                        <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
-                      </TableCell>
-                    </TableRow>
-                  ) : (jobsData?.jobs ?? []).length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className='text-muted-foreground py-8 text-center text-sm'
-                      >
-                        {t('No fine-tuning jobs yet.')}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    (jobsData?.jobs ?? []).map((job) => (
-                      <TableRow key={job.job_id}>
-                        <TableCell className='text-sm'>
-                          <div className='font-medium'>
-                            {job.username || `#${job.user_id}`}
-                          </div>
-                          <div className='text-muted-foreground text-xs'>
-                            #{job.user_id}
-                          </div>
-                        </TableCell>
-                        <TableCell className='text-sm'>
-                          <div className='max-w-[240px] truncate font-medium'>
-                            {job.fine_tuned_model || job.job_id}
-                          </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {job.job_id}
-                          </div>
-                        </TableCell>
-                        <TableCell className='text-sm'>
-                          {job.gpu || 'CPU'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              job.status === 'succeeded'
-                                ? 'default'
-                                : job.status === 'failed'
-                                  ? 'destructive'
-                                  : 'secondary'
-                            }
+            {/* Mini Admin Fine-Tuning Management Panel */}
+            <Card>
+              <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                <div>
+                  <CardTitle className='text-base font-medium'>
+                    {t('Fine-Tuning Jobs Management')}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(
+                      'Monitor all user fine-tuning jobs, revenue, training logs, model archives, and storage cleanup.'
+                    )}
+                  </CardDescription>
+                </div>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Badge variant='outline'>
+                    {t('Jobs')}: {jobsData?.total_jobs ?? 0}
+                  </Badge>
+                  <Badge variant='secondary'>
+                    {t('Revenue')}:{' '}
+                    {formatCurrencyFromUSD(jobsData?.total_revenue_usd ?? 0)}
+                  </Badge>
+                  <Badge variant='outline'>
+                    {t('Trained Tokens')}:{' '}
+                    {formatTokens(jobsData?.total_trained_tokens ?? 0)}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className='overflow-x-auto'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('User')}</TableHead>
+                        <TableHead>{t('Model')}</TableHead>
+                        <TableHead>{t('Accelerator')}</TableHead>
+                        <TableHead>{t('Status')}</TableHead>
+                        <TableHead>{t('Revenue')}</TableHead>
+                        <TableHead>{t('Expires')}</TableHead>
+                        <TableHead className='text-right'>
+                          {t('Actions')}
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {adminJobsQuery.isLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className='py-8 text-center'>
+                            <Loader2 className='text-muted-foreground mx-auto h-5 w-5 animate-spin' />
+                          </TableCell>
+                        </TableRow>
+                      ) : (jobsData?.jobs ?? []).length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className='text-muted-foreground py-8 text-center text-sm'
                           >
-                            {job.status === 'running' && job.progress
-                              ? `${t('Running')} (${job.progress}%)`
-                              : t(
-                                  job.status.charAt(0).toUpperCase() +
-                                    job.status.slice(1)
-                                )}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className='text-sm tabular-nums'>
-                          {formatCurrencyFromUSD(job.estimated_cost_usd)}
-                        </TableCell>
-                        <TableCell className='text-muted-foreground text-sm whitespace-nowrap'>
-                          {job.files_purged_at
-                            ? t('Expired')
-                            : job.expires_at
-                              ? formatTimestamp(job.expires_at)
-                              : '—'}
-                        </TableCell>
-                        <TableCell className='text-right'>
-                          <div className='flex items-center justify-end gap-1'>
-                            <Button
-                              variant='ghost'
-                              size='icon'
-                              title={t('View Console')}
-                              onClick={() => setLogTarget(job)}
-                            >
-                              <Terminal className='h-4 w-4' />
-                            </Button>
-                            {job.status === 'succeeded' &&
-                              job.has_model_file && (
+                            {t('No fine-tuning jobs yet.')}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        (jobsData?.jobs ?? []).map((job) => (
+                          <TableRow key={job.job_id}>
+                            <TableCell className='text-sm'>
+                              <div className='font-medium'>
+                                {job.username || `#${job.user_id}`}
+                              </div>
+                              <div className='text-muted-foreground text-xs'>
+                                #{job.user_id}
+                              </div>
+                            </TableCell>
+                            <TableCell className='text-sm'>
+                              <div className='max-w-[240px] truncate font-medium'>
+                                {job.fine_tuned_model || job.job_id}
+                              </div>
+                              <div className='text-muted-foreground text-xs'>
+                                {job.job_id}
+                              </div>
+                            </TableCell>
+                            <TableCell className='text-sm'>
+                              {job.gpu || 'CPU'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  job.status === 'succeeded'
+                                    ? 'default'
+                                    : job.status === 'failed'
+                                      ? 'destructive'
+                                      : 'secondary'
+                                }
+                              >
+                                {job.status === 'running' && job.progress
+                                  ? `${t('Running')} (${job.progress}%)`
+                                  : t(
+                                      job.status.charAt(0).toUpperCase() +
+                                        job.status.slice(1)
+                                    )}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className='text-sm tabular-nums'>
+                              {formatCurrencyFromUSD(job.estimated_cost_usd)}
+                            </TableCell>
+                            <TableCell className='text-muted-foreground text-sm whitespace-nowrap'>
+                              {job.files_purged_at
+                                ? t('Expired')
+                                : job.expires_at
+                                  ? formatTimestamp(job.expires_at)
+                                  : '—'}
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              <div className='flex items-center justify-end gap-1'>
                                 <Button
                                   variant='ghost'
                                   size='icon'
-                                  title={t('Download')}
-                                  onClick={() =>
-                                    void handleDownloadModel(job.job_id)
-                                  }
+                                  title={t('View Console')}
+                                  onClick={() => setLogTarget(job)}
                                 >
-                                  <Download className='h-4 w-4' />
+                                  <Terminal className='h-4 w-4' />
                                 </Button>
-                              )}
-                            <Button
-                              variant='ghost'
-                              size='icon'
-                              className='text-destructive hover:text-destructive'
-                              title={t('Delete')}
-                              onClick={() => setDeleteTarget(job)}
-                            >
-                              <Trash2 className='h-4 w-4' />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                                {job.status === 'succeeded' &&
+                                  job.has_model_file && (
+                                    <Button
+                                      variant='ghost'
+                                      size='icon'
+                                      title={t('Download')}
+                                      onClick={() =>
+                                        void handleDownloadModel(job.job_id)
+                                      }
+                                    >
+                                      <Download className='h-4 w-4' />
+                                    </Button>
+                                  )}
+                                <Button
+                                  variant='ghost'
+                                  size='icon'
+                                  className='text-destructive hover:text-destructive'
+                                  title={t('Delete')}
+                                  onClick={() => setDeleteTarget(job)}
+                                >
+                                  <Trash2 className='h-4 w-4' />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </SettingsSection>
 
       {/* Logs Modal */}

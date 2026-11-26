@@ -591,6 +591,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/deployments/fine_tuning/:job_id/callback", controller.FineTuningWorkerCallback)
 		apiRouter.GET("/deployments/fine_tuning/:job_id/dataset", controller.FineTuningWorkerDownloadDataset)
 		apiRouter.GET("/deployments/fine_tuning/:job_id/base_model", controller.FineTuningWorkerDownloadBaseModel)
+		apiRouter.POST("/deployments/fine_tuning/:job_id/checkpoint", controller.FineTuningWorkerUploadCheckpoint)
+		apiRouter.GET("/deployments/fine_tuning/:job_id/checkpoint", controller.FineTuningWorkerDownloadCheckpoint)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/artifact", controller.FineTuningWorkerUploadArtifact)
 
 		// Fine-tuning admin management & statistics

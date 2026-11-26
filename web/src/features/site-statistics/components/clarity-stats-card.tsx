@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   Clock,
   MousePointerClick,
@@ -18,7 +17,6 @@ import {
   YAxis,
 } from 'recharts'
 
-import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -35,9 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatNumber } from '@/lib/format'
+import { formatCompactNumber, formatNumber } from '@/lib/format'
 
 import { getClarityInsights } from '../api'
+import { SITE_STATS_KPI_GRID_CLASS, SiteStatCard } from './stat-card'
 
 export function ClarityStatsCard() {
   const { t } = useTranslation()
@@ -50,7 +49,7 @@ export function ClarityStatsCard() {
 
   if (isLoading) {
     return (
-      <div className='grid grid-cols-2 gap-3 lg:grid-cols-5'>
+      <div className={SITE_STATS_KPI_GRID_CLASS}>
         {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} className='h-28' />
         ))}
@@ -65,12 +64,14 @@ export function ClarityStatsCard() {
           <CardTitle className='text-base'>
             {t('Microsoft Clarity Analytics')}
           </CardTitle>
-          <CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className='text-muted-foreground text-sm'>
             {t(
               'Add Microsoft Clarity Project ID and API Token in System Settings > SEO to enable user friction, rage clicks, and depth analytics.'
             )}
-          </CardDescription>
-        </CardHeader>
+          </p>
+        </CardContent>
       </Card>
     )
   }
@@ -98,121 +99,68 @@ export function ClarityStatsCard() {
   const devices = data.devices || []
   const topPages = data.top_pages || []
   const countries = data.countries || []
+  const maxPageSessions = Math.max(1, ...topPages.map((p) => p.sessions))
+  const maxCountrySessions = Math.max(1, ...countries.map((c) => c.sessions))
 
   return (
     <div className='space-y-4'>
-      {/* KPI Stat Cards — unified with upper Site Statistics */}
-      <div className='grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5'>
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <Users className='size-4 shrink-0 text-blue-500' />
-              <span className='truncate'>{t('Total Sessions')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {formatNumber(summary.total_sessions)}
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {formatNumber(summary.distinct_users)} {t('Distinct Users')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <ScrollText className='size-4 shrink-0 text-emerald-500' />
-              <span className='truncate'>{t('Average Scroll Depth')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {summary.scroll_depth}%
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {t('Page depth')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <Clock className='size-4 shrink-0 text-indigo-500' />
-              <span className='truncate'>{t('Active Time')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {summary.active_time_seconds}s
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {summary.pages_per_session} {t('Pages/session')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <MousePointerClick className='size-4 shrink-0 text-amber-500' />
-              <span className='truncate'>{t('Rage Click Rate')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {friction.rage_click_rate}%
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {formatNumber(friction.rage_clicks)} {t('events')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <AlertTriangle className='size-4 shrink-0 text-red-500' />
-              <span className='truncate'>{t('Dead Click Rate')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {friction.dead_click_rate}%
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {formatNumber(friction.dead_clicks)} {t('events')}
-            </p>
-          </CardContent>
-        </Card>
+      <div className={SITE_STATS_KPI_GRID_CLASS}>
+        <SiteStatCard
+          icon={<Users className='size-4 text-blue-500' />}
+          label={t('Total Sessions')}
+          value={formatNumber(summary.total_sessions)}
+          description={`${t('Distinct Users')}: ${formatNumber(summary.distinct_users)}`}
+        />
+        <SiteStatCard
+          icon={<ScrollText className='size-4 text-emerald-500' />}
+          label={t('Average Scroll Depth')}
+          value={`${summary.scroll_depth}%`}
+        />
+        <SiteStatCard
+          icon={<Clock className='size-4 text-indigo-500' />}
+          label={t('Active Time')}
+          value={`${summary.active_time_seconds}s`}
+          description={`${summary.pages_per_session} ${t('Pages/session')}`}
+        />
+        <SiteStatCard
+          icon={<MousePointerClick className='size-4 text-amber-500' />}
+          label={t('Rage Click Rate')}
+          value={`${friction.rage_click_rate}%`}
+          description={`${formatNumber(friction.rage_clicks)} ${t('events')}`}
+        />
+        <SiteStatCard
+          icon={<AlertTriangle className='size-4 text-red-500' />}
+          label={t('Dead Click Rate')}
+          value={`${friction.dead_click_rate}%`}
+          description={`${formatNumber(friction.dead_clicks)} ${t('events')}`}
+        />
       </div>
 
-      {/* Friction + Devices */}
       <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>
               {t('User Friction & Error Indicators')}
             </CardTitle>
-            <CardDescription>
-              {t(
-                'Rage clicks, dead clicks, scroll depth, and JavaScript console errors.'
-              )}
-            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className='overflow-x-auto'>
             <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('Metric')}</TableHead>
+                  <TableHead className='text-right'>{t('Count')}</TableHead>
+                  <TableHead className='w-28 text-right'>{t('Share')}</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 <TableRow>
                   <TableCell className='font-medium'>
                     {t('Excessive Scrolling')}
                   </TableCell>
-                  <TableCell className='text-muted-foreground text-right tabular-nums'>
-                    {formatNumber(friction.excessive_scrolling)} {t('sessions')}
+                  <TableCell className='text-right tabular-nums'>
+                    {formatNumber(friction.excessive_scrolling)}
                   </TableCell>
-                  <TableCell className='text-right font-medium tabular-nums'>
+                  <TableCell className='text-right tabular-nums'>
                     {friction.excessive_scroll_rate}%
                   </TableCell>
                 </TableRow>
@@ -220,25 +168,22 @@ export function ClarityStatsCard() {
                   <TableCell className='font-medium'>
                     {t('Quick Back')}
                   </TableCell>
-                  <TableCell className='text-muted-foreground text-right tabular-nums'>
-                    {formatNumber(friction.quick_backs)} {t('sessions')}
+                  <TableCell className='text-right tabular-nums'>
+                    {formatNumber(friction.quick_backs)}
                   </TableCell>
-                  <TableCell className='text-right font-medium tabular-nums'>
+                  <TableCell className='text-right tabular-nums'>
                     {friction.quick_back_rate}%
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className='font-medium'>
-                    <Activity className='mr-1.5 inline size-4 text-red-500' />
                     {t('JavaScript Client Errors')}
                   </TableCell>
-                  <TableCell className='text-muted-foreground text-right text-xs'>
-                    {t('Exceptions logged to browser console')}
-                  </TableCell>
                   <TableCell className='text-right tabular-nums'>
-                    <Badge variant='outline'>
-                      {formatNumber(friction.javascript_errors)} {t('Errors')}
-                    </Badge>
+                    {formatNumber(friction.javascript_errors)}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground text-right tabular-nums'>
+                    -
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -252,46 +197,45 @@ export function ClarityStatsCard() {
               {t('Device Distribution')}
             </CardTitle>
             <CardDescription>
-              {t('Microsoft Clarity Live Insights')} ·{' '}
-              {t('4-Hour Cache Protected')}
+              {t('Microsoft Clarity Live Insights')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {devices.length > 0 ? (
               <div className='h-56'>
                 <ResponsiveContainer width='100%' height='100%'>
-                  <BarChart
-                    data={devices}
-                    layout='vertical'
-                    margin={{ left: 10, right: 20 }}
-                  >
+                  <BarChart data={devices}>
                     <CartesianGrid
                       strokeDasharray='3 3'
                       className='stroke-muted'
                     />
                     <XAxis
-                      type='number'
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 11 }}
-                      unit='%'
-                    />
-                    <YAxis
-                      type='category'
                       dataKey='device'
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 11 }}
                     />
-                    <Tooltip
-                      formatter={(val: any) => [`${val}%`, t('Share')]}
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 11 }}
+                      width={44}
+                      tickFormatter={(v: number) => `${formatCompactNumber(v)}%`}
                     />
-                    <Bar dataKey='percentage' fill='#3b82f6' radius={[0, 3, 3, 0]} />
+                    <Tooltip
+                      formatter={(val) => [`${val}%`, t('Share')]}
+                    />
+                    <Bar
+                      dataKey='percentage'
+                      name={t('Share')}
+                      fill='#3b82f6'
+                      radius={[3, 3, 0, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className='text-muted-foreground flex h-40 items-center justify-center text-sm'>
+              <div className='text-muted-foreground flex h-56 items-center justify-center text-sm'>
                 {t('No Data')}
               </div>
             )}
@@ -299,7 +243,6 @@ export function ClarityStatsCard() {
         </Card>
       </div>
 
-      {/* Top Pages + Countries */}
       <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
         <Card>
           <CardHeader>
@@ -310,19 +253,37 @@ export function ClarityStatsCard() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className='w-12'>#</TableHead>
                     <TableHead>{t('URL')}</TableHead>
-                    <TableHead className='text-right'>{t('Sessions')}</TableHead>
-                    <TableHead className='text-right'>{t('Scroll')}</TableHead>
+                    <TableHead className='w-44'>{t('Sessions')}</TableHead>
+                    <TableHead className='w-28 text-right'>
+                      {t('Scroll')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {topPages.map((page, idx) => (
                     <TableRow key={idx}>
+                      <TableCell className='text-muted-foreground tabular-nums'>
+                        {idx + 1}
+                      </TableCell>
                       <TableCell className='max-w-56 truncate font-medium'>
                         {page.url}
                       </TableCell>
-                      <TableCell className='text-right tabular-nums'>
-                        {formatNumber(page.sessions)}
+                      <TableCell>
+                        <div className='flex items-center gap-2'>
+                          <div className='bg-muted h-1.5 w-20 shrink-0 overflow-hidden rounded-full'>
+                            <div
+                              className='h-full rounded-full bg-blue-500'
+                              style={{
+                                width: `${(page.sessions / maxPageSessions) * 100}%`,
+                              }}
+                            />
+                          </div>
+                          <span className='tabular-nums'>
+                            {formatNumber(page.sessions)}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
                         {page.scroll_depth}%
@@ -350,20 +311,38 @@ export function ClarityStatsCard() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className='w-12'>#</TableHead>
                     <TableHead>{t('Country')}</TableHead>
-                    <TableHead className='text-right'>{t('Sessions')}</TableHead>
-                    <TableHead className='text-right'>{t('Share')}</TableHead>
+                    <TableHead className='w-44'>{t('Sessions')}</TableHead>
+                    <TableHead className='w-28 text-right'>
+                      {t('Share')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {countries.map((c, idx) => (
                     <TableRow key={idx}>
+                      <TableCell className='text-muted-foreground tabular-nums'>
+                        {idx + 1}
+                      </TableCell>
                       <TableCell className='font-medium'>{c.country}</TableCell>
-                      <TableCell className='text-right tabular-nums'>
-                        {formatNumber(c.sessions)}
+                      <TableCell>
+                        <div className='flex items-center gap-2'>
+                          <div className='bg-muted h-1.5 w-20 shrink-0 overflow-hidden rounded-full'>
+                            <div
+                              className='h-full rounded-full bg-blue-500'
+                              style={{
+                                width: `${(c.sessions / maxCountrySessions) * 100}%`,
+                              }}
+                            />
+                          </div>
+                          <span className='tabular-nums'>
+                            {formatNumber(c.sessions)}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>
-                        <Badge variant='outline'>{c.percentage}%</Badge>
+                        {c.percentage}%
                       </TableCell>
                     </TableRow>
                   ))}

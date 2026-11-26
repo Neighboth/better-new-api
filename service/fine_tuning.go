@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -341,8 +343,10 @@ func GetFineTuningExpiryWarningDays() int {
 var modelSizeBillionsRe = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])(\d+(?:\.\d+)?)\s*([bm])(?:[^a-z]|$)`)
 
 // ParseModelBillions extracts an approximate parameter count (in billions) from
-// explicit HF metadata, a model repository/filename string, or uploaded file
-// size in bytes (~2 bytes/param for FP16/BF16).
+// explicit HF metadata, a model repository/filename string, and/or weight file
+// size in bytes (~2 bytes/param for FP16/BF16). When modelFileBytes is provided,
+// the file-size floor is respected so huge safetensors weights (e.g. 94 GB) are
+// never underestimated as a small model.
 func ParseModelBillions(modelName string, paramSizeHint string, modelFileBytes int64) float64 {
 	parseHint := func(raw string) float64 {
 		s := strings.TrimSpace(raw)
@@ -370,11 +374,32 @@ func ParseModelBillions(modelName string, paramSizeHint string, modelFileBytes i
 		return 0
 	}
 
+	fileEst := 0.0
+	if modelFileBytes > 0 {
+		// FP16/BF16 weights are ~2 bytes per parameter (FP8 ~1 byte/param)
+		fileEst = float64(modelFileBytes) / 2_000_000_000.0
+		if fileEst < 0.1 {
+			fileEst = 0.1
+		}
+		if fileEst > 1000 {
+			fileEst = 1000
+		}
+	}
+
 	if v := parseHint(paramSizeHint); v > 0 {
+		if fileEst > v {
+			return fileEst
+		}
 		return v
 	}
 	if v := parseHint(modelName); v > 0 {
+		if fileEst > v {
+			return fileEst
+		}
 		return v
+	}
+	if fileEst > 0 {
+		return fileEst
 	}
 	lower := strings.ToLower(modelName)
 	switch {
@@ -398,18 +423,269 @@ func ParseModelBillions(modelName string, paramSizeHint string, modelFileBytes i
 	case strings.Contains(lower, "whisper-large"):
 		return 1.55
 	}
-	if modelFileBytes > 0 {
-		// FP16/BF16 weights are ~2 bytes per parameter
-		est := float64(modelFileBytes) / 2_000_000_000.0
-		if est < 0.25 {
-			est = 0.25
-		}
-		if est > 700 {
-			est = 700
-		}
-		return est
-	}
 	return 7.0
+}
+
+// FineTuningHardwareSpec describes memory capacity for an accelerator ID.
+type FineTuningHardwareSpec struct {
+	Kind   string  `json:"kind"` // cpu | gpu | tpu
+	VRAMGB float64 `json:"vram_gb"`
+	RAMGB  float64 `json:"ram_gb"`
+}
+
+// GetAcceleratorSpecs returns the usable VRAM/HBM and system RAM (GB) for a given
+// accelerator ID and optional Colab RAM tier ("normal" | "high").
+func GetAcceleratorSpecs(gpuID string, ramTier string) FineTuningHardwareSpec {
+	highRAM := strings.EqualFold(strings.TrimSpace(ramTier), "high")
+	trimmed := strings.TrimSpace(gpuID)
+	switch trimmed {
+	case "CPU", "cpu-basic":
+		ram := 16.0
+		if highRAM {
+			ram = 51.0
+		}
+		return FineTuningHardwareSpec{Kind: "cpu", VRAMGB: 0, RAMGB: ram}
+	case "cpu-upgrade":
+		return FineTuningHardwareSpec{Kind: "cpu", VRAMGB: 0, RAMGB: 32.0}
+	case "T4", "NVIDIA_TESLA_T4", "t4-small":
+		ram := 12.7
+		if highRAM {
+			ram = 51.0
+		}
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 16.0, RAMGB: ram}
+	case "t4-medium":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 16.0, RAMGB: 30.0}
+	case "NvidiaTeslaT4": // Kaggle T4 x2
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 32.0, RAMGB: 30.0}
+	case "L4", "NVIDIA_L4", "NvidiaL4", "l4x1":
+		ram := 53.0
+		if highRAM {
+			ram = 62.0
+		}
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 24.0, RAMGB: ram}
+	case "l4x4":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 96.0, RAMGB: 128.0}
+	case "A10G", "NVIDIA_A10G", "a10g-small", "a10g-large":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 24.0, RAMGB: 46.0}
+	case "RTX-3090", "RTX-4090":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 24.0, RAMGB: 48.0}
+	case "L40S", "l40sx1":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 48.0, RAMGB: 64.0}
+	case "l40sx4":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 192.0, RAMGB: 256.0}
+	case "A100-40GB", "NVIDIA_TESLA_A100":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 40.0, RAMGB: 83.0}
+	case "A100-80GB", "NVIDIA_TESLA_A100_80GB", "A100", "a100-large":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 80.0, RAMGB: 167.0}
+	case "a100x2":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 160.0, RAMGB: 256.0}
+	case "a100x4":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 320.0, RAMGB: 512.0}
+	case "a100x8":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 640.0, RAMGB: 1024.0}
+	case "RTX-PRO-6000", "NVIDIA_RTX_PRO_6000":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 96.0, RAMGB: 128.0}
+	case "H100", "H100-SXM", "H100-80GB", "NVIDIA_H100_80GB", "h100x1":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 80.0, RAMGB: 167.0}
+	case "h100x4":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 320.0, RAMGB: 512.0}
+	case "h100x8":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 640.0, RAMGB: 1024.0}
+	case "H200", "h200x1":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 141.0, RAMGB: 256.0}
+	case "h200x8":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 1128.0, RAMGB: 1024.0}
+	case "B200":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 180.0, RAMGB: 256.0}
+	case "B300":
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 262.0, RAMGB: 384.0}
+	case "TPU_V2_8":
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 64.0, RAMGB: 334.0}
+	case "TPU_V5E_1":
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 16.0, RAMGB: 47.0}
+	case "TPU_V6E_1":
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 32.0, RAMGB: 172.0}
+	case "TpuV5E8":
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 128.0, RAMGB: 330.0}
+	case "TpuV6E8":
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 256.0, RAMGB: 330.0}
+	}
+
+	upper := strings.ToUpper(trimmed)
+	switch {
+	case strings.Contains(upper, "B300"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 262.0, RAMGB: 384.0}
+	case strings.Contains(upper, "B200"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 180.0, RAMGB: 256.0}
+	case strings.Contains(upper, "H200"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 141.0, RAMGB: 256.0}
+	case strings.Contains(upper, "H100"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 80.0, RAMGB: 167.0}
+	case strings.Contains(upper, "A100"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 40.0, RAMGB: 83.0}
+	case strings.Contains(upper, "L40S"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 48.0, RAMGB: 64.0}
+	case strings.Contains(upper, "L4"), strings.Contains(upper, "A10G"), strings.Contains(upper, "4090"), strings.Contains(upper, "3090"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 24.0, RAMGB: 48.0}
+	case strings.Contains(upper, "T4"):
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 16.0, RAMGB: 16.0}
+	case strings.Contains(upper, "TPU"):
+		return FineTuningHardwareSpec{Kind: "tpu", VRAMGB: 32.0, RAMGB: 96.0}
+	case strings.Contains(upper, "CPU"):
+		return FineTuningHardwareSpec{Kind: "cpu", VRAMGB: 0, RAMGB: 16.0}
+	default:
+		return FineTuningHardwareSpec{Kind: "gpu", VRAMGB: 16.0, RAMGB: 32.0}
+	}
+}
+
+// FineTuningCompatCheck reports whether the selected accelerator has enough
+// VRAM/RAM for the selected model, method, and dataset size.
+type FineTuningCompatCheck struct {
+	Compatible      bool    `json:"compatible"`
+	Code            string  `json:"code,omitempty"` // "" | "vram_exceeded" | "ram_exceeded" | "cpu_too_large"
+	RequiredVRAMGB  float64 `json:"required_vram_gb"`
+	AvailableVRAMGB float64 `json:"available_vram_gb"`
+	RequiredRAMGB   float64 `json:"required_ram_gb"`
+	AvailableRAMGB  float64 `json:"available_ram_gb"`
+	ModelSizeGB     float64 `json:"model_size_gb"`
+	Reason          string  `json:"reason,omitempty"`
+}
+
+func estimateModelSizeGB(in FineTuningEstimateInput) (modelB float64, modelGB float64) {
+	modelB = ParseModelBillions(in.ModelName, in.ModelParamHint, in.ModelFileBytes)
+	modelGB = modelB * 2.0
+	if in.ModelFileBytes > 0 {
+		fileGB := float64(in.ModelFileBytes) / 1_000_000_000.0
+		if fileGB > modelGB {
+			modelGB = fileGB
+		}
+	}
+	return modelB, modelGB
+}
+
+// CheckFineTuningHardwareCompat checks whether the chosen model + method + dataset
+// can realistically fit in the selected CPU/GPU/TPU memory.
+func CheckFineTuningHardwareCompat(in FineTuningEstimateInput) FineTuningCompatCheck {
+	spec := GetAcceleratorSpecs(in.GPU, in.RamTier)
+	_, modelGB := estimateModelSizeGB(in)
+	datasetGB := float64(in.DatasetBytes) / 1_000_000_000.0
+	method := strings.ToLower(strings.TrimSpace(in.Method))
+
+	var reqVRAM float64
+	switch method {
+	case "full":
+		// Weights + gradients + AdamW FP32 states + activations (~4x FP16 weight size)
+		reqVRAM = modelGB*4.0 + 3.0
+	case "qlora":
+		// 4-bit NF4 base weights (~0.35-0.4x FP16 size) + LoRA adapters + activations
+		reqVRAM = modelGB*0.40 + 2.2
+	default:
+		// LoRA / SFT / DPO / DreamBooth: FP16/BF16 weights + adapter states + activations
+		reqVRAM = modelGB*1.25 + 2.0
+	}
+	reqRAM := modelGB*1.15 + datasetGB*2.0 + 2.0
+
+	res := FineTuningCompatCheck{
+		Compatible:      true,
+		RequiredVRAMGB:  math.Round(reqVRAM*10) / 10,
+		AvailableVRAMGB: spec.VRAMGB,
+		RequiredRAMGB:   math.Round(reqRAM*10) / 10,
+		AvailableRAMGB:  spec.RAMGB,
+		ModelSizeGB:     math.Round(modelGB*10) / 10,
+	}
+
+	if spec.Kind == "cpu" {
+		if reqVRAM+datasetGB*1.5 > spec.RAMGB*0.85 || (method == "full" && modelGB > 2.5) || modelGB > 6.0 {
+			res.Compatible = false
+			res.Code = "cpu_too_large"
+			res.Reason = fmt.Sprintf("Model (~%.1f GB) with %s requires ~%.1f GB memory, exceeding CPU runtime capacity (~%.0f GB RAM).", modelGB, strings.ToUpper(nonEmptyOr(method, "lora")), reqVRAM, spec.RAMGB)
+		}
+		return res
+	}
+
+	if reqVRAM > spec.VRAMGB*0.92 {
+		res.Compatible = false
+		res.Code = "vram_exceeded"
+		res.Reason = fmt.Sprintf("Estimated memory required (~%.1f GB VRAM for %s on ~%.1f GB weights) exceeds selected accelerator capacity (%.0f GB VRAM).", reqVRAM, strings.ToUpper(nonEmptyOr(method, "lora")), modelGB, spec.VRAMGB)
+		return res
+	}
+	if reqRAM > spec.RAMGB*0.92 {
+		res.Compatible = false
+		res.Code = "ram_exceeded"
+		res.Reason = fmt.Sprintf("Model (~%.1f GB) and dataset (~%.2f GB) require ~%.1f GB system RAM, exceeding selected runtime RAM (%.0f GB).", modelGB, datasetGB, reqRAM, spec.RAMGB)
+		return res
+	}
+	return res
+}
+
+// ValidateFineTuningDatasetFile strictly validates a dataset file's extension
+// and leading magic bytes against the selected fine-tuning task type so invalid
+// archives (e.g. .zip uploaded for Text/LLM) or disguised binaries are rejected.
+func ValidateFineTuningDatasetFile(taskType string, filename string, headBytes []byte) error {
+	task := strings.ToLower(strings.TrimSpace(taskType))
+	if task == "" {
+		task = "text"
+	}
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(filename)))
+	allowedByTask := map[string]map[string]bool{
+		"text": {
+			".jsonl": true, ".json": true, ".parquet": true, ".csv": true, ".txt": true,
+		},
+		"image": {
+			".zip": true, ".tar": true, ".gz": true, ".parquet": true,
+			".png": true, ".jpg": true, ".jpeg": true, ".webp": true,
+		},
+		"audio": {
+			".zip": true, ".tar": true, ".gz": true, ".jsonl": true, ".parquet": true, ".csv": true,
+			".wav": true, ".mp3": true, ".flac": true, ".ogg": true, ".m4a": true,
+		},
+		"vision": {
+			".jsonl": true, ".json": true, ".zip": true, ".parquet": true,
+		},
+	}
+	allowed, ok := allowedByTask[task]
+	if !ok {
+		allowed = allowedByTask["text"]
+	}
+	if ext == "" || !allowed[ext] {
+		switch task {
+		case "text":
+			return fmt.Errorf("invalid dataset format %q for Text / LLM fine-tuning: only .jsonl, .json, .parquet, .csv, or .txt files are allowed (ZIP/archives are not supported for text tasks)", ext)
+		case "image":
+			return fmt.Errorf("invalid dataset format %q for Image / Diffusion fine-tuning: only .zip, .tar, .gz, .parquet, or image files (.png/.jpg/.webp) are allowed", ext)
+		case "audio":
+			return fmt.Errorf("invalid dataset format %q for Audio / Speech fine-tuning: only .zip, .tar, .gz, .jsonl, .parquet, .csv, or audio files are allowed", ext)
+		case "vision":
+			return fmt.Errorf("invalid dataset format %q for Vision / Multimodal fine-tuning: only .jsonl, .json, .zip, or .parquet files are allowed", ext)
+		}
+	}
+
+	if len(headBytes) >= 4 {
+		isZipMagic := bytes.HasPrefix(headBytes, []byte{0x50, 0x4B, 0x03, 0x04}) || bytes.HasPrefix(headBytes, []byte{0x50, 0x4B, 0x05, 0x06})
+		isGzipMagic := bytes.HasPrefix(headBytes, []byte{0x1F, 0x8B})
+		isPNGMagic := bytes.HasPrefix(headBytes, []byte{0x89, 0x50, 0x4E, 0x47})
+		isJPGMagic := bytes.HasPrefix(headBytes, []byte{0xFF, 0xD8, 0xFF})
+		isELFMagic := bytes.HasPrefix(headBytes, []byte{0x7F, 'E', 'L', 'F'})
+		isPEMagic := bytes.HasPrefix(headBytes, []byte{'M', 'Z'})
+		isPDFMagic := bytes.HasPrefix(headBytes, []byte{'%', 'P', 'D', 'F'})
+		isParquetMagic := bytes.HasPrefix(headBytes, []byte{'P', 'A', 'R', '1'})
+
+		if isELFMagic || isPEMagic || isPDFMagic {
+			return fmt.Errorf("dataset file %q contains an unsupported binary header", filepath.Base(filename))
+		}
+		if ext == ".jsonl" || ext == ".json" || ext == ".csv" || ext == ".txt" {
+			if isZipMagic || isGzipMagic || isPNGMagic || isJPGMagic || bytes.IndexByte(headBytes, 0x00) >= 0 {
+				return fmt.Errorf("dataset file %q appears to be a binary or compressed archive, not plain %s text data", filepath.Base(filename), strings.ToUpper(strings.TrimPrefix(ext, ".")))
+			}
+		}
+		if ext == ".zip" && !isZipMagic {
+			return fmt.Errorf("dataset file %q does not have a valid ZIP archive header", filepath.Base(filename))
+		}
+		if ext == ".parquet" && !isParquetMagic {
+			return fmt.Errorf("dataset file %q does not have a valid Parquet header", filepath.Base(filename))
+		}
+	}
+	return nil
 }
 
 // GetAcceleratorSpeedFactor returns relative training throughput compared to
@@ -518,6 +794,7 @@ func GetAcceleratorSpeedFactor(gpuID string) float64 {
 // FineTuningEstimateInput holds all real workload factors affecting training time.
 type FineTuningEstimateInput struct {
 	GPU            string
+	RamTier        string
 	TaskType       string
 	Method         string
 	Epochs         int
@@ -529,8 +806,9 @@ type FineTuningEstimateInput struct {
 }
 
 // EstimateFineTuningDurationRealistic computes realistic training duration in
-// seconds from model parameter count (billions), dataset sample count & bytes,
-// optimizer gradient steps, method overhead, task modality, and hardware speed.
+// seconds from model parameter count & file size (GB), dataset sample count &
+// bytes, optimizer gradient steps, Full-FT checkpoint/export I/O, VRAM spill
+// pressure, method overhead, task modality, and hardware throughput.
 func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
 	epochs := in.Epochs
 	if epochs < 1 {
@@ -541,7 +819,7 @@ func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
 		datasetBytes = 0
 	}
 
-	modelB := ParseModelBillions(in.ModelName, in.ModelParamHint, in.ModelFileBytes)
+	modelB, modelGB := estimateModelSizeGB(in)
 	speed := GetAcceleratorSpeedFactor(in.GPU)
 	if speed <= 0 {
 		speed = 1.0
@@ -559,10 +837,11 @@ func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
 		taskFactor = 1.0
 	}
 
+	method := strings.ToLower(strings.TrimSpace(in.Method))
 	methodFactor := 1.0
-	switch strings.ToLower(strings.TrimSpace(in.Method)) {
+	switch method {
 	case "full":
-		methodFactor = 2.2
+		methodFactor = 3.2
 	case "dpo":
 		methodFactor = 1.65
 	case "dreambooth":
@@ -570,7 +849,7 @@ func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
 	case "sft":
 		methodFactor = 1.15
 	case "qlora":
-		methodFactor = 1.10
+		methodFactor = 1.15
 	default:
 		methodFactor = 1.0
 	}
@@ -589,32 +868,55 @@ func EstimateFineTuningDurationRealistic(in FineTuningEstimateInput) int64 {
 
 	// Effective tokens per epoch: account for tokenization, chat templates, and padding
 	tokensFromBytes := float64(datasetBytes) / 4.0
-	tokensFromSamples := float64(samples) * 24.0
+	tokensFromSamples := float64(samples) * 32.0
 	if strings.EqualFold(in.TaskType, "image") {
 		tokensFromSamples = float64(samples) * 320.0
 	}
 	estTokensPerEpoch := math.Max(tokensFromBytes, tokensFromSamples)
 
-	// Setup/download/model load time scales with model size
-	setupSec := 60.0 + modelB*18.0
-	if setupSec > 2400.0 {
-		setupSec = 2400.0
+	// Setup/download/model load time scales linearly with actual weight size (GB):
+	// downloading & deserializing a 94 GB safetensors model takes ~22+ min, not 3 min.
+	setupSec := 55.0 + modelGB*14.0
+	if setupSec > 21600.0 {
+		setupSec = 21600.0
+	}
+
+	// Memory spill penalty when required VRAM exceeds selected accelerator capacity
+	compat := CheckFineTuningHardwareCompat(in)
+	spillPenalty := 1.0
+	if !compat.Compatible && compat.AvailableVRAMGB > 0 && compat.RequiredVRAMGB > compat.AvailableVRAMGB {
+		ratio := compat.RequiredVRAMGB / compat.AvailableVRAMGB
+		if ratio > 1.0 {
+			spillPenalty = math.Min(12.0, math.Pow(ratio, 0.85))
+		}
 	}
 
 	// Token FLOPs compute time: ~650 tok/s for 7B LoRA on 1x T4
-	tokenComputePerEpoch := (estTokensPerEpoch / 650.0) * (modelB / 7.0) * methodFactor * taskFactor / speed
+	tokenComputePerEpoch := (estTokensPerEpoch / 650.0) * (modelB / 7.0) * methodFactor * taskFactor * spillPenalty / speed
 
-	// Per-optimizer-step kernel & gradient overhead (critical for many short samples like 65k rows)
+	// Per-optimizer-step kernel, gradient, and AdamW parameter-update overhead
 	const effectiveBatchSize = 16.0
 	stepsPerEpoch := math.Ceil(float64(samples) / effectiveBatchSize)
-	stepOverheadPerEpoch := stepsPerEpoch * (0.28 + 0.09*modelB) * taskFactor / math.Sqrt(speed)
+	perStepSec := (0.28 + 0.09*modelB) * taskFactor / math.Sqrt(speed)
+	if method == "full" {
+		// Full fine-tuning updates all model parameters + FP32 optimizer states every step
+		perStepSec += (modelGB * 0.45 * spillPenalty) / math.Max(0.5, speed)
+	}
+	stepOverheadPerEpoch := stepsPerEpoch * perStepSec
 
-	exportSec := 30.0 + modelB*3.0
-	if exportSec > 600.0 {
-		exportSec = 600.0
+	// Continuous checkpointing + epoch checkpoint serialization I/O
+	checkpointPerEpochSec := 10.0 + modelB*0.4
+	exportSec := 25.0 + modelB*2.5
+	if method == "full" {
+		// Full fine-tuning writes & packages full model weights every epoch + final .zip archive
+		checkpointPerEpochSec = 20.0 + modelGB*8.0
+		exportSec = 40.0 + modelGB*16.0
+	}
+	if exportSec > 18000.0 {
+		exportSec = 18000.0
 	}
 
-	total := int64(math.Round(setupSec + float64(epochs)*(tokenComputePerEpoch+stepOverheadPerEpoch) + exportSec))
+	total := int64(math.Round(setupSec + float64(epochs)*(tokenComputePerEpoch+stepOverheadPerEpoch+checkpointPerEpochSec) + exportSec))
 	if total < 45 {
 		total = 45
 	}

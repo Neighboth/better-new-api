@@ -1,16 +1,11 @@
 package controller
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -18,8 +13,7 @@ import (
 )
 
 const (
-	maxBlogAPIJSONBytes   = 50 << 20  // 50 MB for very long multi-language blog articles
-	maxBlogAPIMediaBytes  = 150 << 20 // 150 MB for high-resolution banners & videos
+	maxBlogAPIJSONBytes = 50 << 20 // 50 MB for very long multi-language blog articles
 )
 
 var blogAPIKnownLocales = []string{"en", "tr", "zhCN", "zhTW", "fr", "ja", "ru", "vi"}
@@ -468,122 +462,4 @@ func BlogAPIDeletePost(c *gin.Context) {
 		"success": true,
 		"message": "deleted",
 	})
-}
-
-var allowedBlogMediaExts = map[string]string{
-	".png":  "image/png",
-	".jpg":  "image/jpeg",
-	".jpeg": "image/jpeg",
-	".webp": "image/webp",
-	".gif":  "image/gif",
-	".avif": "image/avif",
-	".svg":  "image/svg+xml",
-	".mp4":  "video/mp4",
-	".webm": "video/webm",
-	".mov":  "video/quicktime",
-	".m4v":  "video/x-m4v",
-}
-
-// BlogAPIUploadMedia uploads a banner image or video file for use in blog posts
-// and returns its full public URL.
-// POST /api/v1/blog/upload (multipart field: file, optional: filename)
-func BlogAPIUploadMedia(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBlogAPIMediaBytes)
-	fh, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Missing multipart field 'file': " + err.Error()})
-		return
-	}
-	if fh.Size > maxBlogAPIMediaBytes {
-		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "File exceeds 150 MB limit"})
-		return
-	}
-
-	desiredName := strings.TrimSpace(c.PostForm("filename"))
-	if desiredName == "" {
-		desiredName = fh.Filename
-	}
-	baseName := filepath.Base(strings.ReplaceAll(desiredName, "\\", "/"))
-	ext := strings.ToLower(filepath.Ext(baseName))
-	contentType, ok := allowedBlogMediaExts[ext]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Unsupported media extension. Allowed images: .png .jpg .jpeg .webp .gif .avif .svg; videos: .mp4 .webm .mov .m4v",
-		})
-		return
-	}
-
-	safeStem := sanitizeFileNameStem(strings.TrimSuffix(baseName, ext))
-	var randBuf [4]byte
-	_, _ = rand.Read(randBuf[:])
-	storedName := fmt.Sprintf("%d_%s_%s%s", time.Now().Unix(), hex.EncodeToString(randBuf[:]), safeStem, ext)
-
-	relPath := "uploads/blog/" + storedName
-	if err := os.MkdirAll(filepath.Join("uploads", "blog"), 0o755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-
-	src, err := fh.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-	defer src.Close()
-
-	dstPath := filepath.Join("uploads", "blog", storedName)
-	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-	written, copyErr := io.Copy(dst, src)
-	closeErr := dst.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(dstPath)
-		if copyErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": copyErr.Error()})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": closeErr.Error()})
-		}
-		return
-	}
-
-	publicPath := "/" + relPath
-	fullURL := publicPath
-	if base := resolveExternalBaseURL(c); base != "" {
-		fullURL = base + publicPath
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data": gin.H{
-			"url":          fullURL,
-			"path":         publicPath,
-			"filename":     storedName,
-			"size":         written,
-			"content_type": contentType,
-		},
-	})
-}
-
-func sanitizeFileNameStem(stem string) string {
-	var b strings.Builder
-	for _, r := range stem {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_':
-			b.WriteRune(r)
-		case r == ' ' || r == '.':
-			b.WriteByte('_')
-		}
-		if b.Len() >= 64 {
-			break
-		}
-	}
-	out := strings.Trim(b.String(), "_-")
-	if out == "" {
-		return "media"
-	}
-	return out
 }

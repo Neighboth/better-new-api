@@ -378,10 +378,16 @@ func sendVideoExpiryWarning(asset *model.VideoAsset) {
 		}
 	}
 	expiresAt := time.Unix(asset.ExpiresAt, 0).UTC().Format("2006-01-02")
+	daysLeft := int((asset.ExpiresAt - time.Now().Unix() + 86399) / 86400)
+	if daysLeft < 1 {
+		daysLeft = 1
+	}
 	base := strings.TrimRight(system_setting.ServerAddress, "/")
 	videoURL := base + "/uploads/videos/" + fmt.Sprint(asset.UserId) + "/" + asset.FileName
 	subject, content := RenderEmail("video_expiry", lang, map[string]string{
 		"username":   cache.Username,
+		"file_name":  asset.FileName,
+		"days_left":  fmt.Sprint(daysLeft),
 		"video_url":  videoURL,
 		"expires_at": expiresAt,
 	})

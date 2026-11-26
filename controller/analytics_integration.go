@@ -68,9 +68,9 @@ func GetClarityInsights(c *gin.Context) {
 		return
 	}
 
-	// Fetch from Clarity API
+	// Fetch from Clarity API (short 3s timeout so slow/offline upstream never stalls stats page)
 	reqURL := fmt.Sprintf("https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=30")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -80,7 +80,7 @@ func GetClarityInsights(c *gin.Context) {
 	if err == nil {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 		httpReq.Header.Set("Content-Type", "application/json")
-		client := &http.Client{Timeout: 10 * time.Second}
+		client := &http.Client{Timeout: 3 * time.Second}
 		resp, respErr := client.Do(httpReq)
 		if respErr == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
@@ -343,15 +343,35 @@ func GetGoogleSearchConsoleReport(c *gin.Context) {
 	})
 }
 
-// GetProxyPoolStatistics returns proxy daily MB usage and per-proxy summary for Statistics page.
+var (
+	proxyPoolStatsCacheMu   sync.RWMutex
+	proxyPoolStatsCacheData gin.H
+	proxyPoolStatsCacheExp  time.Time
+)
+
+// GetProxyPoolStatistics returns proxy daily MB usage and per-proxy summary for Statistics page (30s cache).
 func GetProxyPoolStatistics(c *gin.Context) {
+	proxyPoolStatsCacheMu.RLock()
+	if proxyPoolStatsCacheData != nil && time.Now().Before(proxyPoolStatsCacheExp) {
+		cached := proxyPoolStatsCacheData
+		proxyPoolStatsCacheMu.RUnlock()
+		common.ApiSuccess(c, cached)
+		return
+	}
+	proxyPoolStatsCacheMu.RUnlock()
+
 	overallHistory := model.GetProxyPoolDailyUsageHistory(0, 30)
 	proxies, _ := model.ListProxyPoolProxies()
 	if proxies == nil {
 		proxies = []model.ProxyPoolProxy{}
 	}
-	common.ApiSuccess(c, gin.H{
+	result := gin.H{
 		"daily_history": overallHistory,
 		"proxies":       proxies,
-	})
+	}
+	proxyPoolStatsCacheMu.Lock()
+	proxyPoolStatsCacheData = result
+	proxyPoolStatsCacheExp = time.Now().Add(30 * time.Second)
+	proxyPoolStatsCacheMu.Unlock()
+	common.ApiSuccess(c, result)
 }

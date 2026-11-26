@@ -41,7 +41,6 @@ func registerScopedAPIRoutes(apiRouter *gin.RouterGroup) {
 		blogExtAPI.PUT("/posts/:id", controller.BlogAPIUpdatePost)
 		blogExtAPI.PATCH("/posts/:id", controller.BlogAPIUpdatePost)
 		blogExtAPI.DELETE("/posts/:id", controller.BlogAPIDeletePost)
-		blogExtAPI.POST("/upload", controller.BlogAPIUploadMedia)
 	}
 
 	// External File Manager API (only active with a valid File Manager API key)

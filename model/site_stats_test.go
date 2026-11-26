@@ -192,3 +192,54 @@ func TestGetSiteStatsTopClientsSeparatesApplicationsFromKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 3)
 }
+
+func TestAggregateSiteStatsSinglePassMatchesSQLResults(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&Log{}, &User{}, &Channel{}))
+	cleanSiteStatsTables(t)
+
+	now := time.Now().Unix()
+	users := []User{
+		{Username: "alice", AffCode: "aff-sp-1", Status: 1},
+		{Username: "bob", AffCode: "aff-sp-2", Status: 1},
+	}
+	require.NoError(t, DB.Create(&users).Error)
+
+	logs := []Log{
+		{
+			UserId: users[0].Id, Username: "alice", CreatedAt: now - 3600,
+			Type: LogTypeConsume, ModelName: "gpt-4o", TokenName: "alice-key", ClientName: "Cursor",
+			ChannelId: 7, Group: "vip", Ip: "10.0.0.1",
+			Quota: 700, PromptTokens: 100, CompletionTokens: 40, UseTime: 1200,
+		},
+		{
+			UserId: users[1].Id, Username: "bob", CreatedAt: now - 1800,
+			Type: LogTypeConsume, ModelName: "byog-qwen", TokenName: "bob-key", ClientName: "Roo Code",
+			ChannelId: 0, Group: "default", Ip: "10.0.0.2",
+			Quota: 300, PromptTokens: 50, CompletionTokens: 10, UseTime: 800,
+			Other: `{"byog":true}`,
+		},
+		{UserId: users[0].Id, Username: "alice", CreatedAt: now - 900, Type: LogTypeError, Content: "upstream timeout"},
+	}
+	require.NoError(t, DB.Create(&logs).Error)
+
+	f := SiteStatsFilter{StartTs: now - 86400, EndTs: now + 60, TzOffsetSec: 0}
+	sp, err := AggregateSiteStatsSinglePass(f, "day", 86400, 86400, "requests", "desc", 10)
+	require.NoError(t, err)
+	require.NotNil(t, sp)
+
+	assert.Equal(t, int64(2), sp.Summary.Requests)
+	assert.Equal(t, int64(150), sp.Summary.PromptTokens)
+	assert.Equal(t, int64(50), sp.Summary.CompletionTokens)
+	assert.Equal(t, int64(200), sp.Summary.Tokens)
+	assert.Equal(t, int64(1000), sp.Summary.Quota)
+	assert.Equal(t, int64(2), sp.Summary.UniqueUsers)
+	assert.Equal(t, int64(1), sp.Summary.ByogRequests)
+	assert.InDelta(t, 1000.0, sp.Summary.AvgUseTimeSecond, 0.01)
+	assert.Len(t, sp.ErrorRows, 1)
+	assert.Len(t, sp.TopModels, 2)
+	assert.Len(t, sp.TopUsers, 2)
+	assert.Len(t, sp.TopGroups, 2)
+	assert.Len(t, sp.TopClients, 2)
+	assert.Len(t, sp.TopTokens, 2)
+	assert.Len(t, sp.TopIps, 2)
+}

@@ -6,24 +6,26 @@ import (
 )
 
 // Config defines parameters for generating a real PyTorch + Transformers + PEFT /
-// Diffusers fine-tuning Python script that runs on Modal, Google Colab, or Kaggle.
+// Diffusers fine-tuning Python script that runs on Modal, Google Colab, Kaggle, or RunPod.
 type Config struct {
-	JobID          string
-	FineTunedModel string
-	BaseModel      string // HF repo ID, direct URL, or filename when BaseModelURL is provided
-	BaseModelURL   string // Optional authenticated server download URL for locally uploaded base weights
-	ModelSource    string // huggingface | url | upload
-	DatasetURL     string // Authenticated server download URL for training dataset
-	DatasetName    string
-	TaskType       string // text | image | audio | vision
-	Method         string // lora | qlora | sft | dpo | dreambooth | textual_inversion | full
-	Epochs         int
-	Accelerator    string
-	CallbackURL    string // POST JSON status/progress/log_line updates
-	ArtifactURL    string // POST multipart/form-data file=@output.zip
-	CallbackToken  string
-	HFToken        string
-	OutputZipPath  string // Local path where output.zip is saved (default: "output.zip")
+	JobID               string
+	FineTunedModel      string
+	BaseModel           string // HF repo ID, HF repo/subfile, direct URL, or filename when BaseModelURL is provided
+	BaseModelURL        string // Optional authenticated server download URL for locally uploaded base weights
+	ModelSource         string // huggingface | url | upload
+	DatasetURL          string // Authenticated server download URL for training dataset
+	DatasetName         string
+	TaskType            string // text | image | audio | vision
+	Method              string // lora | qlora | sft | dpo | dreambooth | textual_inversion | full
+	Epochs              int
+	Accelerator         string
+	CallbackURL         string // POST JSON status/progress/log_line updates
+	CheckpointURL       string // POST multipart/form-data file=@checkpoint_latest.zip (periodic & per-epoch)
+	ResumeCheckpointURL string // GET checkpoint_latest.zip when resuming after provider interruption
+	ArtifactURL         string // POST multipart/form-data file=@output.zip
+	CallbackToken       string
+	HFToken             string
+	OutputZipPath       string // Local path where output.zip is saved (default: "output.zip")
 }
 
 func pyStr(s string) string {
@@ -36,9 +38,10 @@ func pyStr(s string) string {
 
 // Generate produces a complete, self-contained Python script that performs REAL
 // gradient-based fine-tuning with PyTorch + Transformers + PEFT (or Diffusers for
-// image tasks), writes epoch checkpoints + trained adapter_model.safetensors +
-// adapter_config.json + training_details.json + training.log into output.zip,
-// streams progress callbacks, and uploads the resulting ZIP artifact.
+// image tasks), continuously saves & uploads resumable checkpoints every 25 steps
+// (or 180s) and every epoch so another provider can seamlessly resume if the node
+// shuts down, writes trained weights + checkpoints + training_details.json +
+// training.log into output.zip, streams progress callbacks, and uploads the ZIP.
 func Generate(cfg Config) string {
 	epochs := cfg.Epochs
 	if epochs < 1 {
@@ -58,7 +61,7 @@ func Generate(cfg Config) string {
 	}
 
 	return fmt.Sprintf(`#!/usr/bin/env python3
-"""Real Fine-Tuning Worker Script (PyTorch + Transformers + PEFT / Diffusers)."""
+"""Real Fine-Tuning Worker Script (PyTorch + Transformers + PEFT / Diffusers) with continuous checkpointing & seamless resume."""
 import csv
 import gc
 import io
@@ -86,6 +89,8 @@ METHOD = %s
 EPOCHS = %d
 ACCELERATOR = %s
 CALLBACK_URL = %s
+CHECKPOINT_URL = %s
+RESUME_CHECKPOINT_URL = %s
 ARTIFACT_URL = %s
 CALLBACK_TOKEN = %s
 HF_TOKEN = %s
@@ -98,6 +103,22 @@ CHECKPOINTS_DIR = WORK_DIR / "checkpoints"
 CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR = WORK_DIR / "model_out"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+LATEST_CKPT_ZIP = Path("checkpoint_latest.zip")
+LATEST_CKPT_META = Path("checkpoint_meta.json")
+
+
+def split_hf_repo_and_file(ref):
+    """Split 'owner/repo/path/file.safetensors' -> ('owner/repo', 'path/file.safetensors').
+    Leaves local paths, URLs, and clean 2-segment 'owner/repo' untouched.
+    Fixes Transformers AutoTokenizer/AutoModel OSError when a specific weight file was selected.
+    """
+    s = str(ref or "").strip()
+    if not s or os.path.exists(s) or s.startswith(("http://", "https://", "/", ".")):
+        return s, ""
+    parts = [p for p in s.split("/") if p]
+    if len(parts) >= 3:
+        return f"{parts[0]}/{parts[1]}", "/".join(parts[2:])
+    return s, ""
 
 
 def _post_callback(payload):
@@ -171,26 +192,183 @@ def ensure_packages():
         raise RuntimeError(f"PyTorch unavailable: {e}")
 
 
-def download_file(url, dst_path, label):
+def download_file(url, dst_path, label, allow_404=False):
     if not url:
         return None
-    log("download", f"Downloading {label}...", progress=10)
+    log("download", f"Downloading {label}...")
     headers = {"User-Agent": "new-api-finetune-worker/1.0"}
     if CALLBACK_TOKEN and ("/deployments/fine_tuning/" in url):
         headers["Authorization"] = f"Bearer {CALLBACK_TOKEN}"
     elif HF_TOKEN and "huggingface.co" in url:
         headers["Authorization"] = f"Bearer {HF_TOKEN}"
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=600) as resp, open(dst_path, "wb") as out:
-        total = 0
-        while True:
-            chunk = resp.read(1024 * 1024)
-            if not chunk:
-                break
-            out.write(chunk)
-            total += len(chunk)
-    log("download", f"Downloaded {label} ({total / (1024 * 1024):.2f} MB)")
-    return dst_path
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp, open(dst_path, "wb") as out:
+            total = 0
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                total += len(chunk)
+        log("download", f"Downloaded {label} ({total / (1024 * 1024):.2f} MB)")
+        return dst_path
+    except urllib.error.HTTPError as he:
+        if allow_404 and he.code == 404:
+            return None
+        raise
+
+
+def _upload_multipart(url, fields, file_field, file_path, filename, timeout=600):
+    if not url or not os.path.exists(file_path):
+        return False
+    boundary = "----NewAPIFTBoundary" + str(int(time.time() * 1000))
+    parts = []
+    for k, v in fields.items():
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode("utf-8")
+        )
+    with open(file_path, "rb") as f:
+        data = f.read()
+    parts.append(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"{file_field}\"; filename=\"{filename}\"\r\nContent-Type: application/zip\r\n\r\n".encode("utf-8")
+    )
+    parts.append(data)
+    parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(parts)
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Authorization": f"Bearer {CALLBACK_TOKEN}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        resp.read()
+    return True
+
+
+def restore_resume_checkpoint():
+    """Locate and extract any saved resume checkpoint (from env, local runtime, or server URL)."""
+    resume_zip = None
+    env_ck = os.environ.get("FT_LOCAL_RESUME_CHECKPOINT", "").strip()
+    if env_ck and os.path.exists(env_ck) and os.path.getsize(env_ck) > 0:
+        resume_zip = Path(env_ck)
+    elif Path("resume_checkpoint.zip").exists() and Path("resume_checkpoint.zip").stat().st_size > 0:
+        resume_zip = Path("resume_checkpoint.zip")
+    elif RESUME_CHECKPOINT_URL:
+        dl_dst = WORK_DIR / "resume_checkpoint.zip"
+        try:
+            got = download_file(RESUME_CHECKPOINT_URL, dl_dst, "latest saved checkpoint", allow_404=True)
+            if got and os.path.exists(got) and os.path.getsize(got) > 0:
+                resume_zip = Path(got)
+        except Exception as exc:
+            log("resume", f"No remote checkpoint retrieved ({exc}); starting fresh")
+
+    if not resume_zip:
+        return None
+
+    extract_dir = WORK_DIR / "resumed_ckpt"
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir, ignore_errors=True)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(resume_zip, "r") as zf:
+            zf.extractall(extract_dir)
+        state_file = extract_dir / "checkpoint_state.json"
+        if not state_file.exists():
+            return None
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        state["_dir"] = str(extract_dir)
+        log(
+            "resume",
+            f"Restored saved checkpoint: completed_epoch={state.get('completed_epoch', 0)}, global_step={state.get('global_step', 0)}, trained_tokens={state.get('trained_tokens', 0):,}",
+            progress=max(12, int(state.get("progress", 15))),
+            trained_tokens=int(state.get("trained_tokens", 0)),
+        )
+        return state
+    except Exception as exc:
+        log("resume", f"Could not restore checkpoint archive ({exc}); starting fresh")
+        return None
+
+
+def save_and_upload_checkpoint(model, optimizer, completed_epoch, current_epoch, global_step, trained_tokens, loss_history, progress, is_epoch_end=False):
+    """Persist resumable weights + optimizer state + progress into checkpoint_latest.zip and sync to platform server."""
+    import torch
+
+    stage_dir = WORK_DIR / "ckpt_staging"
+    if stage_dir.exists():
+        shutil.rmtree(stage_dir, ignore_errors=True)
+    model_dir = stage_dir / "checkpoint_model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    model.save_pretrained(str(model_dir), safe_serialization=True)
+    try:
+        torch.save(optimizer.state_dict(), str(stage_dir / "optimizer.pt"))
+    except Exception:
+        pass
+
+    state = {
+        "job_id": JOB_ID,
+        "completed_epoch": int(completed_epoch),
+        "current_epoch": int(current_epoch),
+        "global_step": int(global_step),
+        "trained_tokens": int(trained_tokens),
+        "loss_history": loss_history,
+        "progress": int(progress),
+        "saved_at": int(time.time()),
+    }
+    (stage_dir / "checkpoint_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    tmp_zip = Path(str(LATEST_CKPT_ZIP) + ".tmp")
+    with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for f in stage_dir.rglob("*"):
+            if f.is_file():
+                zf.write(f, arcname=str(f.relative_to(stage_dir)).replace("\\", "/"))
+        if LOG_FILE.exists():
+            zf.write(LOG_FILE, arcname="training.log")
+    os.replace(tmp_zip, LATEST_CKPT_ZIP)
+
+    # Also persist per-epoch checkpoint copy for final output.zip
+    if is_epoch_end and completed_epoch > 0:
+        ep_dir = CHECKPOINTS_DIR / f"checkpoint-epoch-{completed_epoch}"
+        if ep_dir.exists():
+            shutil.rmtree(ep_dir, ignore_errors=True)
+        shutil.copytree(model_dir, ep_dir)
+        (ep_dir / "trainer_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    LATEST_CKPT_META.write_text(json.dumps(state), encoding="utf-8")
+
+    uploaded = False
+    if CHECKPOINT_URL:
+        try:
+            uploaded = _upload_multipart(
+                CHECKPOINT_URL,
+                {
+                    "token": CALLBACK_TOKEN,
+                    "epoch": str(completed_epoch),
+                    "step": str(global_step),
+                    "trained_tokens": str(trained_tokens),
+                    "progress": str(progress),
+                },
+                "file",
+                str(LATEST_CKPT_ZIP),
+                "checkpoint_latest.zip",
+                timeout=300,
+            )
+        except Exception as exc:
+            log("checkpoint", f"Checkpoint saved locally (remote sync deferred: {exc})")
+
+    size_mb = os.path.getsize(LATEST_CKPT_ZIP) / (1024 * 1024)
+    sync_tag = "synced to server" if uploaded else "staged for sync"
+    log(
+        "checkpoint",
+        f"Saved resumable checkpoint (epoch={current_epoch}/{EPOCHS}, step={global_step}, {size_mb:.2f} MB, {sync_tag})",
+        progress=progress,
+        trained_tokens=trained_tokens,
+    )
 
 
 def load_text_samples(dataset_path):
@@ -267,20 +445,24 @@ def format_text_record(obj):
     return json.dumps(obj, ensure_ascii=False)
 
 
-def train_text_or_vision(dataset_path, base_model_ref):
+def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
     import torch
     from torch.utils.data import Dataset, DataLoader
     from transformers import AutoTokenizer, AutoModelForCausalLM, get_cosine_schedule_with_warmup
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
 
     samples = load_text_samples(dataset_path)
     log("dataset", f"Parsed {len(samples)} training examples from {DATASET_NAME}", progress=16)
 
+    repo_id, subfile = split_hf_repo_and_file(base_model_ref)
+    if subfile:
+        log("model", f"Resolved Hugging Face repository {repo_id} (weight file hint: {subfile})", progress=18)
+
     tok_kwargs = {"trust_remote_code": True}
     if HF_TOKEN:
         tok_kwargs["token"] = HF_TOKEN
-    log("model", f"Loading tokenizer & base model: {base_model_ref}", progress=20)
-    tokenizer = AutoTokenizer.from_pretrained(base_model_ref, **tok_kwargs)
+    log("model", f"Loading tokenizer & base model: {repo_id}", progress=20)
+    tokenizer = AutoTokenizer.from_pretrained(repo_id, **tok_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -304,34 +486,42 @@ def train_text_or_vision(dataset_path, base_model_ref):
         if use_cuda:
             model_kwargs["device_map"] = "auto"
 
-    model = AutoModelForCausalLM.from_pretrained(base_model_ref, **model_kwargs)
+    resumed_model_dir = Path(resume_state["_dir"]) / "checkpoint_model" if resume_state else None
+    if METHOD == "full" and resumed_model_dir and resumed_model_dir.exists():
+        log("resume", "Loading full fine-tuned weights from saved checkpoint...", progress=24)
+        model = AutoModelForCausalLM.from_pretrained(str(resumed_model_dir), **model_kwargs)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(repo_id, **model_kwargs)
     model.config.use_cache = False
 
     if METHOD in ("lora", "qlora", "sft", "dpo"):
         if METHOD == "qlora" and use_cuda:
             model = prepare_model_for_kbit_training(model)
-        # Discover linear projection layer names dynamically so any architecture works (Llama, Qwen, DeepSeek, GPT-2, Mistral, Gemma)
-        linear_names = set()
-        for name, mod in model.named_modules():
-            cls_name = mod.__class__.__name__.lower()
-            if "linear" in cls_name or "conv1d" in cls_name:
-                leaf = name.split(".")[-1]
-                if leaf not in ("lm_head", "embed_tokens", "wte", "wpe"):
-                    linear_names.add(leaf)
-        preferred = [n for n in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj", "c_attn", "c_proj", "query_key_value") if n in linear_names]
-        target_modules = preferred if preferred else (sorted(linear_names)[:4] if linear_names else "all-linear")
-        lora_cfg = LoraConfig(
-            r=16,
-            lora_alpha=32,
-            lora_dropout=0.05,
-            bias="none",
-            task_type="CAUSAL_LM",
-            target_modules=target_modules,
-        )
-        model = get_peft_model(model, lora_cfg)
+        if resumed_model_dir and (resumed_model_dir / "adapter_config.json").exists():
+            log("resume", "Re-attaching saved PEFT adapter weights from checkpoint...", progress=26)
+            model = PeftModel.from_pretrained(model, str(resumed_model_dir), is_trainable=True)
+        else:
+            linear_names = set()
+            for name, mod in model.named_modules():
+                cls_name = mod.__class__.__name__.lower()
+                if "linear" in cls_name or "conv1d" in cls_name:
+                    leaf = name.split(".")[-1]
+                    if leaf not in ("lm_head", "embed_tokens", "wte", "wpe"):
+                        linear_names.add(leaf)
+            preferred = [n for n in ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj", "c_attn", "c_proj", "query_key_value") if n in linear_names]
+            target_modules = preferred if preferred else (sorted(linear_names)[:4] if linear_names else "all-linear")
+            lora_cfg = LoraConfig(
+                r=16,
+                lora_alpha=32,
+                lora_dropout=0.05,
+                bias="none",
+                task_type="CAUSAL_LM",
+                target_modules=target_modules,
+            )
+            model = get_peft_model(model, lora_cfg)
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_p = sum(p.numel() for p in model.parameters())
-        log("model", f"PEFT {METHOD.upper()} adapter attached: trainable={trainable:,} / {total_p:,} ({100.0 * trainable / max(1, total_p):.2f}%%)", progress=28)
+        log("model", f"PEFT {METHOD.upper()} adapter ready: trainable={trainable:,} / {total_p:,} ({100.0 * trainable / max(1, total_p):.2f}%%)", progress=28)
     else:
         log("model", f"Full fine-tuning initialized on {sum(p.numel() for p in model.parameters()):,} parameters", progress=28)
 
@@ -356,24 +546,49 @@ def train_text_or_vision(dataset_path, base_model_ref):
 
     batch_size = 4 if use_cuda else 1
     grad_accum = 4 if len(samples) >= 16 else 1
-    loader = DataLoader(SimpleTextDataset(encoded), batch_size=batch_size, shuffle=True)
+    gen = torch.Generator()
+    gen.manual_seed(42)
+    loader = DataLoader(SimpleTextDataset(encoded), batch_size=batch_size, shuffle=True, generator=gen)
 
     device = next(model.parameters()).device
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4 if METHOD != "full" else 5e-5, weight_decay=0.01)
-    total_steps = max(1, math.ceil(len(loader) / grad_accum) * EPOCHS)
+    steps_per_epoch = max(1, math.ceil(len(loader) / grad_accum))
+    total_steps = max(1, steps_per_epoch * EPOCHS)
     scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=max(1, total_steps // 10), num_training_steps=total_steps)
 
-    model.train()
-    trained_tokens = 0
-    loss_history = []
-    global_step = 0
-    last_loss = 0.0
+    trained_tokens = int(resume_state.get("trained_tokens", 0)) if resume_state else 0
+    loss_history = list(resume_state.get("loss_history", [])) if resume_state else []
+    resumed_completed_epoch = int(resume_state.get("completed_epoch", 0)) if resume_state else 0
+    resumed_global_step = int(resume_state.get("global_step", 0)) if resume_state else 0
+    global_step = resumed_global_step
+    last_loss = float(loss_history[-1]["loss"]) if loss_history else 0.0
 
-    for ep in range(1, EPOCHS + 1):
+    if resume_state:
+        opt_file = Path(resume_state["_dir"]) / "optimizer.pt"
+        if opt_file.exists():
+            try:
+                optimizer.load_state_dict(torch.load(str(opt_file), map_location=device))
+            except Exception:
+                pass
+        for _ in range(resumed_global_step):
+            scheduler.step()
+
+    model.train()
+    last_ckpt_time = time.time()
+
+    for ep in range(resumed_completed_epoch + 1, EPOCHS + 1):
         ep_loss_sum = 0.0
         ep_batches = 0
+        ep_step_base = (ep - 1) * steps_per_epoch
+        steps_already_done_in_ep = max(0, resumed_global_step - ep_step_base) if ep == resumed_completed_epoch + 1 else 0
+        skip_batches = steps_already_done_in_ep * grad_accum
+        if skip_batches > 0:
+            log("resume", f"Skipping {steps_already_done_in_ep} already-completed step(s) in epoch {ep}/{EPOCHS}")
+
         optimizer.zero_grad()
         for b_idx, batch in enumerate(loader, start=1):
+            if b_idx <= skip_batches:
+                continue
             batch = {k: v.to(device) for k, v in batch.items()}
             out = model(**batch)
             loss = out.loss / grad_accum
@@ -390,22 +605,28 @@ def train_text_or_vision(dataset_path, base_model_ref):
                 scheduler.step()
                 optimizer.zero_grad()
                 global_step += 1
+                pct = min(90, 30 + int(60.0 * global_step / total_steps))
 
                 if global_step == 1 or global_step %% max(1, total_steps // 20) == 0 or global_step == total_steps:
-                    pct = 30 + int(60.0 * global_step / total_steps)
                     lr = scheduler.get_last_lr()[0]
-                    log("train", f"Epoch {ep}/{EPOCHS} | step {global_step}/{total_steps} | loss={raw_loss:.4f} | lr={lr:.2e} | tokens={trained_tokens:,}", progress=min(90, pct), trained_tokens=trained_tokens)
+                    log("train", f"Epoch {ep}/{EPOCHS} | step {global_step}/{total_steps} | loss={raw_loss:.4f} | lr={lr:.2e} | tokens={trained_tokens:,}", progress=pct, trained_tokens=trained_tokens)
+
+                # Periodic mid-epoch resumable checkpoint every 25 steps or every 3 minutes
+                if (global_step %% 25 == 0 or (time.time() - last_ckpt_time) >= 180) and global_step < total_steps:
+                    save_and_upload_checkpoint(
+                        model, optimizer, ep - 1, ep, global_step, trained_tokens, loss_history, pct, is_epoch_end=False
+                    )
+                    last_ckpt_time = time.time()
 
         avg_ep_loss = ep_loss_sum / max(1, ep_batches)
         loss_history.append({"epoch": ep, "loss": round(avg_ep_loss, 6), "trained_tokens": trained_tokens})
-        ckpt_dir = CHECKPOINTS_DIR / f"checkpoint-epoch-{ep}"
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        model.save_pretrained(str(ckpt_dir), safe_serialization=True)
-        with open(ckpt_dir / "trainer_state.json", "w", encoding="utf-8") as sf:
-            json.dump({"epoch": ep, "loss": avg_ep_loss, "trained_tokens": trained_tokens, "saved_at": int(time.time())}, sf, indent=2)
-        log("checkpoint", f"Saved real PyTorch checkpoint-epoch-{ep} (avg_loss={avg_ep_loss:.4f})")
+        pct = min(91, 30 + int(60.0 * global_step / total_steps))
+        save_and_upload_checkpoint(
+            model, optimizer, ep, ep, global_step, trained_tokens, loss_history, pct, is_epoch_end=True
+        )
+        last_ckpt_time = time.time()
 
-    log("export", "Saving final trained weights (.safetensors) & tokenizer...", progress=92, trained_tokens=trained_tokens)
+    log("export", "Saving final trained weights (.safetensors) & tokenizer...", progress=93, trained_tokens=trained_tokens)
     model.save_pretrained(str(OUTPUT_DIR), safe_serialization=True)
     tokenizer.save_pretrained(str(OUTPUT_DIR))
     return {
@@ -416,12 +637,12 @@ def train_text_or_vision(dataset_path, base_model_ref):
     }
 
 
-def train_image_diffusion(dataset_path, base_model_ref):
+def train_image_diffusion(dataset_path, base_model_ref, resume_state=None):
     import torch
     import torch.nn.functional as F
     from PIL import Image
     from diffusers import StableDiffusionPipeline, DDPMScheduler
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftModel, get_peft_model
 
     img_dir = WORK_DIR / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
@@ -431,7 +652,7 @@ def train_image_diffusion(dataset_path, base_model_ref):
     else:
         shutil.copy2(dataset_path, img_dir / Path(dataset_path).name)
 
-    image_paths = [p for p in img_dir.rglob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
+    image_paths = sorted(p for p in img_dir.rglob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"))
     if not image_paths:
         raise RuntimeError("No training images (.png/.jpg/.webp) found in image dataset archive")
     log("dataset", f"Found {len(image_paths)} training images", progress=16)
@@ -442,11 +663,18 @@ def train_image_diffusion(dataset_path, base_model_ref):
     if HF_TOKEN:
         pipe_kwargs["token"] = HF_TOKEN
 
-    log("model", f"Loading diffusion pipeline: {base_model_ref}", progress=22)
-    if str(base_model_ref).lower().endswith((".safetensors", ".ckpt")) and os.path.exists(str(base_model_ref)):
-        pipe = StableDiffusionPipeline.from_single_file(str(base_model_ref), **pipe_kwargs)
+    repo_id, subfile = split_hf_repo_and_file(base_model_ref)
+    resolved_ref = base_model_ref
+    if subfile and subfile.lower().endswith((".safetensors", ".ckpt")):
+        from huggingface_hub import hf_hub_download
+        log("model", f"Downloading single diffusion weight file {repo_id}/{subfile}...", progress=20)
+        resolved_ref = hf_hub_download(repo_id=repo_id, filename=subfile, token=HF_TOKEN or None)
+
+    log("model", f"Loading diffusion pipeline: {resolved_ref}", progress=22)
+    if str(resolved_ref).lower().endswith((".safetensors", ".ckpt")) and os.path.exists(str(resolved_ref)):
+        pipe = StableDiffusionPipeline.from_single_file(str(resolved_ref), **pipe_kwargs)
     else:
-        pipe = StableDiffusionPipeline.from_pretrained(base_model_ref, **pipe_kwargs)
+        pipe = StableDiffusionPipeline.from_pretrained(repo_id, **pipe_kwargs)
 
     device = torch.device("cuda" if use_cuda else "cpu")
     vae = pipe.vae.to(device).eval()
@@ -457,21 +685,46 @@ def train_image_diffusion(dataset_path, base_model_ref):
 
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
+    resumed_model_dir = Path(resume_state["_dir"]) / "checkpoint_model" if resume_state else None
     if METHOD != "full":
-        lora_cfg = LoraConfig(r=8, lora_alpha=16, target_modules=["to_q", "to_k", "to_v", "to_out.0"])
-        unet = get_peft_model(unet, lora_cfg)
+        if resumed_model_dir and (resumed_model_dir / "adapter_config.json").exists():
+            log("resume", "Re-attaching saved diffusion LoRA checkpoint...", progress=26)
+            unet = PeftModel.from_pretrained(unet, str(resumed_model_dir), is_trainable=True)
+        else:
+            lora_cfg = LoraConfig(r=8, lora_alpha=16, target_modules=["to_q", "to_k", "to_v", "to_out.0"])
+            unet = get_peft_model(unet, lora_cfg)
+    elif resumed_model_dir and resumed_model_dir.exists():
+        from diffusers import UNet2DConditionModel
+        log("resume", "Loading saved full UNet checkpoint...", progress=26)
+        unet = UNet2DConditionModel.from_pretrained(str(resumed_model_dir), torch_dtype=dtype).to(device)
     unet.train()
 
     optimizer = torch.optim.AdamW([p for p in unet.parameters() if p.requires_grad], lr=1e-4)
     total_steps = max(1, len(image_paths) * EPOCHS)
-    step = 0
-    trained_tokens = 0
-    loss_history = []
-    last_loss = 0.0
+    resumed_completed_epoch = int(resume_state.get("completed_epoch", 0)) if resume_state else 0
+    resumed_step = int(resume_state.get("global_step", 0)) if resume_state else 0
+    step = resumed_step
+    trained_tokens = int(resume_state.get("trained_tokens", 0)) if resume_state else 0
+    loss_history = list(resume_state.get("loss_history", [])) if resume_state else []
+    last_loss = float(loss_history[-1]["loss"]) if loss_history else 0.0
 
-    for ep in range(1, EPOCHS + 1):
+    if resume_state:
+        opt_file = Path(resume_state["_dir"]) / "optimizer.pt"
+        if opt_file.exists():
+            try:
+                optimizer.load_state_dict(torch.load(str(opt_file), map_location=device))
+            except Exception:
+                pass
+
+    last_ckpt_time = time.time()
+    for ep in range(resumed_completed_epoch + 1, EPOCHS + 1):
         ep_loss = 0.0
-        for img_path in image_paths:
+        ep_count = 0
+        ep_step_base = (ep - 1) * len(image_paths)
+        skip_imgs = max(0, resumed_step - ep_step_base) if ep == resumed_completed_epoch + 1 else 0
+        for idx, img_path in enumerate(image_paths, start=1):
+            if idx <= skip_imgs:
+                continue
             cap_path = img_path.with_suffix(".txt")
             caption = cap_path.read_text(encoding="utf-8", errors="ignore").strip() if cap_path.exists() else img_path.stem.replace("_", " ")
             img = Image.open(img_path).convert("RGB").resize((512, 512))
@@ -496,19 +749,22 @@ def train_image_diffusion(dataset_path, base_model_ref):
             raw_loss = float(loss.detach().cpu().item())
             last_loss = raw_loss
             ep_loss += raw_loss
+            ep_count += 1
             trained_tokens += 256
+            pct = min(90, 30 + int(60.0 * step / total_steps))
             if step == 1 or step %% max(1, total_steps // 15) == 0 or step == total_steps:
-                pct = 30 + int(60.0 * step / total_steps)
-                log("train", f"Epoch {ep}/{EPOCHS} | step {step}/{total_steps} | mse_loss={raw_loss:.4f}", progress=min(90, pct), trained_tokens=trained_tokens)
+                log("train", f"Epoch {ep}/{EPOCHS} | step {step}/{total_steps} | mse_loss={raw_loss:.4f}", progress=pct, trained_tokens=trained_tokens)
+            if (step %% 25 == 0 or (time.time() - last_ckpt_time) >= 180) and step < total_steps:
+                save_and_upload_checkpoint(unet, optimizer, ep - 1, ep, step, trained_tokens, loss_history, pct, is_epoch_end=False)
+                last_ckpt_time = time.time()
 
-        avg_loss = ep_loss / max(1, len(image_paths))
+        avg_loss = ep_loss / max(1, ep_count)
         loss_history.append({"epoch": ep, "loss": round(avg_loss, 6), "trained_tokens": trained_tokens})
-        ckpt_dir = CHECKPOINTS_DIR / f"checkpoint-epoch-{ep}"
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        unet.save_pretrained(str(ckpt_dir), safe_serialization=True)
-        log("checkpoint", f"Saved diffusion checkpoint-epoch-{ep} (avg_loss={avg_loss:.4f})")
+        pct = min(91, 30 + int(60.0 * step / total_steps))
+        save_and_upload_checkpoint(unet, optimizer, ep, ep, step, trained_tokens, loss_history, pct, is_epoch_end=True)
+        last_ckpt_time = time.time()
 
-    log("export", "Saving trained diffusion LoRA / UNet weights (.safetensors)...", progress=92, trained_tokens=trained_tokens)
+    log("export", "Saving trained diffusion LoRA / UNet weights (.safetensors)...", progress=93, trained_tokens=trained_tokens)
     unet.save_pretrained(str(OUTPUT_DIR), safe_serialization=True)
     return {
         "trained_tokens": trained_tokens,
@@ -559,28 +815,14 @@ def upload_artifact_zip(metrics):
     if not ARTIFACT_URL:
         return
     log("upload", "Uploading trained model archive (.zip) to platform storage...", progress=98, trained_tokens=metrics["trained_tokens"])
-    boundary = "----NewAPIFTBoundary" + str(int(time.time()))
-    with open(OUTPUT_ZIP_PATH, "rb") as f:
-        data = f.read()
-    parts = [
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"token\"\r\n\r\n{CALLBACK_TOKEN}\r\n".encode(),
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"trained_tokens\"\r\n\r\n{metrics['trained_tokens']}\r\n".encode(),
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{JOB_ID}.zip\"\r\nContent-Type: application/zip\r\n\r\n".encode(),
-        data,
-        f"\r\n--{boundary}--\r\n".encode(),
-    ]
-    body = b"".join(parts)
-    req = urllib.request.Request(
+    _upload_multipart(
         ARTIFACT_URL,
-        data=body,
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Authorization": f"Bearer {CALLBACK_TOKEN}",
-        },
-        method="POST",
+        {"token": CALLBACK_TOKEN, "trained_tokens": str(metrics["trained_tokens"])},
+        "file",
+        OUTPUT_ZIP_PATH,
+        f"{JOB_ID}.zip",
+        timeout=600,
     )
-    with urllib.request.urlopen(req, timeout=600) as resp:
-        resp.read()
 
 
 def main():
@@ -627,10 +869,12 @@ def main():
             else:
                 base_ref = str(local_bm)
 
+        resume_state = restore_resume_checkpoint()
+
         if TASK_TYPE == "image":
-            metrics = train_image_diffusion(local_ds, base_ref)
+            metrics = train_image_diffusion(local_ds, base_ref, resume_state=resume_state)
         else:
-            metrics = train_text_or_vision(local_ds, base_ref)
+            metrics = train_text_or_vision(local_ds, base_ref, resume_state=resume_state)
 
         package_zip(metrics, started_at)
         upload_artifact_zip(metrics)
@@ -667,6 +911,8 @@ if __name__ == "__main__":
 		epochs,
 		pyStr(cfg.Accelerator),
 		pyStr(cfg.CallbackURL),
+		pyStr(cfg.CheckpointURL),
+		pyStr(cfg.ResumeCheckpointURL),
 		pyStr(cfg.ArtifactURL),
 		pyStr(cfg.CallbackToken),
 		pyStr(cfg.HFToken),

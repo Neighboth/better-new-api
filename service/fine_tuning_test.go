@@ -1,9 +1,12 @@
 package service
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseModelBillions(t *testing.T) {
@@ -107,4 +110,85 @@ func TestSanitizeFineTuningLogLineRedactsProvidersAndSecrets(t *testing.T) {
 	assert.NotContains(t, clean, "trycloudflare")
 	assert.NotContains(t, clean, "10.0.0.5")
 	assert.NotContains(t, clean, "sk-secret123456")
+}
+
+func TestHugeSafetensorsFullFineTuningRealisticCostAndCompatWarning(t *testing.T) {
+	in := FineTuningEstimateInput{
+		GPU:            "NVIDIA_TESLA_T4",
+		RamTier:        "normal",
+		TaskType:       "text",
+		Method:         "full",
+		Epochs:         3,
+		DatasetBytes:   16 * 1024,
+		DatasetSamples: 55,
+		ModelName:      "org/custom-huge-model",
+		ModelFileBytes: 94 * 1_000_000_000, // 94 GB safetensors
+	}
+
+	compat := CheckFineTuningHardwareCompat(in)
+	assert.False(t, compat.Compatible, "94 GB Full FT must trigger incompatibility warning on 1x T4 (16GB VRAM)")
+	assert.Equal(t, "vram_exceeded", compat.Code)
+	assert.Greater(t, compat.RequiredVRAMGB, 300.0)
+	assert.Equal(t, 16.0, compat.AvailableVRAMGB)
+
+	dur := EstimateFineTuningDurationRealistic(in)
+	assert.Greater(t, dur, int64(5400), "94 GB Full FT on 1x T4 must estimate >1.5h, never a few minutes")
+
+	costUSD := EstimateFineTuningCostUSDWithRAM("NVIDIA_TESLA_T4", "normal", dur)
+	assert.Greater(t, costUSD, 8.0, "94 GB Full FT on 1x T4 must never estimate ~$0.50")
+
+	// Compatible small model on 1x T4 must NOT emit any warning
+	smallCompat := CheckFineTuningHardwareCompat(FineTuningEstimateInput{
+		GPU:            "NVIDIA_TESLA_T4",
+		RamTier:        "normal",
+		TaskType:       "text",
+		Method:         "lora",
+		Epochs:         3,
+		DatasetBytes:   64 * 1024,
+		DatasetSamples: 200,
+		ModelName:      "HuggingFaceTB/SmolLM2-135M",
+		ModelFileBytes: 270 * 1_000_000,
+	})
+	assert.True(t, smallCompat.Compatible, "SmolLM2-135M LoRA on 1x T4 must be compatible with no warning")
+	assert.Empty(t, smallCompat.Reason)
+}
+
+func TestValidateFineTuningDatasetFileStrict(t *testing.T) {
+	// Reject .zip for text fine-tuning
+	err := ValidateFineTuningDatasetFile("text", "dataset.zip", []byte{'P', 'K', 0x03, 0x04})
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "zip")
+
+	// Reject disguised ZIP renamed to .jsonl
+	err = ValidateFineTuningDatasetFile("text", "fake.jsonl", []byte{'P', 'K', 0x03, 0x04, 0x14, 0x00})
+	require.Error(t, err)
+
+	// Accept genuine JSONL for text
+	err = ValidateFineTuningDatasetFile("text", "train.jsonl", []byte(`{"messages":[{"role":"user","content":"hi"}]}`+"\n"))
+	require.NoError(t, err)
+
+	// Accept genuine ZIP for image fine-tuning, reject fake non-ZIP
+	err = ValidateFineTuningDatasetFile("image", "photos.zip", []byte{'P', 'K', 0x03, 0x04, 0x14, 0x00})
+	require.NoError(t, err)
+	err = ValidateFineTuningDatasetFile("image", "photos.zip", []byte("plain text not zip"))
+	require.Error(t, err)
+}
+
+func TestAppendFineTuningLogSingleTimestampAndDedup(t *testing.T) {
+	jobID := "ftjob-log-dedup-test"
+	defer func() {
+		_ = os.RemoveAll(FineTuningStorageDirForUser(999999, jobID))
+		ftLogMu.Lock()
+		delete(ftRecentLogLines, jobID)
+		ftLogMu.Unlock()
+	}()
+
+	// Simulate the exact Colab bug: callback + stdout poller both reporting the same timestamped line
+	appendFineTuningLog(999999, jobID, "train", "13:10:55 [env] PyTorch 2.10 ready | device=Tesla T4")
+	appendFineTuningLog(999999, jobID, "worker", "13:10:55 [env] PyTorch 2.10 ready | device=Tesla T4")
+
+	logs := ReadFineTuningJobLogs(999999, jobID)
+	lines := strings.Split(strings.TrimSpace(logs), "\n")
+	require.Len(t, lines, 1, "duplicate callback + worker stdout line must appear only once")
+	assert.Equal(t, "13:10:55 [env] PyTorch 2.10 ready | device=Tesla T4", lines[0], "must not double-prepend timestamp or [train] tag")
 }

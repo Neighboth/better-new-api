@@ -1180,16 +1180,17 @@ func StopApp(ctx context.Context, appName, tokenID, tokenSecret string) error {
 
 // FineTuneConfig configures a one-shot real PyTorch fine-tuning job on Modal.
 type FineTuneConfig struct {
-	AppName          string
-	Accelerator      string
-	TokenID          string
-	TokenSecret      string
-	SharedVolumePath string
-	TrainScript      string
-	DatasetPath      string
-	DatasetName      string
-	BaseModelPath    string // optional local uploaded weights file
-	OutputZipPath    string // local destination path where trained .zip is written
+	AppName              string
+	Accelerator          string
+	TokenID              string
+	TokenSecret          string
+	SharedVolumePath     string
+	TrainScript          string
+	DatasetPath          string
+	DatasetName          string
+	BaseModelPath        string // optional local uploaded weights file
+	ResumeCheckpointPath string // optional local checkpoint_latest.zip to resume from
+	OutputZipPath        string // local destination path where trained .zip is written
 }
 
 // RunFineTuneWithLogger executes a real GPU/CPU PyTorch fine-tuning script on Modal
@@ -1256,7 +1257,7 @@ image = (
     timeout=14400,
     volumes={%s: vol},
 )
-def run_train_remote(train_script: str, dataset_bytes: bytes, dataset_name: str, base_model_bytes: bytes, base_model_name: str) -> bytes:
+def run_train_remote(train_script: str, dataset_bytes: bytes, dataset_name: str, base_model_bytes: bytes, base_model_name: str, resume_ckpt_bytes: bytes) -> bytes:
     os.environ["HF_HOME"] = %s + "/hf_cache"
     work = Path("/tmp/ft_run")
     work.mkdir(parents=True, exist_ok=True)
@@ -1264,7 +1265,7 @@ def run_train_remote(train_script: str, dataset_bytes: bytes, dataset_name: str,
     script_file = work / "train.py"
     script_file.write_text(train_script, encoding="utf-8")
 
-    # Patch local dataset & optional base model file paths when uploaded inline
+    # Patch local dataset, optional base model, and optional resume checkpoint paths
     if dataset_bytes:
         ds_local = work / (dataset_name or "dataset.jsonl")
         ds_local.write_bytes(dataset_bytes)
@@ -1273,6 +1274,10 @@ def run_train_remote(train_script: str, dataset_bytes: bytes, dataset_name: str,
         bm_local = work / (base_model_name or "base_model.safetensors")
         bm_local.write_bytes(base_model_bytes)
         os.environ["FT_LOCAL_BASE_MODEL"] = str(bm_local)
+    if resume_ckpt_bytes:
+        ck_local = work / "resume_checkpoint.zip"
+        ck_local.write_bytes(resume_ckpt_bytes)
+        os.environ["FT_LOCAL_RESUME_CHECKPOINT"] = str(ck_local)
 
     proc = subprocess.Popen(
         [sys.executable, "-u", str(script_file)],
@@ -1300,7 +1305,9 @@ def main():
     bm_path = %s
     bm_bytes = Path(bm_path).read_bytes() if (bm_path and os.path.exists(bm_path)) else b""
     bm_name = os.path.basename(bm_path) if bm_path else ""
-    zip_bytes = run_train_remote.remote(script_txt, ds_bytes, %s, bm_bytes, bm_name)
+    ck_path = %s
+    ck_bytes = Path(ck_path).read_bytes() if (ck_path and os.path.exists(ck_path)) else b""
+    zip_bytes = run_train_remote.remote(script_txt, ds_bytes, %s, bm_bytes, bm_name, ck_bytes)
     out_path = Path(%s)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(zip_bytes)
@@ -1313,6 +1320,7 @@ def main():
 		pyQuote(trainPyPath),
 		pyQuote(cfg.DatasetPath),
 		pyQuote(cfg.BaseModelPath),
+		pyQuote(cfg.ResumeCheckpointPath),
 		pyQuote(cfg.DatasetName),
 		pyQuote(cfg.OutputZipPath),
 	)

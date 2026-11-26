@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Activity, KeyRound, Network, Server } from 'lucide-react'
+import { Activity, KeyRound, Network, Radio, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Area,
@@ -31,6 +31,7 @@ import {
 import { formatCompactNumber, formatNumber } from '@/lib/format'
 
 import { getProxyPoolStats } from '../api'
+import { SITE_STATS_KPI_GRID_CLASS, SiteStatCard } from './stat-card'
 
 export function ProxyPoolStatsCard() {
   const { t } = useTranslation()
@@ -44,12 +45,15 @@ export function ProxyPoolStatsCard() {
   if (isLoading) {
     return (
       <div className='space-y-4'>
-        <div className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
-          {Array.from({ length: 4 }, (_, i) => (
+        <div className={SITE_STATS_KPI_GRID_CLASS}>
+          {Array.from({ length: 5 }, (_, i) => (
             <Skeleton key={i} className='h-28' />
           ))}
         </div>
-        <Skeleton className='h-72' />
+        <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
+          <Skeleton className='h-80' />
+          <Skeleton className='h-80' />
+        </div>
       </div>
     )
   }
@@ -61,6 +65,10 @@ export function ProxyPoolStatsCard() {
   const proxies = data.proxies || []
   const dailyHistory = data.daily_history || []
   const totalMB = dailyHistory.reduce((acc, cur) => acc + (cur.mb || 0), 0)
+  const totalRequests = dailyHistory.reduce(
+    (acc, cur) => acc + (cur.requests || 0),
+    0
+  )
   const activeProxies = proxies.filter((p) => p.enabled)
   const totalAssignedKeys = proxies.reduce(
     (acc, cur) => acc + (cur.assigned_keys || 0),
@@ -69,89 +77,41 @@ export function ProxyPoolStatsCard() {
 
   return (
     <div className='space-y-4'>
-      {/* KPI Stat Cards — unified with upper Site Statistics */}
-      <div className='grid grid-cols-2 gap-3 lg:grid-cols-4'>
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <Activity className='size-4 shrink-0 text-blue-500' />
-              <span className='truncate'>{t('Total MB Transferred')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {totalMB.toFixed(2)} MB
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {t('Proxy Pool Usage')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <Server className='size-4 shrink-0 text-emerald-500' />
-              <span className='truncate'>{t('Active Proxies')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {formatNumber(activeProxies.length)} / {formatNumber(proxies.length)}
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {t('Proxies')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <KeyRound className='size-4 shrink-0 text-indigo-500' />
-              <span className='truncate'>{t('Assigned Keys')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {formatNumber(totalAssignedKeys)}
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {t('Proxy Pool Usage')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-muted-foreground flex items-center gap-2 text-sm font-medium'>
-              <Network className='size-4 shrink-0 text-cyan-500' />
-              <span className='truncate'>{t('Daily Average')}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='truncate text-2xl font-bold tabular-nums'>
-              {(totalMB / (dailyHistory.length || 1)).toFixed(2)} MB
-            </div>
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {t('Last 30 Days Data Transfer (MB)')}
-            </p>
-          </CardContent>
-        </Card>
+      <div className={SITE_STATS_KPI_GRID_CLASS}>
+        <SiteStatCard
+          icon={<Activity className='size-4 text-blue-500' />}
+          label={t('Total MB Transferred')}
+          value={`${totalMB.toFixed(2)} MB`}
+        />
+        <SiteStatCard
+          icon={<Server className='size-4 text-emerald-500' />}
+          label={t('Active Proxies')}
+          value={`${formatNumber(activeProxies.length)} / ${formatNumber(proxies.length)}`}
+        />
+        <SiteStatCard
+          icon={<KeyRound className='size-4 text-indigo-500' />}
+          label={t('Assigned Keys')}
+          value={formatNumber(totalAssignedKeys)}
+        />
+        <SiteStatCard
+          icon={<Network className='size-4 text-cyan-500' />}
+          label={t('Daily Average')}
+          value={`${(totalMB / (dailyHistory.length || 1)).toFixed(2)} MB`}
+        />
+        <SiteStatCard
+          icon={<Radio className='size-4 text-teal-500' />}
+          label={t('Proxy Requests')}
+          value={formatNumber(totalRequests)}
+        />
       </div>
 
-      {/* Chart + Proxies Table */}
       <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
         <Card>
           <CardHeader className='pb-2'>
             <CardTitle className='text-base'>
               {t('Proxy Pool Usage & Traffic')}
             </CardTitle>
-            <CardDescription>
-              {t(
-                'Last 30 days proxy data transfer (MB) and pool key assignment status.'
-              )}
-            </CardDescription>
+            <CardDescription>{t('Traffic Over Time')}</CardDescription>
           </CardHeader>
           <CardContent>
             {dailyHistory.length > 0 ? (
@@ -173,11 +133,11 @@ export function ProxyPoolStatsCard() {
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 11 }}
-                      width={52}
+                      width={56}
                       tickFormatter={(v: number) => `${formatCompactNumber(v)}M`}
                     />
                     <Tooltip
-                      formatter={(val: any) => [
+                      formatter={(val) => [
                         `${Number(val).toFixed(2)} MB`,
                         t('Usage'),
                       ]}
@@ -204,16 +164,13 @@ export function ProxyPoolStatsCard() {
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>{t('Proxies')}</CardTitle>
-            <CardDescription>
-              {proxies.length} {t('Proxies')} · {totalAssignedKeys}{' '}
-              {t('Assigned Keys')}
-            </CardDescription>
           </CardHeader>
           <CardContent className='overflow-x-auto'>
             {proxies.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className='w-12'>#</TableHead>
                     <TableHead>{t('Proxy')}</TableHead>
                     <TableHead>{t('Status')}</TableHead>
                     <TableHead className='text-right'>
@@ -225,8 +182,11 @@ export function ProxyPoolStatsCard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {proxies.map((p) => (
+                  {proxies.map((p, index) => (
                     <TableRow key={p.id}>
+                      <TableCell className='text-muted-foreground tabular-nums'>
+                        {index + 1}
+                      </TableCell>
                       <TableCell>
                         <div className='flex flex-col'>
                           <span className='max-w-44 truncate font-medium'>
@@ -255,7 +215,7 @@ export function ProxyPoolStatsCard() {
                       <TableCell className='text-right tabular-nums'>
                         {p.latency_ms ? `${p.latency_ms} ms` : '-'}
                       </TableCell>
-                      <TableCell className='text-muted-foreground text-right tabular-nums'>
+                      <TableCell className='text-right tabular-nums'>
                         {p.egress_ip || '-'}
                       </TableCell>
                     </TableRow>

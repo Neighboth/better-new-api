@@ -41,6 +41,20 @@ func TestEmailTemplatesCleanDesignAndAllLocales(t *testing.T) {
 			assert.NotContains(t, tpl.Body, "<svg", "no SVG icons allowed in %s/%s", lang, typ)
 			assert.NotContains(t, tpl.Body, "<img", "no avatar/social images allowed in %s/%s", lang, typ)
 			assert.NotContains(t, tpl.Body, "linkedin.com", "no social icons in %s/%s", lang, typ)
+
+			// Verification email must NOT display raw {{code}} directly — user clicks {{link}} button or copies link
+			if typ == "verification" {
+				assert.NotContains(t, tpl.Body, "{{code}}", "verification email must not expose raw {{code}} in %s", lang)
+				assert.Contains(t, tpl.Body, "{{link}}", "verification email must contain clickable/copyable {{link}} in %s", lang)
+			}
+
+			// Video expiry must carry detailed structured metadata matching fine_tuning_expiry
+			if typ == "video_expiry" {
+				assert.Contains(t, tpl.Body, "{{file_name}}", "video_expiry must include {{file_name}} in %s", lang)
+				assert.Contains(t, tpl.Body, "{{days_left}}", "video_expiry must include {{days_left}} in %s", lang)
+				assert.Contains(t, tpl.Body, "{{expires_at}}", "video_expiry must include {{expires_at}} in %s", lang)
+				assert.Contains(t, tpl.Body, "{{video_url}}", "video_expiry must include {{video_url}} in %s", lang)
+			}
 		}
 	}
 }

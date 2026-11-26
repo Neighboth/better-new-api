@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  AlertTriangle,
   ArrowRight,
   Download,
   FolderOpen,
@@ -272,10 +273,15 @@ function parseModelBillions(
     }
     return best
   }
+  const fileEst =
+    modelFileBytes > 0
+      ? Math.min(1000, Math.max(0.1, modelFileBytes / 2_000_000_000))
+      : 0
   const fromParam = parseHint(paramSizeHint)
-  if (fromParam > 0) return fromParam
+  if (fromParam > 0) return Math.max(fromParam, fileEst)
   const fromName = parseHint(modelName)
-  if (fromName > 0) return fromName
+  if (fromName > 0) return Math.max(fromName, fileEst)
+  if (fileEst > 0) return fileEst
   const lower = modelName.toLowerCase()
   if ((lower.includes('deepseek-r1') || lower.includes('deepseek-v3')) && !lower.includes('distill')) {
     return 671
@@ -288,10 +294,216 @@ function parseModelBillions(
   if (lower.includes('sd3')) return 8
   if (lower.includes('stable-diffusion') || lower.includes('cyberrealistic') || lower.includes('sd1.5')) return 1.2
   if (lower.includes('whisper-large')) return 1.55
-  if (modelFileBytes > 0) {
-    return Math.min(700, Math.max(0.25, modelFileBytes / 2_000_000_000))
-  }
   return 7
+}
+
+interface AcceleratorSpec {
+  kind: 'cpu' | 'gpu' | 'tpu'
+  vramGB: number
+  ramGB: number
+}
+
+function getAcceleratorSpecs(gpuId: string, ramTier: 'normal' | 'high'): AcceleratorSpec {
+  const high = ramTier === 'high'
+  const trimmed = gpuId.trim()
+  const exact: Record<string, AcceleratorSpec> = {
+    CPU: { kind: 'cpu', vramGB: 0, ramGB: high ? 51 : 16 },
+    'cpu-basic': { kind: 'cpu', vramGB: 0, ramGB: 16 },
+    'cpu-upgrade': { kind: 'cpu', vramGB: 0, ramGB: 32 },
+    T4: { kind: 'gpu', vramGB: 16, ramGB: high ? 51 : 12.7 },
+    NVIDIA_TESLA_T4: { kind: 'gpu', vramGB: 16, ramGB: high ? 51 : 12.7 },
+    't4-small': { kind: 'gpu', vramGB: 16, ramGB: 16 },
+    't4-medium': { kind: 'gpu', vramGB: 16, ramGB: 30 },
+    NvidiaTeslaT4: { kind: 'gpu', vramGB: 32, ramGB: 30 },
+    L4: { kind: 'gpu', vramGB: 24, ramGB: high ? 62 : 53 },
+    NVIDIA_L4: { kind: 'gpu', vramGB: 24, ramGB: high ? 62 : 53 },
+    NvidiaL4: { kind: 'gpu', vramGB: 24, ramGB: 53 },
+    l4x1: { kind: 'gpu', vramGB: 24, ramGB: 53 },
+    l4x4: { kind: 'gpu', vramGB: 96, ramGB: 128 },
+    A10G: { kind: 'gpu', vramGB: 24, ramGB: 46 },
+    NVIDIA_A10G: { kind: 'gpu', vramGB: 24, ramGB: 46 },
+    'a10g-small': { kind: 'gpu', vramGB: 24, ramGB: 46 },
+    'a10g-large': { kind: 'gpu', vramGB: 24, ramGB: 46 },
+    'RTX-3090': { kind: 'gpu', vramGB: 24, ramGB: 48 },
+    'RTX-4090': { kind: 'gpu', vramGB: 24, ramGB: 48 },
+    L40S: { kind: 'gpu', vramGB: 48, ramGB: 64 },
+    l40sx1: { kind: 'gpu', vramGB: 48, ramGB: 64 },
+    l40sx4: { kind: 'gpu', vramGB: 192, ramGB: 256 },
+    'A100-40GB': { kind: 'gpu', vramGB: 40, ramGB: 83 },
+    NVIDIA_TESLA_A100: { kind: 'gpu', vramGB: 40, ramGB: 83 },
+    'A100-80GB': { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    NVIDIA_TESLA_A100_80GB: { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    A100: { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    'a100-large': { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    a100x2: { kind: 'gpu', vramGB: 160, ramGB: 256 },
+    a100x4: { kind: 'gpu', vramGB: 320, ramGB: 512 },
+    a100x8: { kind: 'gpu', vramGB: 640, ramGB: 1024 },
+    'RTX-PRO-6000': { kind: 'gpu', vramGB: 96, ramGB: 128 },
+    NVIDIA_RTX_PRO_6000: { kind: 'gpu', vramGB: 96, ramGB: 128 },
+    H100: { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    'H100-SXM': { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    'H100-80GB': { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    NVIDIA_H100_80GB: { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    h100x1: { kind: 'gpu', vramGB: 80, ramGB: 167 },
+    h100x4: { kind: 'gpu', vramGB: 320, ramGB: 512 },
+    h100x8: { kind: 'gpu', vramGB: 640, ramGB: 1024 },
+    H200: { kind: 'gpu', vramGB: 141, ramGB: 256 },
+    h200x1: { kind: 'gpu', vramGB: 141, ramGB: 256 },
+    h200x8: { kind: 'gpu', vramGB: 1128, ramGB: 1024 },
+    B200: { kind: 'gpu', vramGB: 180, ramGB: 256 },
+    B300: { kind: 'gpu', vramGB: 262, ramGB: 384 },
+    TPU_V2_8: { kind: 'tpu', vramGB: 64, ramGB: 334 },
+    TPU_V5E_1: { kind: 'tpu', vramGB: 16, ramGB: 47 },
+    TPU_V6E_1: { kind: 'tpu', vramGB: 32, ramGB: 172 },
+    TpuV5E8: { kind: 'tpu', vramGB: 128, ramGB: 330 },
+    TpuV6E8: { kind: 'tpu', vramGB: 256, ramGB: 330 },
+  }
+  if (trimmed in exact) return exact[trimmed]
+  const upper = trimmed.toUpperCase()
+  if (upper.includes('B300')) return { kind: 'gpu', vramGB: 262, ramGB: 384 }
+  if (upper.includes('B200')) return { kind: 'gpu', vramGB: 180, ramGB: 256 }
+  if (upper.includes('H200')) return { kind: 'gpu', vramGB: 141, ramGB: 256 }
+  if (upper.includes('H100')) return { kind: 'gpu', vramGB: 80, ramGB: 167 }
+  if (upper.includes('A100')) return { kind: 'gpu', vramGB: 40, ramGB: 83 }
+  if (upper.includes('L40S')) return { kind: 'gpu', vramGB: 48, ramGB: 64 }
+  if (upper.includes('L4') || upper.includes('A10G') || upper.includes('4090') || upper.includes('3090')) {
+    return { kind: 'gpu', vramGB: 24, ramGB: 48 }
+  }
+  if (upper.includes('T4')) return { kind: 'gpu', vramGB: 16, ramGB: 16 }
+  if (upper.includes('TPU')) return { kind: 'tpu', vramGB: 32, ramGB: 96 }
+  if (upper.includes('CPU')) return { kind: 'cpu', vramGB: 0, ramGB: 16 }
+  return { kind: 'gpu', vramGB: 16, ramGB: 32 }
+}
+
+interface HardwareCompatResult {
+  compatible: boolean
+  code?: 'vram_exceeded' | 'ram_exceeded' | 'cpu_too_large'
+  requiredVRAMGB: number
+  availableVRAMGB: number
+  requiredRAMGB: number
+  availableRAMGB: number
+  modelSizeGB: number
+}
+
+function checkHardwareCompat(params: {
+  gpuId: string
+  ramTier: 'normal' | 'high'
+  method: string
+  datasetBytes: number
+  modelName: string
+  modelParamHint?: string
+  modelFileBytes?: number
+}): HardwareCompatResult {
+  const spec = getAcceleratorSpecs(params.gpuId, params.ramTier)
+  const modelB = parseModelBillions(
+    params.modelName,
+    params.modelParamHint,
+    params.modelFileBytes ?? 0
+  )
+  const modelGB = Math.max(
+    modelB * 2.0,
+    (params.modelFileBytes ?? 0) / 1_000_000_000
+  )
+  const datasetGB = Math.max(0, params.datasetBytes) / 1_000_000_000
+  const method = params.method.toLowerCase()
+
+  const reqVRAM =
+    method === 'full'
+      ? modelGB * 4.0 + 3.0
+      : method === 'qlora'
+        ? modelGB * 0.4 + 2.2
+        : modelGB * 1.25 + 2.0
+  const reqRAM = modelGB * 1.15 + datasetGB * 2.0 + 2.0
+
+  const base: HardwareCompatResult = {
+    compatible: true,
+    requiredVRAMGB: Math.round(reqVRAM * 10) / 10,
+    availableVRAMGB: spec.vramGB,
+    requiredRAMGB: Math.round(reqRAM * 10) / 10,
+    availableRAMGB: spec.ramGB,
+    modelSizeGB: Math.round(modelGB * 10) / 10,
+  }
+
+  if (spec.kind === 'cpu') {
+    if (
+      reqVRAM + datasetGB * 1.5 > spec.ramGB * 0.85 ||
+      (method === 'full' && modelGB > 2.5) ||
+      modelGB > 6.0
+    ) {
+      return { ...base, compatible: false, code: 'cpu_too_large' }
+    }
+    return base
+  }
+  if (reqVRAM > spec.vramGB * 0.92) {
+    return { ...base, compatible: false, code: 'vram_exceeded' }
+  }
+  if (reqRAM > spec.ramGB * 0.92) {
+    return { ...base, compatible: false, code: 'ram_exceeded' }
+  }
+  return base
+}
+
+const ALLOWED_DATASET_EXTS: Record<FineTuningTaskType, string[]> = {
+  text: ['.jsonl', '.json', '.parquet', '.csv', '.txt'],
+  image: ['.zip', '.tar', '.gz', '.parquet', '.png', '.jpg', '.jpeg', '.webp'],
+  audio: ['.zip', '.tar', '.gz', '.jsonl', '.parquet', '.csv', '.wav', '.mp3', '.flac', '.ogg', '.m4a'],
+  vision: ['.jsonl', '.json', '.zip', '.parquet'],
+}
+
+async function validateDatasetFileForTask(
+  taskType: FineTuningTaskType,
+  file: File,
+  t: (key: string, opts?: any) => string
+): Promise<string | null> {
+  const dotIdx = file.name.lastIndexOf('.')
+  const ext = dotIdx >= 0 ? file.name.slice(dotIdx).toLowerCase() : ''
+  const allowed = ALLOWED_DATASET_EXTS[taskType]
+  if (!ext || !allowed.includes(ext)) {
+    if (taskType === 'text') {
+      return t(
+        'Invalid dataset format ({{ext}}) for Text / LLM fine-tuning. Only .jsonl, .json, .parquet, .csv, or .txt files are allowed (ZIP archives are not supported).',
+        { ext: ext || file.name }
+      )
+    }
+    return t(
+      'Invalid dataset format ({{ext}}) for this task type. Allowed formats: {{formats}}.',
+      { ext: ext || file.name, formats: allowed.join(', ') }
+    )
+  }
+
+  const head = new Uint8Array(await file.slice(0, 512).arrayBuffer())
+  if (head.length >= 4) {
+    const isZip =
+      (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) ||
+      (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x05 && head[3] === 0x06)
+    const isGzip = head[0] === 0x1f && head[1] === 0x8b
+    const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47
+    const isJpg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff
+    const isElf = head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46
+    const isPe = head[0] === 0x4d && head[1] === 0x5a
+    const isPdf = head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46
+    const isParquet = head[0] === 0x50 && head[1] === 0x41 && head[2] === 0x52 && head[3] === 0x31
+
+    if (isElf || isPe || isPdf) {
+      return t('Selected dataset file is a binary or unsupported file type.')
+    }
+    if (['.jsonl', '.json', '.csv', '.txt'].includes(ext)) {
+      const hasNul = head.includes(0)
+      if (isZip || isGzip || isPng || isJpg || hasNul) {
+        return t(
+          'Selected file appears to be a compressed archive or binary file, not valid plain text ({{ext}}) data.',
+          { ext }
+        )
+      }
+    }
+    if (ext === '.zip' && !isZip) {
+      return t('Selected .zip file does not have a valid ZIP archive header.')
+    }
+    if (ext === '.parquet' && !isParquet) {
+      return t('Selected .parquet file does not have a valid Parquet header.')
+    }
+  }
+  return null
 }
 
 function getAcceleratorSpeedFactor(gpuId: string): number {
@@ -368,6 +580,7 @@ function getAcceleratorSpeedFactor(gpuId: string): number {
 
 function estimateDurationSeconds(params: {
   gpuId: string
+  ramTier: 'normal' | 'high'
   taskType: FineTuningTaskType
   method: string
   epochs: number
@@ -384,6 +597,10 @@ function estimateDurationSeconds(params: {
     params.modelParamHint,
     params.modelFileBytes ?? 0
   )
+  const modelGB = Math.max(
+    modelB * 2.0,
+    (params.modelFileBytes ?? 0) / 1_000_000_000
+  )
   const speed = getAcceleratorSpeedFactor(params.gpuId)
   const taskFactor =
     params.taskType === 'image'
@@ -393,17 +610,18 @@ function estimateDurationSeconds(params: {
         : params.taskType === 'audio'
           ? 1.35
           : 1.0
+  const method = params.method.toLowerCase()
   const methodFactor =
-    params.method === 'full'
-      ? 2.2
-      : params.method === 'dpo'
+    method === 'full'
+      ? 3.2
+      : method === 'dpo'
         ? 1.65
-        : params.method === 'dreambooth'
+        : method === 'dreambooth'
           ? 1.45
-          : params.method === 'sft'
+          : method === 'sft'
             ? 1.15
-            : params.method === 'qlora'
-              ? 1.1
+            : method === 'qlora'
+              ? 1.15
               : 1.0
 
   const samples =
@@ -415,20 +633,50 @@ function estimateDurationSeconds(params: {
 
   const tokensFromBytes = datasetBytes / 4
   const tokensFromSamples =
-    params.taskType === 'image' ? samples * 320 : samples * 24
+    params.taskType === 'image' ? samples * 320 : samples * 32
   const estTokensPerEpoch = Math.max(tokensFromBytes, tokensFromSamples)
 
-  const setupSec = Math.min(2400, 60 + modelB * 18)
+  const setupSec = Math.min(21600, 55 + modelGB * 14)
+
+  const compat = checkHardwareCompat(params)
+  let spillPenalty = 1.0
+  if (
+    !compat.compatible &&
+    compat.availableVRAMGB > 0 &&
+    compat.requiredVRAMGB > compat.availableVRAMGB
+  ) {
+    const ratio = compat.requiredVRAMGB / compat.availableVRAMGB
+    if (ratio > 1) {
+      spillPenalty = Math.min(12.0, Math.pow(ratio, 0.85))
+    }
+  }
+
   const tokenComputePerEpoch =
-    ((estTokensPerEpoch / 650) * (modelB / 7) * methodFactor * taskFactor) /
+    ((estTokensPerEpoch / 650) *
+      (modelB / 7) *
+      methodFactor *
+      taskFactor *
+      spillPenalty) /
     speed
   const stepsPerEpoch = Math.ceil(samples / 16)
-  const stepOverheadPerEpoch =
-    (stepsPerEpoch * (0.28 + 0.09 * modelB) * taskFactor) / Math.sqrt(speed)
-  const exportSec = Math.min(600, 30 + modelB * 3)
+  let perStepSec = ((0.28 + 0.09 * modelB) * taskFactor) / Math.sqrt(speed)
+  if (method === 'full') {
+    perStepSec += (modelGB * 0.45 * spillPenalty) / Math.max(0.5, speed)
+  }
+  const stepOverheadPerEpoch = stepsPerEpoch * perStepSec
+
+  const checkpointPerEpochSec =
+    method === 'full' ? 20 + modelGB * 8 : 10 + modelB * 0.4
+  const exportSec = Math.min(
+    18000,
+    method === 'full' ? 40 + modelGB * 16 : 25 + modelB * 2.5
+  )
 
   const total = Math.round(
-    setupSec + safeEpochs * (tokenComputePerEpoch + stepOverheadPerEpoch) + exportSec
+    setupSec +
+      safeEpochs *
+        (tokenComputePerEpoch + stepOverheadPerEpoch + checkpointPerEpochSec) +
+      exportSec
   )
   return Math.min(14 * 86400, Math.max(45, total))
 }
@@ -506,6 +754,7 @@ export function CustomModelsPage() {
   const [ftTaskType, setFtTaskType] = useState<FineTuningTaskType>('text')
   const [ftBaseModel, setFtBaseModel] = useState('')
   const [ftModelParamSize, setFtModelParamSize] = useState('')
+  const [ftModelFileBytes, setFtModelFileBytes] = useState(0)
   const [stagedUpload, setStagedUpload] = useState<StagedModelUpload | null>(
     null
   )
@@ -522,6 +771,7 @@ export function CustomModelsPage() {
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
   const modelFileInputRef = useRef<HTMLInputElement | null>(null)
+  const datasetFileInputRef = useRef<HTMLInputElement | null>(null)
   const stagedUploadRef = useRef<StagedModelUpload | null>(null)
   const consoleEndRef = useRef<HTMLDivElement | null>(null)
   const consoleViewportRef = useRef<HTMLPreElement | null>(null)
@@ -644,6 +894,18 @@ export function CustomModelsPage() {
     if (!allowed.some((m) => m.id === ftMethod)) {
       setFtMethod(allowed[0].id)
     }
+    if (ftFile) {
+      void validateDatasetFileForTask(ftTaskType, ftFile, t).then((errMsg) => {
+        if (errMsg) {
+          toast.error(errMsg)
+          setFtFile(null)
+          setFtDatasetSamples(0)
+          if (datasetFileInputRef.current) {
+            datasetFileInputRef.current.value = ''
+          }
+        }
+      })
+    }
   }, [ftTaskType, ftMethod])
 
   const aliasesQuery = useQuery({
@@ -671,6 +933,9 @@ export function CustomModelsPage() {
   const showColabRamSelector = Boolean(selectedGpuObj?.supports_colab_ram)
   const colabNormalMult = ftQuery.data?.colab_normal_ram_multiplier ?? 1
   const colabHighMult = ftQuery.data?.colab_high_ram_multiplier ?? 1.5
+  const activeRamTier: 'normal' | 'high' = showColabRamSelector
+    ? ftRamTier
+    : 'normal'
   const activeRamMultiplier = showColabRamSelector
     ? ftRamTier === 'high'
       ? colabHighMult
@@ -678,13 +943,24 @@ export function CustomModelsPage() {
     : 1
   const datasetBytes = ftFile?.size ?? 0
   const activeModelName = stagedUpload?.filename || ftBaseModel.trim()
+  const activeModelFileBytes = stagedUpload?.size || ftModelFileBytes
   const estimatedModelBillions = parseModelBillions(
     activeModelName,
     ftModelParamSize,
-    stagedUpload?.size ?? 0
+    activeModelFileBytes
   )
+  const hardwareCompat = checkHardwareCompat({
+    gpuId: ftGpu || 'CPU',
+    ramTier: activeRamTier,
+    method: ftMethod,
+    datasetBytes,
+    modelName: activeModelName,
+    modelParamHint: ftModelParamSize,
+    modelFileBytes: activeModelFileBytes,
+  })
   const estimatedDurationSeconds = estimateDurationSeconds({
     gpuId: ftGpu || 'CPU',
+    ramTier: activeRamTier,
     taskType: ftTaskType,
     method: ftMethod,
     epochs: ftEpochs,
@@ -692,7 +968,7 @@ export function CustomModelsPage() {
     datasetSamples: ftDatasetSamples,
     modelName: activeModelName,
     modelParamHint: ftModelParamSize,
-    modelFileBytes: stagedUpload?.size ?? 0,
+    modelFileBytes: activeModelFileBytes,
   })
   const effectivePricePerSecond =
     (selectedGpuObj?.price_per_second ?? 0.0015) * activeRamMultiplier
@@ -701,11 +977,22 @@ export function CustomModelsPage() {
     effectivePricePerSecond * estimatedDurationSeconds
 
   const handleDatasetFileSelected = async (file: File | null) => {
-    setFtFile(file)
     if (!file) {
+      setFtFile(null)
       setFtDatasetSamples(0)
       return
     }
+    const validationErr = await validateDatasetFileForTask(ftTaskType, file, t)
+    if (validationErr) {
+      toast.error(validationErr)
+      setFtFile(null)
+      setFtDatasetSamples(0)
+      if (datasetFileInputRef.current) {
+        datasetFileInputRef.current.value = ''
+      }
+      return
+    }
+    setFtFile(file)
     try {
       const count = await countDatasetSamplesFromFile(file)
       setFtDatasetSamples(count)
@@ -728,6 +1015,7 @@ export function CustomModelsPage() {
     const prevUploadId = stagedUpload?.upload_id
     setFtBaseModel('')
     setFtModelParamSize('')
+    setFtModelFileBytes(0)
     setStagedUpload(null)
     if (prevUploadId) {
       void cleanupStagedUpload(prevUploadId)
@@ -787,7 +1075,7 @@ export function CustomModelsPage() {
       formData.append('method', ftMethod)
       formData.append('suffix', ftSuffix.trim())
       formData.append('gpu', ftGpu)
-      formData.append('ram_tier', showColabRamSelector ? ftRamTier : 'normal')
+      formData.append('ram_tier', activeRamTier)
       formData.append('epochs', String(ftEpochs))
 
       if (stagedUpload) {
@@ -806,6 +1094,12 @@ export function CustomModelsPage() {
       }
       if (ftModelParamSize.trim()) {
         formData.append('model_param_size', ftModelParamSize.trim())
+      }
+      if (activeModelFileBytes > 0) {
+        formData.append('model_file_bytes', String(activeModelFileBytes))
+      }
+      if (!hardwareCompat.compatible) {
+        formData.append('acknowledge_compat_warning', 'true')
       }
       if (ftFile) {
         formData.append('file', ftFile)
@@ -826,6 +1120,7 @@ export function CustomModelsPage() {
       setFtCreateOpen(false)
       setFtBaseModel('')
       setFtModelParamSize('')
+      setFtModelFileBytes(0)
       setFtSuffix('')
       setFtFile(null)
       setFtDatasetSamples(0)
@@ -968,10 +1263,16 @@ export function CustomModelsPage() {
       void cleanupStagedUpload(stagedUpload.upload_id)
       setStagedUpload(null)
     }
+    // For Transformers (text/vision/audio), always pass clean owner/repo so
+    // AutoTokenizer/AutoModel never fail with invalid repo_id on subfiles.
+    // Single weight files are only passed directly for image diffusion checkpoints.
     setFtBaseModel(
-      picked.filename ? `${picked.repoId}/${picked.filename}` : picked.repoId
+      ftTaskType === 'image' && picked.filename
+        ? `${picked.repoId}/${picked.filename}`
+        : picked.repoId
     )
     setFtModelParamSize(picked.parameterSize ?? '')
+    setFtModelFileBytes(picked.fileSize ?? 0)
     // Never overwrite the user's chosen task type when picking a model
     setHfPickerOpen(false)
   }
@@ -1345,6 +1646,7 @@ export function CustomModelsPage() {
                       setStagedUpload(null)
                     }
                     setFtModelParamSize('')
+                    setFtModelFileBytes(0)
                     setFtBaseModel(e.target.value)
                   }}
                 />
@@ -1542,6 +1844,7 @@ export function CustomModelsPage() {
             <div className='space-y-1.5'>
               <Label>{t('Training Dataset File')}</Label>
               <Input
+                ref={datasetFileInputRef}
                 type='file'
                 disabled={uploadingModel}
                 accept={taskCfg.datasetAccept}
@@ -1556,6 +1859,55 @@ export function CustomModelsPage() {
                   : ''}
               </p>
             </div>
+
+            {/* Hardware Compatibility Warning (shown ONLY when incompatible) */}
+            {hasValidModelInput && !hardwareCompat.compatible && (
+              <div className='rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-800 dark:text-amber-300'>
+                <div className='flex items-start gap-2'>
+                  <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400' />
+                  <div className='space-y-1'>
+                    <div className='font-semibold'>
+                      {t('Hardware Compatibility Warning')}
+                    </div>
+                    <p className='leading-relaxed'>
+                      {hardwareCompat.code === 'cpu_too_large'
+                        ? t(
+                            'This model (~{{modelGB}} GB) with {{method}} requires ~{{reqGB}} GB memory, which exceeds CPU runtime capacity (~{{availRAM}} GB RAM). Select a GPU/TPU or switch to QLoRA/LoRA.',
+                            {
+                              modelGB: hardwareCompat.modelSizeGB,
+                              method: ftMethod.toUpperCase(),
+                              reqGB: hardwareCompat.requiredVRAMGB,
+                              availRAM: hardwareCompat.availableRAMGB,
+                            }
+                          )
+                        : hardwareCompat.code === 'ram_exceeded'
+                          ? t(
+                              'Model (~{{modelGB}} GB) and dataset require ~{{reqRAM}} GB system RAM, exceeding selected runtime RAM ({{availRAM}} GB). Consider selecting High RAM or a larger accelerator.',
+                              {
+                                modelGB: hardwareCompat.modelSizeGB,
+                                reqRAM: hardwareCompat.requiredRAMGB,
+                                availRAM: hardwareCompat.availableRAMGB,
+                              }
+                            )
+                          : t(
+                              'Estimated VRAM required (~{{reqVRAM}} GB for {{method}} on ~{{modelGB}} GB weights) exceeds the selected accelerator ({{availVRAM}} GB VRAM). Training may fail with out-of-memory (OOM).',
+                              {
+                                reqVRAM: hardwareCompat.requiredVRAMGB,
+                                method: ftMethod.toUpperCase(),
+                                modelGB: hardwareCompat.modelSizeGB,
+                                availVRAM: hardwareCompat.availableVRAMGB,
+                              }
+                            )}
+                    </p>
+                    <p className='font-medium'>
+                      {t(
+                        'If you proceed anyway and training stops due to insufficient memory, you will still be billed for the compute time consumed.'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Dataset-Size & Model-Size Aware Live Estimated Total Cost */}
             <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>

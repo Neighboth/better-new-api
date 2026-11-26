@@ -26,11 +26,17 @@ type FineTuningJob struct {
 	ModelSource       string  `json:"model_source" gorm:"type:varchar(32)"`
 	ModelSourceURL    string  `json:"model_source_url" gorm:"type:text"`
 	DeploymentID      int     `json:"deployment_id"`
-	DurationSeconds     int64   `json:"duration_seconds"`
-	DatasetBytes        int64   `json:"dataset_bytes"`
-	EstimatedCostUSD    float64 `json:"estimated_cost_usd"`
-	BilledQuota         int64   `json:"billed_quota"`
-	TrainingFilePath    string  `json:"-" gorm:"type:text"`
+	DurationSeconds           int64   `json:"duration_seconds"`
+	DatasetBytes              int64   `json:"dataset_bytes"`
+	EstimatedCostUSD          float64 `json:"estimated_cost_usd"`
+	BilledQuota               int64   `json:"billed_quota"`
+	BilledSeconds             int64   `json:"billed_seconds"`
+	CompatWarningAcknowledged bool    `json:"compat_warning_acknowledged"`
+	CompatWarningReason       string  `json:"compat_warning_reason" gorm:"type:text"`
+	CheckpointEpoch           int     `json:"checkpoint_epoch"`
+	CheckpointStep            int     `json:"checkpoint_step"`
+	AttemptCount              int     `json:"attempt_count"`
+	TrainingFilePath          string  `json:"-" gorm:"type:text"`
 	BaseModelFilePath   string  `json:"-" gorm:"type:text"`
 	CheckpointPath      string  `json:"-" gorm:"type:text"`
 	ModelFilePath       string  `json:"-" gorm:"type:text"`

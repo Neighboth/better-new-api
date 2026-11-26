@@ -23,7 +23,7 @@ var (
 	siteStatsCache   = map[string]siteStatsCacheEntry{}
 )
 
-const siteStatsCacheTTL = 30 * time.Second
+const siteStatsCacheTTL = 60 * time.Second
 
 func getCachedSiteStats(key string) (gin.H, bool) {
 	siteStatsCacheMu.RLock()
@@ -307,8 +307,13 @@ func GetSiteStatistics(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	bypassCache := strings.EqualFold(strings.TrimSpace(c.Query("refresh")), "true")
 
-	cacheKey := fmt.Sprintf("%s|%d|%d|%s|%d|%s|%s|%s|%d|%s|%s|%s|%d",
-		preset, start, end, granularity, tzOffsetMin,
+	// Key presets by preset name (not exact unix second) so repeat visits hit cache cleanly.
+	rangeCacheKey := preset
+	if explicitStart > 0 && explicitEnd > explicitStart {
+		rangeCacheKey = fmt.Sprintf("custom:%d:%d", explicitStart, explicitEnd)
+	}
+	cacheKey := fmt.Sprintf("%s|%s|%d|%s|%s|%s|%d|%s|%s|%s|%d",
+		rangeCacheKey, granularity, tzOffsetMin,
 		c.Query("user_ids"), c.Query("exclude_user_ids"),
 		filter.ModelName, filter.ChannelId, filter.Group,
 		sortKey, order, limit,
@@ -320,9 +325,6 @@ func GetSiteStatistics(c *gin.Context) {
 		}
 	}
 
-	// Execute all independent database queries concurrently with bounded
-	// parallelism so the page loads in a fraction of sequential latency across
-	// SQLite, MySQL, and PostgreSQL.
 	var (
 		seriesRows       []model.SiteStatsBucket
 		seriesPairs      []model.SiteStatsDayUser
@@ -364,34 +366,61 @@ func GetSiteStatistics(c *gin.Context) {
 		}()
 	}
 
-	run(func() {
-		if granularity == "hour" || granularity == "day" {
-			seriesRows, seriesErr = model.GetSiteStatsSeries(filter, bucketSize)
-		} else {
-			seriesPairs, seriesErr = model.GetSiteStatsDayUserPairs(filter)
-		}
-	})
-	run(func() { errorRows, _ = model.GetSiteStatsErrorSeries(filter, errorDiv) })
+	// Main DB queries (small tables, run in parallel with log aggregation)
 	run(func() { registrationRows, _ = model.GetSiteStatsRegistrationSeries(filter, errorDiv) })
-	run(func() { hourRows, _ = model.GetSiteStatsHourOfDay(filter) })
-	if granularity != "day" {
-		// When granularity == "day", weekday distribution is derived directly from seriesRows.
-		run(func() { dayRows, _ = model.GetSiteStatsDayCounts(filter) })
-	}
 	run(func() { deviceTypes, _ = model.GetSiteStatsByogDeviceTypes() })
 	run(func() { countries, _ = model.GetSiteStatsByogCountries(12) })
-	run(func() { topUsers, _ = model.GetSiteStatsTopUsers(filter, sortKey, order, limit) })
-	run(func() { topModels, _ = model.GetSiteStatsTopModels(filter, sortKey, order, limit) })
-	run(func() { topChannels, _ = model.GetSiteStatsTopChannels(filter, sortKey, order, limit) })
-	run(func() { topClients, _ = model.GetSiteStatsTopClients(filter, sortKey, order, limit) })
-	run(func() { topTokens, _ = model.GetSiteStatsTopTokens(filter, sortKey, order, limit) })
-	run(func() { topGroups, _ = model.GetSiteStatsTopGroups(filter, sortKey, order, limit) })
-	run(func() { topIps, _ = model.GetSiteStatsTopIps(filter, limit) })
 	run(func() { topByogNodes, _ = model.GetSiteStatsTopByogNodes(limit) })
-	run(func() { logTypes, _ = model.GetSiteStatsLogTypeCounts(filter) })
-	run(func() { summaryRow, _ = model.GetSiteStatsSummary(filter) })
 	run(func() { globalCounters, _ = model.GetSiteStatsGlobalCounters() })
 	run(func() { byogOnlineCount, _ = model.CountSiteStatsByogOnlineNodes(time.Now().Unix() - 180) })
+
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		run(func() {
+			if granularity == "hour" || granularity == "day" {
+				seriesRows, seriesErr = model.GetSiteStatsSeries(filter, bucketSize)
+			} else {
+				seriesPairs, seriesErr = model.GetSiteStatsDayUserPairs(filter)
+			}
+		})
+		run(func() { errorRows, _ = model.GetSiteStatsErrorSeries(filter, errorDiv) })
+		run(func() { hourRows, _ = model.GetSiteStatsHourOfDay(filter) })
+		if granularity != "day" {
+			run(func() { dayRows, _ = model.GetSiteStatsDayCounts(filter) })
+		}
+		run(func() { topUsers, _ = model.GetSiteStatsTopUsers(filter, sortKey, order, limit) })
+		run(func() { topModels, _ = model.GetSiteStatsTopModels(filter, sortKey, order, limit) })
+		run(func() { topChannels, _ = model.GetSiteStatsTopChannels(filter, sortKey, order, limit) })
+		run(func() { topClients, _ = model.GetSiteStatsTopClients(filter, sortKey, order, limit) })
+		run(func() { topTokens, _ = model.GetSiteStatsTopTokens(filter, sortKey, order, limit) })
+		run(func() { topGroups, _ = model.GetSiteStatsTopGroups(filter, sortKey, order, limit) })
+		run(func() { topIps, _ = model.GetSiteStatsTopIps(filter, limit) })
+		run(func() { logTypes, _ = model.GetSiteStatsLogTypeCounts(filter) })
+		run(func() { summaryRow, _ = model.GetSiteStatsSummary(filter) })
+	} else {
+		// Single-pass sequential scan over logs (replaces 12 full-table scans & GROUP BY sorts)
+		run(func() {
+			sp, err := model.AggregateSiteStatsSinglePass(filter, granularity, bucketSize, errorDiv, sortKey, order, limit)
+			if err != nil {
+				seriesErr = err
+				return
+			}
+			seriesRows = sp.Series
+			seriesPairs = sp.DayUserPairs
+			errorRows = sp.ErrorRows
+			hourRows = sp.HourRows
+			dayRows = sp.DayRows
+			logTypes = sp.LogTypes
+			sumCopy := sp.Summary
+			summaryRow = &sumCopy
+			topUsers = sp.TopUsers
+			topModels = sp.TopModels
+			topChannels = sp.TopChannels
+			topClients = sp.TopClients
+			topTokens = sp.TopTokens
+			topGroups = sp.TopGroups
+			topIps = sp.TopIps
+		})
+	}
 
 	wg.Wait()
 
