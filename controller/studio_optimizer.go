@@ -33,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -239,9 +240,11 @@ func internalChatCompletion(parent *gin.Context, userID int, group string, model
 	c.Request = req
 	c.Set("id", userID)
 	c.Set("group", group)
+	common.SetContextKey(c, constant.ContextKeyFreeInternalRequest, true)
 
-	// Mirror the playground relay wiring: temp token, user context, then the
-	// shared Relay pipeline (billing, fallback and channel selection all run).
+	// Mirror the playground relay wiring for channel selection & fallback,
+	// while ContextKeyFreeInternalRequest keeps Studio prompt enhancement
+	// completely free of user balance charges and rate-limit consumption.
 	userCache, err := model.GetUserCache(userID)
 	if err != nil {
 		return "", err
@@ -375,9 +378,7 @@ func optimizeStudioPromptWithTools(parent *gin.Context, userID int, group string
 		switch tool.Tool {
 		case "web_search":
 			hits, searchErr := service.SearchOnline(query, 5)
-			if searchErr == nil {
-				_, _ = chargeSearchQuota(parent, userID, group, query)
-			} else {
+			if searchErr != nil {
 				hits = nil
 			}
 			convo = append(convo,
@@ -387,7 +388,6 @@ func optimizeStudioPromptWithTools(parent *gin.Context, userID int, group string
 		case "image_search":
 			hits, searchErr := service.SearchImages(query, 5)
 			if searchErr == nil {
-				_, _ = chargeSearchQuota(parent, userID, group, query)
 				for _, hit := range hits {
 					addReference(hit.URL)
 				}

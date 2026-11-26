@@ -73,4 +73,9 @@ const (
 	// fallback in authHelper (finishAdminAudit) skips its record to avoid
 	// duplicate entries.
 	ContextKeyAuditLogged ContextKey = "audit_logged"
+
+	// ContextKeyFreeInternalRequest marks internal platform-initiated LLM calls
+	// (such as Studio prompt enhancement) that must never consume user balance,
+	// request counts, or rate limits.
+	ContextKeyFreeInternalRequest ContextKey = "free_internal_request"
 )

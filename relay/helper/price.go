@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -75,6 +76,16 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	if common.GetContextKeyBool(c, constant.ContextKeyFreeInternalRequest) {
+		groupRatioInfo := HandleGroupRatio(c, info)
+		priceData := hosttypes.PriceData{
+			FreeModel:         true,
+			GroupRatioInfo:    groupRatioInfo,
+			QuotaToPreConsume: 0,
+		}
+		info.PriceData = priceData
+		return priceData, nil
+	}
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 	if meta != nil && meta.CombineText != "" {
 		info.BillingCharacters = utf8.RuneCountInString(meta.CombineText)
@@ -229,6 +240,14 @@ func audioRequestDuration(c *gin.Context) (float64, error) {
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
+	if common.GetContextKeyBool(c, constant.ContextKeyFreeInternalRequest) {
+		groupRatioInfo := HandleGroupRatio(c, info)
+		return hosttypes.PriceData{
+			FreeModel:      true,
+			Quota:          0,
+			GroupRatioInfo: groupRatioInfo,
+		}, nil
+	}
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)

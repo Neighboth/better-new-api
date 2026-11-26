@@ -4,12 +4,22 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
 )
+
+func isUnboundedFineTuningUploadPath(path string) bool {
+	if strings.HasPrefix(path, "/api/deployments/fine_tuning/") {
+		return strings.HasSuffix(path, "/upload_chunk") ||
+			strings.HasSuffix(path, "/artifact") ||
+			strings.HasSuffix(path, "/checkpoint")
+	}
+	return path == "/api/user/fine_tuning/upload_model" || path == "/api/user/fine_tuning/jobs"
+}
 
 type readCloser struct {
 	io.Reader
@@ -25,7 +35,7 @@ func (rc *readCloser) Close() error {
 
 func DecompressRequestMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Body == nil || c.Request.Method == http.MethodGet {
+		if c.Request.Body == nil || c.Request.Method == http.MethodGet || isUnboundedFineTuningUploadPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}

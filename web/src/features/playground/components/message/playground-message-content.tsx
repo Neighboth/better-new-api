@@ -166,7 +166,12 @@ export function PlaygroundMessageContent({
       )}
 
       {!isError && hasAttachments && (
-        <PlaygroundMessageAttachments attachments={attachments} />
+        <PlaygroundMessageAttachments
+          attachments={attachments}
+          hasVideoToolError={toolEvents.some(
+            (ev) => ev.name === 'generate_video' && ev.status === 'error'
+          )}
+        />
       )}
 
       {!isError &&

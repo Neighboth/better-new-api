@@ -19,10 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import {
-  BookOpen,
   Check,
   Copy,
-  KeyRound,
   Loader2,
   Plus,
   ShieldCheck,
@@ -339,8 +337,7 @@ curl -X DELETE "${apiBase}?path=docs/changelog.md" -H "Authorization: Bearer ${s
     >
       <DialogContent className='flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-3xl'>
         <DialogHeader className='shrink-0 border-b px-6 pt-5 pb-4'>
-          <DialogTitle className='flex items-center gap-2'>
-            <KeyRound className='h-4 w-4' />
+          <DialogTitle>
             {isBlog ? t('Blog API') : t('File Manager API')}
           </DialogTitle>
           <DialogDescription>
@@ -360,12 +357,10 @@ curl -X DELETE "${apiBase}?path=docs/changelog.md" -H "Authorization: Bearer ${s
         >
           <div className='shrink-0 px-6 pt-4'>
             <TabsList>
-              <TabsTrigger value='keys' className='gap-1.5'>
-                <KeyRound className='h-3.5 w-3.5' />
+              <TabsTrigger value='keys'>
                 {t('API Keys')} ({keys.length})
               </TabsTrigger>
-              <TabsTrigger value='docs' className='gap-1.5'>
-                <BookOpen className='h-3.5 w-3.5' />
+              <TabsTrigger value='docs'>
                 {t('API Documentation')}
               </TabsTrigger>
             </TabsList>

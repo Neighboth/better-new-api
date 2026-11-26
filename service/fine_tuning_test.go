@@ -1,7 +1,11 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,4 +195,98 @@ func TestAppendFineTuningLogSingleTimestampAndDedup(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(logs), "\n")
 	require.Len(t, lines, 1, "duplicate callback + worker stdout line must appear only once")
 	assert.Equal(t, "13:10:55 [env] PyTorch 2.10 ready | device=Tesla T4", lines[0], "must not double-prepend timestamp or [train] tag")
+}
+
+func TestValidateOpenAIDatasetContentStrict(t *testing.T) {
+	validChat := `{"messages":[{"role":"system","content":"You are helpful."},{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi there!"}]}` + "\n" +
+		`{"messages":[{"role":"user","content":"2+2?"},{"role":"assistant","content":"4"}]}` + "\n"
+	res, err := ValidateOpenAIDatasetContent("text", "lora", "train.jsonl", strings.NewReader(validChat))
+	require.NoError(t, err)
+	assert.True(t, res.Valid)
+	assert.Equal(t, int64(2), res.SampleCount)
+	assert.False(t, res.HasImages)
+
+	// Reject non-.jsonl extension even with valid JSONL body
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "train.txt", strings.NewReader(validChat))
+	require.Error(t, err)
+
+	// Reject Alpaca format
+	alpaca := `{"instruction":"Say hi","input":"","output":"Hi"}` + "\n"
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "alpaca.jsonl", strings.NewReader(alpaca))
+	require.Error(t, err)
+
+	// Reject raw text format
+	rawText := `{"text":"hello world"}` + "\n"
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "raw.jsonl", strings.NewReader(rawText))
+	require.Error(t, err)
+
+	// Reject invalid role
+	badRole := `{"messages":[{"role":"human","content":"hi"},{"role":"bot","content":"hello"}]}` + "\n"
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "badrole.jsonl", strings.NewReader(badRole))
+	require.Error(t, err)
+
+	// Reject missing assistant reply
+	noAssistant := `{"messages":[{"role":"system","content":"sys"},{"role":"user","content":"only user"}]}` + "\n"
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "noasst.jsonl", strings.NewReader(noAssistant))
+	require.Error(t, err)
+
+	// Accept valid OpenAI DPO JSONL, reject chat format when DPO selected
+	validDPO := `{"input":{"messages":[{"role":"user","content":"Explain gravity"}]},"preferred_output":[{"role":"assistant","content":"Gravity attracts masses."}],"non_preferred_output":[{"role":"assistant","content":"Idk"}]}` + "\n"
+	resDPO, err := ValidateOpenAIDatasetContent("text", "dpo", "dpo.jsonl", strings.NewReader(validDPO))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resDPO.SampleCount)
+	_, err = ValidateOpenAIDatasetContent("text", "dpo", "chat_not_dpo.jsonl", strings.NewReader(validChat))
+	require.Error(t, err)
+
+	// Vision multimodal image_url dataset: accepted for vision, rejected for text-only task
+	visionChat := `{"messages":[{"role":"user","content":[{"type":"text","text":"What is this?"},{"type":"image_url","image_url":{"url":"https://example.com/a.jpg"}}]},{"role":"assistant","content":"A cat."}]}` + "\n"
+	resVis, err := ValidateOpenAIDatasetContent("vision", "lora", "vision.jsonl", strings.NewReader(visionChat))
+	require.NoError(t, err)
+	assert.True(t, resVis.HasImages)
+	_, err = ValidateOpenAIDatasetContent("text", "lora", "vision.jsonl", strings.NewReader(visionChat))
+	require.Error(t, err)
+}
+
+func TestCheckFineTuningModelCompatibilityLocalArchives(t *testing.T) {
+	tmp := t.TempDir()
+
+	// 1. Reject GGUF immediately
+	rGGUF := CheckFineTuningModelCompatibility(context.Background(), "org/model-Q4_K_M.gguf", "huggingface", "", "text", "lora", false, "")
+	assert.False(t, rGGUF.Compatible)
+
+	// 2. Reject bare .safetensors without config.json & tokenizer for text task
+	barePath := filepath.Join(tmp, "weights.safetensors")
+	require.NoError(t, os.WriteFile(barePath, []byte("dummy"), 0o644))
+	rBare := CheckFineTuningModelCompatibility(context.Background(), "weights.safetensors", "upload", barePath, "text", "lora", false, "")
+	assert.False(t, rBare.Compatible)
+
+	makeModelZip := func(name string, configJSON string) string {
+		p := filepath.Join(tmp, name)
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		w1, _ := zw.Create("config.json")
+		_, _ = w1.Write([]byte(configJSON))
+		w2, _ := zw.Create("tokenizer.json")
+		_, _ = w2.Write([]byte(`{}`))
+		w3, _ := zw.Create("model.safetensors")
+		_, _ = w3.Write([]byte("weights"))
+		require.NoError(t, zw.Close())
+		require.NoError(t, os.WriteFile(p, buf.Bytes(), 0o644))
+		return p
+	}
+
+	// 3. Compatible LlamaForCausalLM zip for text task
+	llamaZip := makeModelZip("llama.zip", `{"architectures":["LlamaForCausalLM"],"model_type":"llama"}`)
+	rLlama := CheckFineTuningModelCompatibility(context.Background(), "llama.zip", "upload", llamaZip, "text", "full", false, "")
+	assert.True(t, rLlama.Compatible, rLlama.Reason)
+	assert.Equal(t, "LlamaForCausalLM", rLlama.Architecture)
+
+	// 4. Reject text-only LlamaForCausalLM when dataset has multimodal images
+	rLlamaVis := CheckFineTuningModelCompatibility(context.Background(), "llama.zip", "upload", llamaZip, "text", "lora", true, "")
+	assert.False(t, rLlamaVis.Compatible)
+
+	// 5. Reject encoder-only BertModel for OpenAI chat fine-tuning
+	bertZip := makeModelZip("bert.zip", `{"architectures":["BertModel"],"model_type":"bert"}`)
+	rBert := CheckFineTuningModelCompatibility(context.Background(), "bert.zip", "upload", bertZip, "text", "lora", false, "")
+	assert.False(t, rBert.Compatible)
 }

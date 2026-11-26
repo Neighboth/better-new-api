@@ -214,6 +214,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/fine_tuning/jobs/:job_id", controller.UserDeleteFineTuningJob)
 				selfRoute.GET("/fine_tuning/hf/search", controller.SearchHuggingFaceModels)
 				selfRoute.GET("/fine_tuning/hf/files", controller.GetHuggingFaceModelFiles)
+				selfRoute.GET("/fine_tuning/check_model", controller.UserCheckFineTuningModel)
 
 				// 2FA routes
 				selfRoute.GET("/2fa/status", controller.Get2FAStatus)
@@ -593,6 +594,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/deployments/fine_tuning/:job_id/base_model", controller.FineTuningWorkerDownloadBaseModel)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/checkpoint", controller.FineTuningWorkerUploadCheckpoint)
 		apiRouter.GET("/deployments/fine_tuning/:job_id/checkpoint", controller.FineTuningWorkerDownloadCheckpoint)
+		apiRouter.POST("/deployments/fine_tuning/:job_id/upload_chunk", controller.FineTuningWorkerUploadChunk)
 		apiRouter.POST("/deployments/fine_tuning/:job_id/artifact", controller.FineTuningWorkerUploadArtifact)
 
 		// Fine-tuning admin management & statistics

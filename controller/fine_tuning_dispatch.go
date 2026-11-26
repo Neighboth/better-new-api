@@ -22,21 +22,209 @@ import (
 )
 
 // InitFineTuningDispatcher wires the real remote GPU/TPU/CPU training dispatcher
-// (Modal, Google Colab, Kaggle, RunPod) with continuous checkpoint syncing and
-// automatic cross-account / cross-provider failover into service/fine_tuning_runner.go.
+// (Modal, Google Colab, Kaggle, RunPod) with 16MB chunked streaming uploads,
+// cross-provider GPU translation, and automatic failover/checkpoint resume.
 func InitFineTuningDispatcher() {
 	service.RegisterFineTuningDispatcher(dispatchRealFineTuningJob)
 }
 
 type fineTuningCandidate struct {
-	Provider string
-	Account  DeploymentAccount
+	Provider    string
+	Account     DeploymentAccount
+	Accelerator string // mapped provider-native accelerator ID
+	ExactMatch  bool
 }
 
-// resolveFineTuningCandidates returns an ordered failover list of all enabled
-// and configured execution accounts across Modal, Google Colab, Kaggle, and RunPod.
-// Accounts whose provider directly matches the requested GPU are prioritized first,
-// followed by remaining enabled accounts/providers for seamless failover.
+// canonicalAcceleratorFamily normalizes provider-specific GPU/TPU/CPU IDs into
+// a common hardware family so failover can translate to equivalent accelerators
+// across enabled providers.
+func canonicalAcceleratorFamily(gpuID string) string {
+	u := strings.ToUpper(strings.TrimSpace(gpuID))
+	switch {
+	case u == "CPU" || strings.HasPrefix(u, "CPU"):
+		return "CPU"
+	case strings.Contains(u, "B300"):
+		return "B300"
+	case strings.Contains(u, "B200"):
+		return "B200"
+	case strings.Contains(u, "H200"):
+		return "H200"
+	case strings.Contains(u, "H100"):
+		return "H100"
+	case strings.Contains(u, "RTX-PRO-6000") || strings.Contains(u, "RTX_PRO_6000"):
+		return "RTX-PRO-6000"
+	case strings.Contains(u, "A100") && strings.Contains(u, "40"):
+		return "A100-40GB"
+	case strings.Contains(u, "A100"):
+		return "A100-80GB"
+	case strings.Contains(u, "L40S"):
+		return "L40S"
+	case strings.Contains(u, "A10G"):
+		return "A10G"
+	case strings.Contains(u, "4090"):
+		return "RTX-4090"
+	case strings.Contains(u, "3090"):
+		return "RTX-3090"
+	case strings.Contains(u, "L4"):
+		return "L4"
+	case strings.Contains(u, "T4"):
+		return "T4"
+	case strings.Contains(u, "V6E"):
+		return "TPU_V6E"
+	case strings.Contains(u, "V5E"):
+		return "TPU_V5E"
+	case strings.Contains(u, "V2_8") || strings.Contains(u, "V2-8"):
+		return "TPU_V2_8"
+	default:
+		return u
+	}
+}
+
+// mapAcceleratorForProvider maps a requested accelerator ID to the target
+// provider's native accelerator ID, returning "" when that provider cannot
+// supply an equivalent accelerator (e.g. TPU on Modal/RunPod).
+func mapAcceleratorForProvider(gpuID string, targetProvider string) string {
+	fam := canonicalAcceleratorFamily(gpuID)
+	switch strings.ToLower(strings.TrimSpace(targetProvider)) {
+	case "modal":
+		switch fam {
+		case "CPU":
+			return "CPU"
+		case "T4":
+			return "T4"
+		case "L4":
+			return "L4"
+		case "A10G", "RTX-3090", "RTX-4090":
+			return "A10G"
+		case "L40S":
+			return "L40S"
+		case "A100-40GB":
+			return "A100-40GB"
+		case "A100-80GB":
+			return "A100-80GB"
+		case "RTX-PRO-6000":
+			return "RTX-PRO-6000"
+		case "H100":
+			return "H100"
+		case "H200":
+			return "H200"
+		case "B200":
+			return "B200"
+		case "B300":
+			return "B300"
+		default:
+			return ""
+		}
+	case "colab":
+		switch fam {
+		case "CPU":
+			return "CPU"
+		case "T4":
+			return "NVIDIA_TESLA_T4"
+		case "L4":
+			return "NVIDIA_L4"
+		case "A100-40GB":
+			return "NVIDIA_TESLA_A100"
+		case "A100-80GB":
+			return "NVIDIA_TESLA_A100_80GB"
+		case "RTX-PRO-6000":
+			return "NVIDIA_RTX_PRO_6000"
+		case "H100":
+			return "NVIDIA_H100_80GB"
+		case "TPU_V2_8":
+			return "TPU_V2_8"
+		case "TPU_V5E":
+			return "TPU_V5E_1"
+		case "TPU_V6E":
+			return "TPU_V6E_1"
+		default:
+			return ""
+		}
+	case "kaggle":
+		switch fam {
+		case "CPU":
+			return "CPU"
+		case "T4":
+			return "NvidiaTeslaT4"
+		case "L4":
+			return "NvidiaL4"
+		case "TPU_V5E":
+			return "TpuV5E8"
+		case "TPU_V6E":
+			return "TpuV6E8"
+		default:
+			return ""
+		}
+	case "runpod":
+		switch fam {
+		case "CPU":
+			return "CPU"
+		case "T4", "L4", "A10G", "RTX-3090":
+			return "RTX-3090"
+		case "RTX-4090":
+			return "RTX-4090"
+		case "L40S":
+			return "L40S"
+		case "A100-40GB", "A100-80GB":
+			return "A100-80GB"
+		case "H100":
+			return "H100-SXM"
+		case "H200":
+			return "H200"
+		case "B200":
+			return "B200"
+		default:
+			return ""
+		}
+	default:
+		return ""
+	}
+}
+
+func accountTierAllowsAccelerator(provider, tier, mappedGPU string) bool {
+	if mappedGPU == "" {
+		return false
+	}
+	t := strings.TrimSpace(tier)
+	if t == "" {
+		t = defaultTierForProvider(provider)
+	}
+	switch provider {
+	case "modal":
+		if t == "free_no_card" {
+			return mappedGPU == "CPU"
+		}
+		return true
+	case "colab":
+		switch t {
+		case "free":
+			return mappedGPU == "CPU" || mappedGPU == "NVIDIA_TESLA_T4" || mappedGPU == "TPU_V5E_1"
+		case "google_ai_pro":
+			return mappedGPU == "CPU" || mappedGPU == "NVIDIA_TESLA_T4" || mappedGPU == "TPU_V2_8" || mappedGPU == "TPU_V5E_1"
+		case "colab_pro":
+			return mappedGPU == "CPU" || mappedGPU == "NVIDIA_TESLA_T4" || mappedGPU == "NVIDIA_L4" || mappedGPU == "NVIDIA_TESLA_A100" || mappedGPU == "TPU_V2_8" || mappedGPU == "TPU_V5E_1"
+		default:
+			return true
+		}
+	case "kaggle":
+		switch t {
+		case "unverified":
+			return mappedGPU == "CPU"
+		case "verified_free":
+			return mappedGPU == "CPU" || mappedGPU == "NvidiaTeslaT4" || mappedGPU == "TpuV5E8"
+		default:
+			return true
+		}
+	case "runpod":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveFineTuningCandidates returns an ordered list of enabled, configured
+// execution accounts across Modal, Google Colab, Kaggle, and RunPod whose plan
+// tier supports the requested accelerator (or its exact mapped equivalent).
 func resolveFineTuningCandidates(gpuID string, preferredProvider string) []fineTuningCandidate {
 	opts := service.GetFineTuningGPUOptions()
 	pref := strings.ToLower(strings.TrimSpace(preferredProvider))
@@ -61,7 +249,9 @@ func resolveFineTuningCandidates(gpuID string, preferredProvider string) []fineT
 	providerOrder = append(providerOrder, "modal", "colab", "kaggle", "runpod")
 
 	seenProvider := map[string]bool{}
-	candidates := make([]fineTuningCandidate, 0, 8)
+	exactMatches := make([]fineTuningCandidate, 0, 8)
+	fallbackMatches := make([]fineTuningCandidate, 0, 8)
+
 	for _, p := range providerOrder {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if p == "" || seenProvider[p] {
@@ -77,17 +267,34 @@ func resolveFineTuningCandidates(gpuID string, preferredProvider string) []fineT
 		if !enabled {
 			continue
 		}
+
+		mappedGPU := mapAcceleratorForProvider(trimmed, p)
+		if mappedGPU == "" {
+			continue
+		}
+		isExact := mappedGPU == trimmed
 		accounts := GetProviderAccounts(p)
 		for _, acc := range accounts {
-			if acc.Enabled && isAccountConfigured(p, acc) {
-				candidates = append(candidates, fineTuningCandidate{
-					Provider: p,
-					Account:  acc,
-				})
+			if !acc.Enabled || !isAccountConfigured(p, acc) {
+				continue
+			}
+			if !accountTierAllowsAccelerator(p, acc.Tier, mappedGPU) {
+				continue
+			}
+			cand := fineTuningCandidate{
+				Provider:    p,
+				Account:     acc,
+				Accelerator: mappedGPU,
+				ExactMatch:  isExact,
+			}
+			if isExact {
+				exactMatches = append(exactMatches, cand)
+			} else {
+				fallbackMatches = append(fallbackMatches, cand)
 			}
 		}
 	}
-	return candidates
+	return append(exactMatches, fallbackMatches...)
 }
 
 func buildFineTuningServerBaseURL() string {
@@ -120,6 +327,8 @@ func isUnrecoverableUserTrainingError(err error) bool {
 		"gated repo",
 		"repository not found",
 		"dataset contains no usable",
+		"missing valid openai",
+		"invalid openai dpo",
 		"no training images",
 		"invalid dataset format",
 		"jsondecodeerror",
@@ -138,15 +347,29 @@ func isUnrecoverableUserTrainingError(err error) bool {
 	return false
 }
 
+// isPostTrainingUploadError detects errors that happened AFTER training finished
+// (when transferring output.zip), so we never blindly restart training from
+// epoch 1 when the problem was a server upload/storage issue.
+func isPostTrainingUploadError(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "artifact upload failed after training completed") ||
+		strings.Contains(low, "http error 413") ||
+		strings.Contains(low, "payload too large")
+}
+
 func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, epochs int) (service.FineTuningDispatchResult, error) {
 	candidates := resolveFineTuningCandidates(job.GPU, job.Provider)
 	if len(candidates) == 0 {
-		return service.FineTuningDispatchResult{}, fmt.Errorf("no enabled Model Deployment provider (Modal, Google Colab, Kaggle, or RunPod) with active credentials is configured for accelerator %q. Enable and connect a provider in System Settings > Model Deployment", job.GPU)
+		return service.FineTuningDispatchResult{}, fmt.Errorf("no enabled Model Deployment provider (Modal, Google Colab, Kaggle, or RunPod) with an active account supporting accelerator %q is configured. Enable and connect a provider in System Settings > Model Deployment", job.GPU)
 	}
 
 	baseURL := buildFineTuningServerBaseURL()
 	callbackURL := ""
 	checkpointURL := ""
+	uploadChunkURL := ""
 	resumeCheckpointURL := ""
 	artifactURL := ""
 	datasetURL := ""
@@ -155,6 +378,7 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 		tok := job.CallbackToken
 		callbackURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/callback", baseURL, job.JobID)
 		checkpointURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/checkpoint?token=%s", baseURL, job.JobID, tok)
+		uploadChunkURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/upload_chunk?token=%s", baseURL, job.JobID, tok)
 		resumeCheckpointURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/checkpoint?token=%s", baseURL, job.JobID, tok)
 		artifactURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/artifact?token=%s", baseURL, job.JobID, tok)
 		datasetURL = fmt.Sprintf("%s/api/deployments/fine_tuning/%s/dataset?token=%s", baseURL, job.JobID, tok)
@@ -178,7 +402,14 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 	destZip := filepath.Join(storageDir, job.JobID+".zip")
 	ckptZip := service.FineTuningCheckpointZipPath(job.UserId, job.JobID)
 
-	const maxAttempts = 4
+	// Allow up to 4 attempts when multiple accounts/providers exist, or up to 3
+	// clean retries on a fresh runtime of the single available provider when a
+	// checkpoint has been saved (only 2 tries if single provider fails before compute).
+	maxAttempts := 4
+	if len(candidates) == 1 {
+		maxAttempts = 3
+	}
+
 	var (
 		lastErr           error
 		anyComputeStarted bool
@@ -193,13 +424,27 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 			}, ctx.Err()
 		}
 
+		// If the trained archive already arrived on disk (e.g. via chunked upload), finish immediately!
+		if info, stErr := os.Stat(destZip); stErr == nil && info.Size() > 0 {
+			fresh, _ := model.GetFineTuningJobByJobID(job.JobID)
+			var tok int64
+			if fresh != nil {
+				tok = fresh.TrainedTokens
+			}
+			return service.FineTuningDispatchResult{
+				ArtifactZipPath:       destZip,
+				TrainedTokens:         tok,
+				ComputeStarted:        true,
+				ElapsedComputeSeconds: maxInt64(1, totalComputeSec),
+			}, nil
+		}
+
 		cand := candidates[attempt%len(candidates)]
 		hasCheckpoint := false
 		if fi, sErr := os.Stat(ckptZip); sErr == nil && fi.Size() > 0 {
 			hasCheckpoint = true
 		}
 
-		// Re-fetch latest checkpoint epoch/step from DB before dispatching attempt
 		freshJob, _ := model.GetFineTuningJobByJobID(job.JobID)
 		if freshJob != nil && freshJob.Status == "cancelled" {
 			return service.FineTuningDispatchResult{
@@ -216,11 +461,15 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 		})
 
 		if attempt == 0 {
-			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "alloc", fmt.Sprintf("Dispatching real PyTorch training workload (accelerator=%s, ram_tier=%s, epochs=%d)", job.GPU, job.RamTier, epochs))
+			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "alloc", fmt.Sprintf("Dispatching real PyTorch training workload (accelerator=%s, ram_tier=%s, epochs=%d)", cand.Accelerator, job.RamTier, epochs))
 		} else if hasCheckpoint && freshJob != nil {
-			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "failover", fmt.Sprintf("Compute node interrupted — seamlessly resuming from saved checkpoint (epoch %d, step %d) on backup compute node (attempt %d/%d)...", freshJob.CheckpointEpoch, freshJob.CheckpointStep, attempt+1, maxAttempts))
+			targetDesc := "backup compute node"
+			if len(candidates) == 1 {
+				targetDesc = "fresh compute instance"
+			}
+			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "failover", fmt.Sprintf("Compute node interrupted — seamlessly resuming from saved checkpoint (epoch %d, step %d) on %s (attempt %d/%d)...", freshJob.CheckpointEpoch, freshJob.CheckpointStep, targetDesc, attempt+1, maxAttempts))
 		} else {
-			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "failover", fmt.Sprintf("Compute node interrupted — re-dispatching on backup compute node (attempt %d/%d)...", attempt+1, maxAttempts))
+			service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "failover", fmt.Sprintf("Compute node unavailable — retrying on next available compute instance (attempt %d/%d)...", attempt+1, maxAttempts))
 		}
 
 		activeResumeURL := ""
@@ -241,9 +490,10 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 			TaskType:            job.TaskType,
 			Method:              job.Method,
 			Epochs:              epochs,
-			Accelerator:         job.GPU,
+			Accelerator:         cand.Accelerator,
 			CallbackURL:         callbackURL,
 			CheckpointURL:       checkpointURL,
+			UploadChunkURL:      uploadChunkURL,
 			ResumeCheckpointURL: activeResumeURL,
 			ArtifactURL:         artifactURL,
 			CallbackToken:       job.CallbackToken,
@@ -261,13 +511,13 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 		accCopy := cand.Account
 		switch cand.Provider {
 		case "modal":
-			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnModal(ctx, job, &accCopy, script, dsName, activeResumeLocal, destZip)
+			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnModal(ctx, job, cand.Accelerator, &accCopy, script, dsName, activeResumeLocal, destZip)
 		case "colab":
-			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnColab(ctx, job, &accCopy, script, dsName, activeResumeLocal, ckptZip, destZip)
+			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnColab(ctx, job, cand.Accelerator, &accCopy, script, dsName, activeResumeLocal, ckptZip, destZip, baseURL != "")
 		case "kaggle":
-			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnKaggle(ctx, job, &accCopy, script, destZip)
+			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnKaggle(ctx, job, cand.Accelerator, &accCopy, script, destZip)
 		case "runpod":
-			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnRunPod(ctx, job, &accCopy, script, destZip)
+			zipPath, trainedTokens, computeStarted, computeSec, runErr = runFineTuningOnRunPod(ctx, job, cand.Accelerator, &accCopy, script, destZip)
 		default:
 			runErr = fmt.Errorf("unsupported fine-tuning execution provider: %s", cand.Provider)
 		}
@@ -282,7 +532,7 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 				ArtifactZipPath:       zipPath,
 				TrainedTokens:         trainedTokens,
 				ComputeStarted:        true,
-				ElapsedComputeSeconds: totalComputeSec,
+				ElapsedComputeSeconds: maxInt64(1, totalComputeSec),
 			}, nil
 		}
 
@@ -294,6 +544,16 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 			}, ctx.Err()
 		}
 
+		// Never discard completed training or retry from scratch on post-training upload/413 errors
+		if isPostTrainingUploadError(runErr) {
+			return service.FineTuningDispatchResult{
+				ComputeStarted:        anyComputeStarted,
+				ElapsedComputeSeconds: totalComputeSec,
+				BilledOnFailure:       false,
+			}, runErr
+		}
+
+		// User/model/dataset/OOM errors cannot be fixed by switching servers
 		if isUnrecoverableUserTrainingError(runErr) {
 			return service.FineTuningDispatchResult{
 				ComputeStarted:        anyComputeStarted,
@@ -302,18 +562,24 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 			}, runErr
 		}
 
-		// If there is only 1 configured account/provider AND no checkpoint progress yet,
-		// avoid pointless infinite retries on auth/config errors; still allow 1 clean retry if compute already progressed.
-		if len(candidates) == 1 && !hasCheckpoint && attempt >= 1 {
+		// If only 1 provider/account supports this GPU and it failed before any checkpoint
+		// was saved, try at most once more (2 total tries) and then stop cleanly without looping.
+		hasAnyCkptNow := false
+		if fi, sErr := os.Stat(ckptZip); sErr == nil && fi.Size() > 0 {
+			hasAnyCkptNow = true
+		}
+		if len(candidates) == 1 && !hasAnyCkptNow && attempt >= 1 {
 			break
 		}
+
+		backoff := time.Duration(3*(attempt+1)) * time.Second
 		select {
 		case <-ctx.Done():
 			return service.FineTuningDispatchResult{
 				ComputeStarted:        anyComputeStarted,
 				ElapsedComputeSeconds: totalComputeSec,
 			}, ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(backoff):
 		}
 	}
 
@@ -324,7 +590,7 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 	}, lastErr
 }
 
-func runFineTuningOnModal(ctx context.Context, job *model.FineTuningJob, acc *DeploymentAccount, script, dsName, resumeCkptPath, destZip string) (string, int64, bool, int64, error) {
+func runFineTuningOnModal(ctx context.Context, job *model.FineTuningJob, accelerator string, acc *DeploymentAccount, script, dsName, resumeCkptPath, destZip string) (string, int64, bool, int64, error) {
 	common.OptionMapRWMutex.RLock()
 	volPath := strings.TrimSpace(common.OptionMap["model_deployment.modal.shared_volume_path"])
 	common.OptionMapRWMutex.RUnlock()
@@ -333,7 +599,7 @@ func runFineTuningOnModal(ctx context.Context, job *model.FineTuningJob, acc *De
 	computeStarted := false
 	err := modaldeploy.RunFineTuneWithLogger(ctx, modaldeploy.FineTuneConfig{
 		AppName:              "ft-" + strings.ToLower(job.JobID),
-		Accelerator:          job.GPU,
+		Accelerator:          accelerator,
 		TokenID:              strings.TrimSpace(acc.TokenID),
 		TokenSecret:          strings.TrimSpace(acc.TokenSecret),
 		SharedVolumePath:     volPath,
@@ -368,14 +634,14 @@ func runFineTuningOnModal(ctx context.Context, job *model.FineTuningJob, acc *De
 	return destZip, trained, true, maxInt64(1, elapsedSec), nil
 }
 
-func runFineTuningOnColab(ctx context.Context, job *model.FineTuningJob, acc *DeploymentAccount, script, dsName, resumeCkptPath, localCkptDst, destZip string) (string, int64, bool, int64, error) {
+func runFineTuningOnColab(ctx context.Context, job *model.FineTuningJob, accelerator string, acc *DeploymentAccount, script, dsName, resumeCkptPath, localCkptDst, destZip string, hasRemoteChunkUpload bool) (string, int64, bool, int64, error) {
 	tok, err := getValidColabAccessTokenForAccount(ctx, acc.ID)
 	if err != nil {
 		return "", 0, false, 0, err
 	}
 	client := newColabClient(tok)
 	highRAM := strings.EqualFold(strings.TrimSpace(job.RamTier), "high")
-	rt, err := client.CreateRuntimeWithOptions(job.GPU, highRAM)
+	rt, err := client.CreateRuntimeWithOptions(accelerator, highRAM)
 	if err != nil {
 		return "", 0, false, 0, fmt.Errorf("failed to allocate compute runtime: %w", err)
 	}
@@ -392,24 +658,29 @@ func runFineTuningOnColab(ctx context.Context, job *model.FineTuningJob, acc *De
 		return "", 0, false, 0, fmt.Errorf("compute runtime did not return a connection endpoint")
 	}
 
-	// Upload dataset directly to runtime so training works even on localhost/private servers
+	// Upload dataset directly to runtime when small (<= 40 MB) so training works even on localhost
 	if job.TrainingFilePath != "" {
-		if dsBytes, rErr := os.ReadFile(job.TrainingFilePath); rErr == nil && len(dsBytes) > 0 {
-			dsExt := filepath.Ext(dsName)
-			if dsExt == "" {
-				dsExt = ".jsonl"
-			}
-			if upErr := client.UploadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "dataset"+dsExt, dsBytes); upErr != nil {
-				service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "warn", "Direct dataset upload fallback to HTTP callback")
+		if fi, sErr := os.Stat(job.TrainingFilePath); sErr == nil && fi.Size() > 0 && fi.Size() <= 40<<20 {
+			if dsBytes, rErr := os.ReadFile(job.TrainingFilePath); rErr == nil && len(dsBytes) > 0 {
+				dsExt := filepath.Ext(dsName)
+				if dsExt == "" {
+					dsExt = ".jsonl"
+				}
+				if upErr := client.UploadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "dataset"+dsExt, dsBytes); upErr != nil {
+					service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "warn", "Direct dataset upload fallback to HTTP download")
+				}
 			}
 		}
 	}
 
-	// Upload saved resume checkpoint directly to runtime when recovering from a previous interruption
+	// Only push small (<= 40 MB) resume checkpoints directly via Jupyter JSON/base64;
+	// larger checkpoints are downloaded directly by train.py via RESUME_CHECKPOINT_URL!
 	if resumeCkptPath != "" {
-		if ckBytes, rErr := os.ReadFile(resumeCkptPath); rErr == nil && len(ckBytes) > 0 {
-			if upErr := client.UploadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "resume_checkpoint.zip", ckBytes); upErr == nil {
-				service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "resume", fmt.Sprintf("Uploaded saved checkpoint (%.2f MB) to compute runtime", float64(len(ckBytes))/(1024*1024)))
+		if fi, sErr := os.Stat(resumeCkptPath); sErr == nil && fi.Size() > 0 && fi.Size() <= 40<<20 {
+			if ckBytes, rErr := os.ReadFile(resumeCkptPath); rErr == nil && len(ckBytes) > 0 {
+				if upErr := client.UploadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "resume_checkpoint.zip", ckBytes); upErr == nil {
+					service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "resume", fmt.Sprintf("Uploaded saved checkpoint (%.2f MB) to compute runtime", float64(len(ckBytes))/(1024*1024)))
+				}
 			}
 		}
 	}
@@ -454,7 +725,7 @@ else:
 	seenLines := 0
 	lastPulledCkptStep := -1
 	consecutiveReadFailures := 0
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(6 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -462,6 +733,22 @@ else:
 		case <-ctx.Done():
 			return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), ctx.Err()
 		case <-ticker.C:
+			fresh, _ := model.GetFineTuningJobByJobID(job.JobID)
+			if fresh != nil {
+				if fresh.Status == "cancelled" {
+					return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), context.Canceled
+				}
+				// If chunked HTTP upload + succeeded callback already finished cleanly, return immediately!
+				if fresh.Status == "succeeded" {
+					if info, stErr := os.Stat(destZip); stErr == nil && info.Size() > 0 {
+						return destZip, fresh.TrainedTokens, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
+					}
+				}
+				if fresh.Status == "failed" && strings.TrimSpace(fresh.Error) != "" {
+					return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("%s", fresh.Error)
+				}
+			}
+
 			stdoutText, sErr := readRT("train_stdout.log")
 			if sErr == nil {
 				consecutiveReadFailures = 0
@@ -470,53 +757,61 @@ else:
 					for i := seenLines; i < len(lines); i++ {
 						ln := strings.TrimSpace(lines[i])
 						if ln != "" {
-							// appendFineTuningLog cleanly preserves single timestamps and deduplicates callback echoes
 							service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "worker", ln)
 						}
 					}
 					seenLines = len(lines)
 				}
 			} else {
-				consecutiveReadFailures++
-				if consecutiveReadFailures >= 8 {
-					return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("compute runtime disconnected unexpectedly (%v)", sErr)
+				// If HTTP callbacks updated the job within the last 60s, the training
+				// process is still alive (Jupyter proxy may just be momentarily busy
+				// during heavy disk I/O / packaging) — NEVER falsely kill or failover!
+				if fresh != nil && time.Now().Unix()-fresh.UpdatedAt < 60 {
+					consecutiveReadFailures = 0
+				} else {
+					consecutiveReadFailures++
+					if consecutiveReadFailures >= 12 {
+						return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("compute runtime disconnected unexpectedly (%v)", sErr)
+					}
 				}
 			}
 
-			// Proactively sync latest checkpoint archive directly over runtime proxy (works even on localhost)
-			if metaTxt, mErr := readRT("checkpoint_meta.json"); mErr == nil && strings.TrimSpace(metaTxt) != "" {
-				var ckMeta struct {
-					CompletedEpoch int   `json:"completed_epoch"`
-					GlobalStep     int   `json:"global_step"`
-					TrainedTokens  int64 `json:"trained_tokens"`
-					Progress       int   `json:"progress"`
-				}
-				if common.UnmarshalJsonStr(metaTxt, &ckMeta) == nil && ckMeta.GlobalStep > lastPulledCkptStep {
-					ckBytes, dlErr := client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "checkpoint_latest.zip")
-					if dlErr != nil {
-						ckBytes, dlErr = client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "content/checkpoint_latest.zip")
+			// Localhost fallback ONLY: pull small checkpoints (<= 40 MB) via Jupyter proxy
+			// when remote chunked HTTP upload did not already sync them. Never call
+			// Jupyter /api/contents base64 JSON on 600 MB+ files (which crashes Jupyter with HTTP 500!).
+			if !hasRemoteChunkUpload {
+				if metaTxt, mErr := readRT("checkpoint_meta.json"); mErr == nil && strings.TrimSpace(metaTxt) != "" {
+					var ckMeta struct {
+						CompletedEpoch int   `json:"completed_epoch"`
+						GlobalStep     int   `json:"global_step"`
+						TrainedTokens  int64 `json:"trained_tokens"`
+						Progress       int   `json:"progress"`
+						SizeBytes      int64 `json:"size_bytes"`
+						Uploaded       bool  `json:"uploaded"`
 					}
-					if dlErr == nil && len(ckBytes) > 0 {
-						tmpCk := localCkptDst + ".tmp"
-						if wErr := os.WriteFile(tmpCk, ckBytes, 0o644); wErr == nil && os.Rename(tmpCk, localCkptDst) == nil {
-							lastPulledCkptStep = ckMeta.GlobalStep
-							_ = model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
-								"checkpoint_path":  localCkptDst,
-								"checkpoint_epoch": ckMeta.CompletedEpoch,
-								"checkpoint_step":  ckMeta.GlobalStep,
-								"trained_tokens":   ckMeta.TrainedTokens,
-								"progress":         ckMeta.Progress,
-								"updated_at":       time.Now().Unix(),
-							})
+					if common.UnmarshalJsonStr(metaTxt, &ckMeta) == nil &&
+						!ckMeta.Uploaded &&
+						ckMeta.GlobalStep > lastPulledCkptStep &&
+						ckMeta.SizeBytes > 0 && ckMeta.SizeBytes <= 40<<20 {
+						ckBytes, dlErr := client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "checkpoint_latest.zip")
+						if dlErr != nil {
+							ckBytes, dlErr = client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "content/checkpoint_latest.zip")
+						}
+						if dlErr == nil && len(ckBytes) > 0 {
+							tmpCk := localCkptDst + ".tmp"
+							if wErr := os.WriteFile(tmpCk, ckBytes, 0o644); wErr == nil && os.Rename(tmpCk, localCkptDst) == nil {
+								lastPulledCkptStep = ckMeta.GlobalStep
+								_ = model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
+									"checkpoint_path":  localCkptDst,
+									"checkpoint_epoch": ckMeta.CompletedEpoch,
+									"checkpoint_step":  ckMeta.GlobalStep,
+									"trained_tokens":   ckMeta.TrainedTokens,
+									"progress":         ckMeta.Progress,
+									"updated_at":       time.Now().Unix(),
+								})
+							}
 						}
 					}
-				}
-			}
-
-			// Check if callback already delivered the zip archive
-			if info, stErr := os.Stat(destZip); stErr == nil && info.Size() > 0 {
-				if fresh, _ := model.GetFineTuningJobByJobID(job.JobID); fresh != nil && fresh.Status == "succeeded" {
-					return destZip, fresh.TrainedTokens, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
 				}
 			}
 
@@ -526,28 +821,37 @@ else:
 
 			if doneTxt, dErr := readRT("ft_done.json"); dErr == nil && strings.TrimSpace(doneTxt) != "" {
 				var doneMeta struct {
-					TrainedTokens int64 `json:"trained_tokens"`
+					Status         string `json:"status"`
+					Uploaded       bool   `json:"uploaded"`
+					OutputZipBytes int64  `json:"output_zip_bytes"`
+					UploadError    string `json:"upload_error"`
+					TrainedTokens  int64  `json:"trained_tokens"`
 				}
 				_ = common.UnmarshalJsonStr(doneTxt, &doneMeta)
-				if info, stErr := os.Stat(destZip); stErr != nil || info.Size() == 0 {
+				if info, stErr := os.Stat(destZip); stErr == nil && info.Size() > 0 {
+					return destZip, doneMeta.TrainedTokens, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
+				}
+				if doneMeta.OutputZipBytes > 0 && doneMeta.OutputZipBytes <= 40<<20 {
 					zipBytes, dlErr := client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "output.zip")
 					if dlErr != nil {
 						zipBytes, dlErr = client.DownloadBinaryFile(proxyURL, rt.ConnectionInfo.Token, "content/output.zip")
 					}
-					if dlErr != nil || len(zipBytes) == 0 {
-						return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("training finished but retrieving trained archive failed: %v", dlErr)
-					}
-					if wErr := os.WriteFile(destZip, zipBytes, 0o644); wErr != nil {
-						return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), wErr
+					if dlErr == nil && len(zipBytes) > 0 {
+						if wErr := os.WriteFile(destZip, zipBytes, 0o644); wErr == nil {
+							return destZip, doneMeta.TrainedTokens, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
+						}
 					}
 				}
-				return destZip, doneMeta.TrainedTokens, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
+				if doneMeta.UploadError != "" {
+					return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("artifact upload failed after training completed: %s", doneMeta.UploadError)
+				}
+				return "", 0, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("artifact upload failed after training completed: ensure ServerAddress is reachable for chunked upload")
 			}
 		}
 	}
 }
 
-func runFineTuningOnKaggle(ctx context.Context, job *model.FineTuningJob, acc *DeploymentAccount, script, destZip string) (string, int64, bool, int64, error) {
+func runFineTuningOnKaggle(ctx context.Context, job *model.FineTuningJob, accelerator string, acc *DeploymentAccount, script, destZip string) (string, int64, bool, int64, error) {
 	if buildFineTuningServerBaseURL() == "" {
 		return "", 0, false, 0, fmt.Errorf("ServerAddress must be configured (public URL) so the remote worker can download the dataset and upload the trained .zip archive")
 	}
@@ -560,13 +864,13 @@ func runFineTuningOnKaggle(ctx context.Context, job *model.FineTuningJob, acc *D
 		Slug:        slug,
 		Title:       strings.ReplaceAll(kernelSlug, "-", " "),
 		ScriptText:  script,
-		Accelerator: job.GPU,
+		Accelerator: accelerator,
 		IsPrivate:   true,
 	})
 	if err != nil {
 		return "", 0, false, 0, fmt.Errorf("failed to submit training kernel: %w", err)
 	}
-	service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "worker", fmt.Sprintf("Training kernel queued (v%d, accelerator=%s)", pushed.VersionNumber, job.GPU))
+	service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "worker", fmt.Sprintf("Training kernel queued (v%d, accelerator=%s)", pushed.VersionNumber, accelerator))
 
 	computeStarted := false
 	computeStart := time.Now()
@@ -636,7 +940,7 @@ func runFineTuningOnKaggle(ctx context.Context, job *model.FineTuningJob, acc *D
 						}
 						return destZip, tok, true, maxInt64(1, int64(time.Since(computeStart).Seconds())), nil
 					}
-					return "", 0, computeStarted, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("training kernel completed without uploading trained model archive; ensure ServerAddress is publicly reachable")
+					return "", 0, computeStarted, maxInt64(1, int64(time.Since(computeStart).Seconds())), fmt.Errorf("artifact upload failed after training completed: ensure ServerAddress is publicly reachable")
 				}
 			}
 		}
@@ -700,10 +1004,7 @@ func runPodGraphQL(ctx context.Context, apiKey string, query string, variables m
 	return nil
 }
 
-// runFineTuningOnRunPod provisions an on-demand RunPod GPU pod running PyTorch
-// with our base64-encoded train.py script, monitors progress/checkpoints via
-// callbacks + RunPod pod status, and always terminates the pod on completion.
-func runFineTuningOnRunPod(ctx context.Context, job *model.FineTuningJob, acc *DeploymentAccount, script, destZip string) (string, int64, bool, int64, error) {
+func runFineTuningOnRunPod(ctx context.Context, job *model.FineTuningJob, accelerator string, acc *DeploymentAccount, script, destZip string) (string, int64, bool, int64, error) {
 	if buildFineTuningServerBaseURL() == "" {
 		return "", 0, false, 0, fmt.Errorf("ServerAddress must be configured (public URL) so the remote worker can download the dataset and upload checkpoints/artifacts")
 	}
@@ -713,7 +1014,7 @@ func runFineTuningOnRunPod(ctx context.Context, job *model.FineTuningJob, acc *D
 	}
 
 	b64Script := base64.StdEncoding.EncodeToString([]byte(script))
-	gpuTypeID := mapRunPodGPUTypeID(job.GPU)
+	gpuTypeID := mapRunPodGPUTypeID(accelerator)
 
 	createMutation := `mutation($input: PodFindAndDeployOnDemandInput!) {
 		podFindAndDeployOnDemand(input: $input) {

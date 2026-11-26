@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   ArrowRight,
+  CheckCircle2,
   Download,
   FolderOpen,
   Loader2,
@@ -30,6 +31,7 @@ import {
   Terminal,
   Trash2,
   X,
+  XCircle,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -157,6 +159,21 @@ interface StagedModelUpload {
   size: number
 }
 
+interface FineTuningModelCompatResult {
+  compatible: boolean
+  checked: boolean
+  model_id: string
+  architecture?: string
+  model_type?: string
+  pipeline_tag?: string
+  quant_method?: string
+  total_weight_bytes?: number
+  parameter_billions?: number
+  supports_vision?: boolean
+  reason?: string
+  warnings?: string[]
+}
+
 type FineTuningTaskType = 'text' | 'image' | 'audio' | 'vision'
 
 const TASK_TYPE_CONFIG: Record<
@@ -178,10 +195,10 @@ const TASK_TYPE_CONFIG: Record<
       { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
       { id: 'full', label: 'Full Fine-Tuning' },
     ],
-    datasetAccept: '.jsonl,.json,.parquet,.csv,.txt',
+    datasetAccept: '.jsonl',
     datasetHintKey:
-      'Supported: JSONL (OpenAI chat/messages), JSON, Parquet, or CSV',
-    modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
+      'Required: OpenAI fine-tuning JSONL (.jsonl) with {"messages": [{"role": "user", ...}, {"role": "assistant", ...}]} (or OpenAI DPO format)',
+    modelAccept: '.zip,.safetensors,.bin,.pt',
   },
   image: {
     labelKey: 'Image / Diffusion',
@@ -215,10 +232,10 @@ const TASK_TYPE_CONFIG: Record<
       { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
       { id: 'full', label: 'Full Fine-Tuning' },
     ],
-    datasetAccept: '.jsonl,.json,.zip,.parquet',
+    datasetAccept: '.jsonl',
     datasetHintKey:
-      'Supported: JSONL/JSON multimodal conversations, ZIP (images + metadata.jsonl), or Parquet',
-    modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
+      'Required: OpenAI multimodal JSONL (.jsonl) with messages containing text and image_url parts',
+    modelAccept: '.zip,.safetensors,.bin,.pt',
   },
 }
 
@@ -444,31 +461,222 @@ function checkHardwareCompat(params: {
 }
 
 const ALLOWED_DATASET_EXTS: Record<FineTuningTaskType, string[]> = {
-  text: ['.jsonl', '.json', '.parquet', '.csv', '.txt'],
+  text: ['.jsonl'],
   image: ['.zip', '.tar', '.gz', '.parquet', '.png', '.jpg', '.jpeg', '.webp'],
   audio: ['.zip', '.tar', '.gz', '.jsonl', '.parquet', '.csv', '.wav', '.mp3', '.flac', '.ogg', '.m4a'],
-  vision: ['.jsonl', '.json', '.zip', '.parquet'],
+  vision: ['.jsonl'],
+}
+
+const VALID_OPENAI_ROLES = new Set([
+  'system',
+  'developer',
+  'user',
+  'assistant',
+  'tool',
+  'function',
+])
+
+const ALLOWED_OPENAI_CHAT_KEYS = new Set([
+  'messages',
+  'tools',
+  'parallel_tool_calls',
+  'weight',
+  'metadata',
+])
+
+const ALLOWED_OPENAI_DPO_KEYS = new Set([
+  'input',
+  'preferred_output',
+  'non_preferred_output',
+  'metadata',
+])
+
+interface DatasetValidationResult {
+  error: string | null
+  sampleCount: number
+  hasImages: boolean
+}
+
+function validateOpenAIMessageItem(
+  msg: unknown,
+  lineNum: number,
+  msgIdx: number,
+  t: (key: string, opts?: any) => string
+): { role: string; hasNonEmptyContent: boolean; hasImages: boolean; error?: string } {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) {
+    return {
+      role: '',
+      hasNonEmptyContent: false,
+      hasImages: false,
+      error: t(
+        'OpenAI format error on line {{line}}, message #{{msg}}: each message must be a JSON object.',
+        { line: lineNum, msg: msgIdx + 1 }
+      ),
+    }
+  }
+  const obj = msg as Record<string, unknown>
+  const rawRole = typeof obj.role === 'string' ? obj.role : ''
+  const role = rawRole.trim().toLowerCase()
+  if (!VALID_OPENAI_ROLES.has(role)) {
+    return {
+      role: '',
+      hasNonEmptyContent: false,
+      hasImages: false,
+      error: t(
+        'OpenAI format error on line {{line}}, message #{{msg}}: invalid role "{{role}}". Allowed roles: system, developer, user, assistant, tool, function.',
+        { line: lineNum, msg: msgIdx + 1, role: rawRole || '(missing)' }
+      ),
+    }
+  }
+
+  const hasToolCalls =
+    (Array.isArray(obj.tool_calls) && obj.tool_calls.length > 0) ||
+    Boolean(obj.function_call)
+  const content = obj.content
+  if (content === undefined || content === null) {
+    if (role === 'assistant' && hasToolCalls) {
+      return { role, hasNonEmptyContent: true, hasImages: false }
+    }
+    return {
+      role,
+      hasNonEmptyContent: false,
+      hasImages: false,
+      error: t(
+        'OpenAI format error on line {{line}}, message #{{msg}}: missing "content" field.',
+        { line: lineNum, msg: msgIdx + 1 }
+      ),
+    }
+  }
+
+  if (typeof content === 'string') {
+    const nonEmpty =
+      content.trim().length > 0 || (role === 'assistant' && hasToolCalls)
+    return { role, hasNonEmptyContent: nonEmpty, hasImages: false }
+  }
+
+  if (Array.isArray(content)) {
+    if (content.length === 0) {
+      return {
+        role,
+        hasNonEmptyContent: false,
+        hasImages: false,
+        error: t(
+          'OpenAI format error on line {{line}}, message #{{msg}}: "content" array cannot be empty.',
+          { line: lineNum, msg: msgIdx + 1 }
+        ),
+      }
+    }
+    let hasNonEmptyContent = false
+    let hasImages = false
+    for (let p = 0; p < content.length; p++) {
+      const part = content[p]
+      if (!part || typeof part !== 'object' || Array.isArray(part)) {
+        return {
+          role,
+          hasNonEmptyContent: false,
+          hasImages: false,
+          error: t(
+            'OpenAI format error on line {{line}}, message #{{msg}}: every content part must be an object with "type".',
+            { line: lineNum, msg: msgIdx + 1 }
+          ),
+        }
+      }
+      const pObj = part as Record<string, unknown>
+      const pType = typeof pObj.type === 'string' ? pObj.type.trim() : ''
+      if (pType === 'text') {
+        if (typeof pObj.text !== 'string') {
+          return {
+            role,
+            hasNonEmptyContent: false,
+            hasImages: false,
+            error: t(
+              'OpenAI format error on line {{line}}, message #{{msg}}: text content part must include string "text".',
+              { line: lineNum, msg: msgIdx + 1 }
+            ),
+          }
+        }
+        if (pObj.text.trim().length > 0) hasNonEmptyContent = true
+      } else if (pType === 'image_url') {
+        const imgObj = pObj.image_url as Record<string, unknown> | undefined
+        if (
+          !imgObj ||
+          typeof imgObj !== 'object' ||
+          typeof imgObj.url !== 'string' ||
+          !imgObj.url.trim()
+        ) {
+          return {
+            role,
+            hasNonEmptyContent: false,
+            hasImages: false,
+            error: t(
+              'OpenAI format error on line {{line}}, message #{{msg}}: image_url part must include {"url": "..."}.',
+              { line: lineNum, msg: msgIdx + 1 }
+            ),
+          }
+        }
+        hasImages = true
+        hasNonEmptyContent = true
+      } else if (pType === 'input_audio') {
+        hasNonEmptyContent = true
+      } else {
+        return {
+          role,
+          hasNonEmptyContent: false,
+          hasImages: false,
+          error: t(
+            'OpenAI format error on line {{line}}, message #{{msg}}: unsupported content part type "{{type}}".',
+            { line: lineNum, msg: msgIdx + 1, type: pType || '(missing)' }
+          ),
+        }
+      }
+    }
+    return { role, hasNonEmptyContent, hasImages }
+  }
+
+  return {
+    role,
+    hasNonEmptyContent: false,
+    hasImages: false,
+    error: t(
+      'OpenAI format error on line {{line}}, message #{{msg}}: "content" must be a string or OpenAI content-part array.',
+      { line: lineNum, msg: msgIdx + 1 }
+    ),
+  }
 }
 
 async function validateDatasetFileForTask(
   taskType: FineTuningTaskType,
+  method: string,
   file: File,
   t: (key: string, opts?: any) => string
-): Promise<string | null> {
+): Promise<DatasetValidationResult> {
+  const fail = (error: string): DatasetValidationResult => ({
+    error,
+    sampleCount: 0,
+    hasImages: false,
+  })
   const dotIdx = file.name.lastIndexOf('.')
   const ext = dotIdx >= 0 ? file.name.slice(dotIdx).toLowerCase() : ''
   const allowed = ALLOWED_DATASET_EXTS[taskType]
   if (!ext || !allowed.includes(ext)) {
-    if (taskType === 'text') {
-      return t(
-        'Invalid dataset format ({{ext}}) for Text / LLM fine-tuning. Only .jsonl, .json, .parquet, .csv, or .txt files are allowed (ZIP archives are not supported).',
-        { ext: ext || file.name }
+    if (taskType === 'text' || taskType === 'vision') {
+      return fail(
+        t(
+          'Invalid dataset format ({{ext}}). Only strict OpenAI fine-tuning JSONL (.jsonl) files are accepted.',
+          { ext: ext || file.name }
+        )
       )
     }
-    return t(
-      'Invalid dataset format ({{ext}}) for this task type. Allowed formats: {{formats}}.',
-      { ext: ext || file.name, formats: allowed.join(', ') }
+    return fail(
+      t(
+        'Invalid dataset format ({{ext}}) for this task type. Allowed formats: {{formats}}.',
+        { ext: ext || file.name, formats: allowed.join(', ') }
+      )
     )
+  }
+
+  if (file.size === 0) {
+    return fail(t('Selected dataset file is empty.'))
   }
 
   const head = new Uint8Array(await file.slice(0, 512).arrayBuffer())
@@ -485,25 +693,191 @@ async function validateDatasetFileForTask(
     const isParquet = head[0] === 0x50 && head[1] === 0x41 && head[2] === 0x52 && head[3] === 0x31
 
     if (isElf || isPe || isPdf) {
-      return t('Selected dataset file is a binary or unsupported file type.')
+      return fail(t('Selected dataset file is a binary or unsupported file type.'))
     }
     if (['.jsonl', '.json', '.csv', '.txt'].includes(ext)) {
       const hasNul = head.includes(0)
       if (isZip || isGzip || isPng || isJpg || hasNul) {
-        return t(
-          'Selected file appears to be a compressed archive or binary file, not valid plain text ({{ext}}) data.',
-          { ext }
+        return fail(
+          t(
+            'Selected file appears to be a compressed archive or binary file, not valid plain text ({{ext}}) data.',
+            { ext }
+          )
         )
       }
     }
     if (ext === '.zip' && !isZip) {
-      return t('Selected .zip file does not have a valid ZIP archive header.')
+      return fail(t('Selected .zip file does not have a valid ZIP archive header.'))
     }
     if (ext === '.parquet' && !isParquet) {
-      return t('Selected .parquet file does not have a valid Parquet header.')
+      return fail(t('Selected .parquet file does not have a valid Parquet header.'))
     }
   }
-  return null
+
+  // Strict OpenAI JSONL line-by-line verification for text & vision tasks
+  if (taskType === 'text' || taskType === 'vision') {
+    const scanBytes = Math.min(file.size, 32 * 1024 * 1024)
+    const text = await file.slice(0, scanBytes).text()
+    const isTruncated = scanBytes < file.size
+    const rawLines = text.split(/\r?\n/)
+    // Drop the final partial line if we sliced mid-file
+    const lineLimit = isTruncated ? Math.max(0, rawLines.length - 1) : rawLines.length
+    const isDPO = method.toLowerCase() === 'dpo'
+
+    let validSamples = 0
+    let hasImages = false
+
+    for (let i = 0; i < lineLimit; i++) {
+      let line = rawLines[i]
+      if (i === 0 && line.startsWith('\uFEFF')) {
+        line = line.slice(1)
+      }
+      line = line.trim()
+      if (!line) continue
+      const lineNum = i + 1
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        return fail(
+          t(
+            'Invalid JSON on line {{line}}. Every line must be a valid JSON object in OpenAI JSONL format.',
+            { line: lineNum }
+          )
+        )
+      }
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fail(
+          t(
+            'OpenAI format error on line {{line}}: each line must be a JSON object (arrays/primitives are not allowed).',
+            { line: lineNum }
+          )
+        )
+      }
+
+      const row = parsed as Record<string, unknown>
+
+      if (isDPO) {
+        for (const k of Object.keys(row)) {
+          if (!ALLOWED_OPENAI_DPO_KEYS.has(k)) {
+            return fail(
+              t(
+                'OpenAI DPO format error on line {{line}}: unsupported key "{{key}}". Expected input, preferred_output, non_preferred_output.',
+                { line: lineNum, key: k }
+              )
+            )
+          }
+        }
+        const inputObj = row.input as Record<string, unknown> | undefined
+        if (
+          !inputObj ||
+          typeof inputObj !== 'object' ||
+          Array.isArray(inputObj) ||
+          !Array.isArray(inputObj.messages) ||
+          inputObj.messages.length === 0
+        ) {
+          return fail(
+            t(
+              'OpenAI DPO format error on line {{line}}: "input.messages" must be a non-empty array of OpenAI messages.',
+              { line: lineNum }
+            )
+          )
+        }
+        for (let m = 0; m < inputObj.messages.length; m++) {
+          const r = validateOpenAIMessageItem(inputObj.messages[m], lineNum, m, t)
+          if (r.error) return fail(r.error)
+          if (r.hasImages) hasImages = true
+        }
+        for (const outKey of ['preferred_output', 'non_preferred_output'] as const) {
+          const arr = row[outKey]
+          if (!Array.isArray(arr) || arr.length === 0) {
+            return fail(
+              t(
+                'OpenAI DPO format error on line {{line}}: "{{key}}" must be a non-empty array with an assistant message.',
+                { line: lineNum, key: outKey }
+              )
+            )
+          }
+          const r = validateOpenAIMessageItem(arr[0], lineNum, 0, t)
+          if (r.error) return fail(r.error)
+          if (r.role !== 'assistant' || !r.hasNonEmptyContent) {
+            return fail(
+              t(
+                'OpenAI DPO format error on line {{line}}: "{{key}}" must contain a non-empty assistant message.',
+                { line: lineNum, key: outKey }
+              )
+            )
+          }
+          if (r.hasImages) hasImages = true
+        }
+      } else {
+        for (const k of Object.keys(row)) {
+          if (!ALLOWED_OPENAI_CHAT_KEYS.has(k)) {
+            return fail(
+              t(
+                'OpenAI format error on line {{line}}: unsupported key "{{key}}". Only OpenAI chat fine-tuning format ({"messages": [...]}) is accepted.',
+                { line: lineNum, key: k }
+              )
+            )
+          }
+        }
+        if (!Array.isArray(row.messages) || row.messages.length < 2) {
+          return fail(
+            t(
+              'OpenAI format error on line {{line}}: "messages" must be an array with at least 2 messages (e.g. user and assistant).',
+              { line: lineNum }
+            )
+          )
+        }
+        let hasAssistant = false
+        let hasNonAssistant = false
+        for (let m = 0; m < row.messages.length; m++) {
+          const r = validateOpenAIMessageItem(row.messages[m], lineNum, m, t)
+          if (r.error) return fail(r.error)
+          if (r.hasImages) hasImages = true
+          if (r.role === 'assistant') {
+            if (r.hasNonEmptyContent) hasAssistant = true
+          } else {
+            hasNonAssistant = true
+          }
+        }
+        if (!hasAssistant || !hasNonAssistant) {
+          return fail(
+            t(
+              'OpenAI format error on line {{line}}: "messages" must include at least one non-empty assistant response and one user/system message.',
+              { line: lineNum }
+            )
+          )
+        }
+      }
+
+      if (taskType === 'text' && hasImages) {
+        return fail(
+          t(
+            'Dataset contains multimodal image_url content, which is not compatible with Text / LLM task. Switch Task Type to Vision / Multimodal.'
+          )
+        )
+      }
+
+      validSamples++
+      if (validSamples >= 10000 && isTruncated) break
+    }
+
+    if (validSamples === 0) {
+      return fail(
+        t('Dataset file contains no valid OpenAI JSONL training samples.')
+      )
+    }
+
+    const totalSamples = isTruncated
+      ? Math.max(validSamples, Math.round(validSamples * (file.size / scanBytes)))
+      : validSamples
+    return { error: null, sampleCount: totalSamples, hasImages }
+  }
+
+  return { error: null, sampleCount: 0, hasImages: false }
 }
 
 function getAcceleratorSpeedFactor(gpuId: string): number {
@@ -767,6 +1141,8 @@ export function CustomModelsPage() {
   const [ftEpochs, setFtEpochs] = useState(3)
   const [ftFile, setFtFile] = useState<File | null>(null)
   const [ftDatasetSamples, setFtDatasetSamples] = useState(0)
+  const [ftDatasetHasImages, setFtDatasetHasImages] = useState(false)
+  const [debouncedModelRef, setDebouncedModelRef] = useState('')
   const [deleteFtTarget, setDeleteFtTarget] =
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
@@ -890,23 +1266,87 @@ export function CustomModelsPage() {
   }, [enabledGpuOptions, ftGpu])
 
   useEffect(() => {
+    const trimmed = ftBaseModel.trim()
+    if (!trimmed || stagedUpload) {
+      setDebouncedModelRef('')
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedModelRef(trimmed)
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [ftBaseModel, stagedUpload])
+
+  useEffect(() => {
     const allowed = TASK_TYPE_CONFIG[ftTaskType].methods
     if (!allowed.some((m) => m.id === ftMethod)) {
       setFtMethod(allowed[0].id)
+      return
     }
     if (ftFile) {
-      void validateDatasetFileForTask(ftTaskType, ftFile, t).then((errMsg) => {
-        if (errMsg) {
-          toast.error(errMsg)
-          setFtFile(null)
-          setFtDatasetSamples(0)
-          if (datasetFileInputRef.current) {
-            datasetFileInputRef.current.value = ''
+      void validateDatasetFileForTask(ftTaskType, ftMethod, ftFile, t).then(
+        (res) => {
+          if (res.error) {
+            toast.error(res.error)
+            setFtFile(null)
+            setFtDatasetSamples(0)
+            setFtDatasetHasImages(false)
+            if (datasetFileInputRef.current) {
+              datasetFileInputRef.current.value = ''
+            }
+          } else {
+            setFtDatasetHasImages(res.hasImages)
+            if (res.sampleCount > 0) {
+              setFtDatasetSamples(res.sampleCount)
+            }
           }
         }
-      })
+      )
     }
   }, [ftTaskType, ftMethod])
+
+  const modelCheckKey = stagedUpload
+    ? `upload:${stagedUpload.upload_id}`
+    : debouncedModelRef
+
+  const modelCompatQuery = useQuery({
+    queryKey: [
+      'fine-tuning-model-compat',
+      modelCheckKey,
+      ftTaskType,
+      ftMethod,
+      ftDatasetHasImages,
+    ],
+    queryFn: async () => {
+      const params: Record<string, string> = {
+        task_type: ftTaskType,
+        method: ftMethod,
+        dataset_has_images: ftDatasetHasImages ? 'true' : 'false',
+      }
+      if (stagedUpload) {
+        params.model_source = 'upload'
+        params.staged_upload_id = stagedUpload.upload_id
+        params.model = stagedUpload.filename
+      } else {
+        const trimmed = debouncedModelRef
+        const isUrl =
+          trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        params.model_source = isUrl ? 'url' : 'huggingface'
+        params.model = trimmed
+      }
+      const res = await api.get<{
+        success: boolean
+        data?: FineTuningModelCompatResult
+      }>('/api/user/fine_tuning/check_model', { params })
+      return res.data?.data ?? null
+    },
+    enabled:
+      ftCreateOpen &&
+      !uploadingModel &&
+      (Boolean(stagedUpload) || debouncedModelRef.length >= 3),
+    staleTime: 60 * 1000,
+    retry: false,
+  })
 
   const aliasesQuery = useQuery({
     queryKey: ['user-model-aliases'],
@@ -942,11 +1382,21 @@ export function CustomModelsPage() {
       : colabNormalMult
     : 1
   const datasetBytes = ftFile?.size ?? 0
+  const modelCompat = modelCompatQuery.data ?? null
   const activeModelName = stagedUpload?.filename || ftBaseModel.trim()
-  const activeModelFileBytes = stagedUpload?.size || ftModelFileBytes
+  const activeModelFileBytes = Math.max(
+    stagedUpload?.size || 0,
+    ftModelFileBytes || 0,
+    modelCompat?.total_weight_bytes || 0
+  )
+  const effectiveModelParamSize =
+    ftModelParamSize ||
+    (modelCompat?.parameter_billions && modelCompat.parameter_billions > 0
+      ? `${modelCompat.parameter_billions}B`
+      : '')
   const estimatedModelBillions = parseModelBillions(
     activeModelName,
-    ftModelParamSize,
+    effectiveModelParamSize,
     activeModelFileBytes
   )
   const hardwareCompat = checkHardwareCompat({
@@ -955,7 +1405,7 @@ export function CustomModelsPage() {
     method: ftMethod,
     datasetBytes,
     modelName: activeModelName,
-    modelParamHint: ftModelParamSize,
+    modelParamHint: effectiveModelParamSize,
     modelFileBytes: activeModelFileBytes,
   })
   const estimatedDurationSeconds = estimateDurationSeconds({
@@ -967,7 +1417,7 @@ export function CustomModelsPage() {
     datasetBytes,
     datasetSamples: ftDatasetSamples,
     modelName: activeModelName,
-    modelParamHint: ftModelParamSize,
+    modelParamHint: effectiveModelParamSize,
     modelFileBytes: activeModelFileBytes,
   })
   const effectivePricePerSecond =
@@ -980,19 +1430,31 @@ export function CustomModelsPage() {
     if (!file) {
       setFtFile(null)
       setFtDatasetSamples(0)
+      setFtDatasetHasImages(false)
       return
     }
-    const validationErr = await validateDatasetFileForTask(ftTaskType, file, t)
-    if (validationErr) {
-      toast.error(validationErr)
+    const validation = await validateDatasetFileForTask(
+      ftTaskType,
+      ftMethod,
+      file,
+      t
+    )
+    if (validation.error) {
+      toast.error(validation.error)
       setFtFile(null)
       setFtDatasetSamples(0)
+      setFtDatasetHasImages(false)
       if (datasetFileInputRef.current) {
         datasetFileInputRef.current.value = ''
       }
       return
     }
     setFtFile(file)
+    setFtDatasetHasImages(validation.hasImages)
+    if (validation.sampleCount > 0) {
+      setFtDatasetSamples(validation.sampleCount)
+      return
+    }
     try {
       const count = await countDatasetSamplesFromFile(file)
       setFtDatasetSamples(count)
@@ -1092,8 +1554,8 @@ export function CustomModelsPage() {
         }
         formData.append('model', trimmed)
       }
-      if (ftModelParamSize.trim()) {
-        formData.append('model_param_size', ftModelParamSize.trim())
+      if (effectiveModelParamSize.trim()) {
+        formData.append('model_param_size', effectiveModelParamSize.trim())
       }
       if (activeModelFileBytes > 0) {
         formData.append('model_file_bytes', String(activeModelFileBytes))
@@ -1124,6 +1586,7 @@ export function CustomModelsPage() {
       setFtSuffix('')
       setFtFile(null)
       setFtDatasetSamples(0)
+      setFtDatasetHasImages(false)
       void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
     },
     onError: (err: Error) => {
@@ -1730,6 +2193,72 @@ export function CustomModelsPage() {
                   </Button>
                 </div>
               )}
+
+              {/* Live Model Fine-Tuning Compatibility Check */}
+              {hasValidModelInput && !uploadingModel && modelCompatQuery.isFetching && (
+                <div className='text-muted-foreground flex items-center gap-1.5 text-xs'>
+                  <Loader2 className='h-3.5 w-3.5 shrink-0 animate-spin' />
+                  <span>
+                    {t('Checking model compatibility with OpenAI dataset...')}
+                  </span>
+                </div>
+              )}
+              {hasValidModelInput &&
+                !uploadingModel &&
+                !modelCompatQuery.isFetching &&
+                modelCompat?.checked &&
+                modelCompat.compatible && (
+                  <div className='space-y-1'>
+                    <div className='flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400'>
+                      <CheckCircle2 className='h-3.5 w-3.5 shrink-0' />
+                      <span>
+                        {modelCompat.architecture
+                          ? modelCompat.total_weight_bytes &&
+                            modelCompat.total_weight_bytes > 0
+                            ? t(
+                                'Compatible for fine-tuning ({{arch}}, ~{{size}})',
+                                {
+                                  arch: modelCompat.architecture,
+                                  size: formatBytesHuman(
+                                    modelCompat.total_weight_bytes
+                                  ),
+                                }
+                              )
+                            : t('Compatible for fine-tuning ({{arch}})', {
+                                arch: modelCompat.architecture,
+                              })
+                          : t('Compatible for fine-tuning')}
+                      </span>
+                    </div>
+                    {modelCompat.warnings && modelCompat.warnings.length > 0 && (
+                      <p className='text-xs text-amber-700 dark:text-amber-400'>
+                        {modelCompat.warnings.join(' ')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              {hasValidModelInput &&
+                !uploadingModel &&
+                !modelCompatQuery.isFetching &&
+                modelCompat?.checked &&
+                !modelCompat.compatible && (
+                  <div className='border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-xs'>
+                    <div className='flex items-start gap-2'>
+                      <XCircle className='mt-0.5 h-4 w-4 shrink-0' />
+                      <div className='space-y-0.5'>
+                        <div className='font-semibold'>
+                          {t('Model Incompatible with Fine-Tuning')}
+                        </div>
+                        <p className='leading-relaxed'>
+                          {modelCompat.reason ||
+                            t(
+                              'The selected model is not compatible with fine-tuning using this OpenAI dataset.'
+                            )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* Method + Accelerator */}
@@ -1953,7 +2482,9 @@ export function CustomModelsPage() {
                 uploadingModel ||
                 createFtMutation.isPending ||
                 !hasValidModelInput ||
-                !ftFile
+                !ftFile ||
+                modelCompatQuery.isFetching ||
+                Boolean(modelCompat?.checked && !modelCompat.compatible)
               }
               onClick={() => createFtMutation.mutate()}
             >

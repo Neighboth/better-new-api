@@ -366,6 +366,169 @@ func FineTuningWorkerDownloadCheckpoint(c *gin.Context) {
 	c.File(ckptPath)
 }
 
+// FineTuningWorkerUploadChunk receives a raw streaming chunk (e.g. 16 MB) of a
+// checkpoint or final trained model .zip archive and writes it directly to disk
+// at the requested byte offset. This avoids reverse-proxy 413 payload limits
+// (Cloudflare 100 MB, Nginx, etc.) and supports multi-gigabyte / multi-terabyte
+// (2 TB+) archives with constant low RAM usage.
+func FineTuningWorkerUploadChunk(c *gin.Context) {
+	jobID := c.Param("job_id")
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Job not found"})
+		return
+	}
+	if !verifyFineTuningWorkerToken(c, job, "") {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid callback token"})
+		return
+	}
+
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	if kind != "artifact" && kind != "checkpoint" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "kind must be artifact or checkpoint"})
+		return
+	}
+	uploadID := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, strings.TrimSpace(c.Query("upload_id")))
+	if uploadID == "" {
+		uploadID = "default"
+	}
+
+	offset, err := strconv.ParseInt(strings.TrimSpace(c.Query("offset")), 10, 64)
+	if err != nil || offset < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid offset"})
+		return
+	}
+	totalSize, _ := strconv.ParseInt(strings.TrimSpace(c.Query("total_size")), 10, 64)
+	isFinal := c.Query("final") == "1" || strings.EqualFold(c.Query("final"), "true")
+
+	storageDir := service.FineTuningStorageDirForUser(job.UserId, job.JobID)
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	var destPath string
+	if kind == "artifact" {
+		destPath = filepath.Join(storageDir, job.JobID+".zip")
+	} else {
+		destPath = service.FineTuningCheckpointZipPath(job.UserId, job.JobID)
+	}
+	partPath := destPath + "." + uploadID + ".part"
+
+	flags := os.O_CREATE | os.O_WRONLY
+	if offset == 0 {
+		flags |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(partPath, flags, 0o644)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if offset > 0 {
+		if _, sErr := f.Seek(offset, io.SeekStart); sErr != nil {
+			_ = f.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": sErr.Error()})
+			return
+		}
+	}
+	written, copyErr := io.Copy(f, c.Request.Body)
+	closeErr := f.Close()
+	if copyErr != nil || closeErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed writing upload chunk"})
+		return
+	}
+
+	if !isFinal {
+		c.JSON(http.StatusOK, gin.H{"success": true, "written": written, "offset": offset, "final": false})
+		return
+	}
+
+	fi, statErr := os.Stat(partPath)
+	if statErr != nil || fi.Size() == 0 || (totalSize > 0 && fi.Size() < totalSize) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "incomplete chunked upload"})
+		return
+	}
+	if rErr := os.Rename(partPath, destPath); rErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": rErr.Error()})
+		return
+	}
+
+	updates := map[string]any{
+		"updated_at": time.Now().Unix(),
+	}
+	if kind == "artifact" {
+		updates["model_file_path"] = destPath
+	} else {
+		updates["checkpoint_path"] = destPath
+		if ep, pErr := strconv.Atoi(strings.TrimSpace(c.Query("epoch"))); pErr == nil && ep >= 0 {
+			updates["checkpoint_epoch"] = ep
+		}
+		if st, pErr := strconv.Atoi(strings.TrimSpace(c.Query("step"))); pErr == nil && st >= 0 {
+			updates["checkpoint_step"] = st
+		}
+		if pct, pErr := strconv.Atoi(strings.TrimSpace(c.Query("progress"))); pErr == nil && pct >= 0 && pct <= 100 {
+			updates["progress"] = pct
+		}
+	}
+	if tt, pErr := strconv.ParseInt(strings.TrimSpace(c.Query("trained_tokens")), 10, 64); pErr == nil && tt > 0 {
+		updates["trained_tokens"] = tt
+	}
+	_ = model.UpdateFineTuningJobStatus(job.JobID, updates)
+	c.JSON(http.StatusOK, gin.H{"success": true, "bytes": fi.Size(), "final": true})
+}
+
+// UserCheckFineTuningModel inspects a selected Hugging Face repository or staged
+// local upload and verifies it is compatible with fine-tuning using our
+// OpenAI-format dataset, selected task type, and method.
+func UserCheckFineTuningModel(c *gin.Context) {
+	userId := c.GetInt("id")
+	baseModel := strings.TrimSpace(c.Query("model"))
+	modelSource := strings.ToLower(strings.TrimSpace(c.Query("model_source")))
+	stagedUploadID := strings.TrimSpace(c.Query("staged_upload_id"))
+	taskType := strings.ToLower(strings.TrimSpace(c.DefaultQuery("task_type", "text")))
+	method := strings.ToLower(strings.TrimSpace(c.DefaultQuery("method", "lora")))
+	datasetHasImages := strings.EqualFold(strings.TrimSpace(c.Query("dataset_has_images")), "true")
+
+	localFilePath := ""
+	if stagedUploadID != "" {
+		stagedDir := service.FineTuningStagedDirForUser(userId, stagedUploadID)
+		if entries, rErr := os.ReadDir(stagedDir); rErr == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					localFilePath = filepath.Join(stagedDir, entry.Name())
+					if baseModel == "" {
+						baseModel = entry.Name()
+					}
+					modelSource = "upload"
+					break
+				}
+			}
+		}
+	}
+
+	hfToken := ""
+	if hfAcc, hfErr := ResolveProviderAccount("huggingface", ""); hfErr == nil && hfAcc != nil {
+		hfToken = strings.TrimSpace(hfAcc.Token)
+	}
+
+	result := service.CheckFineTuningModelCompatibility(
+		c.Request.Context(),
+		baseModel,
+		modelSource,
+		localFilePath,
+		taskType,
+		method,
+		datasetHasImages,
+		hfToken,
+	)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
 // FineTuningWorkerUploadArtifact receives the real trained .zip archive from the
 // remote fine-tuning worker and persists it into uploads/fine_tuning/<user>/<job>/.
 func FineTuningWorkerUploadArtifact(c *gin.Context) {
@@ -755,31 +918,49 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 
-	// Strictly inspect dataset file extension + magic bytes so disguised archives/binaries are rejected
-	var headBytes []byte
-	if trainingFilePath != "" {
-		if f, oErr := os.Open(trainingFilePath); oErr == nil {
-			buf := make([]byte, 512)
-			if n, _ := f.Read(buf); n > 0 {
-				headBytes = buf[:n]
-			}
-			_ = f.Close()
-		}
-	}
-	if vErr := service.ValidateFineTuningDatasetFile(taskType, trainingFile, headBytes); vErr != nil {
+	// Strictly validate dataset content: for text/vision, MUST be valid OpenAI JSONL format!
+	dsValidation, vErr := service.ValidateOpenAIDatasetFile(taskType, method, trainingFilePath, trainingFile)
+	if vErr != nil {
 		service.CleanupFineTuningStorageForUser(userId, jobID)
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": vErr.Error()})
 		return
 	}
 
+	// Strictly verify the chosen base model is compatible with our OpenAI dataset & task/method
+	hfToken := ""
+	if hfAcc, hfErr := ResolveProviderAccount("huggingface", ""); hfErr == nil && hfAcc != nil {
+		hfToken = strings.TrimSpace(hfAcc.Token)
+	}
+	modelCompat := service.CheckFineTuningModelCompatibility(
+		c.Request.Context(),
+		baseModel,
+		modelSource,
+		baseModelFilePath,
+		taskType,
+		method,
+		dsValidation.HasImages,
+		hfToken,
+	)
+	if modelCompat.Checked && !modelCompat.Compatible {
+		service.CleanupFineTuningStorageForUser(userId, jobID)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": modelCompat.Reason})
+		return
+	}
+
 	// Calculate realistic duration, hardware compatibility & estimated cost
 	modelFileBytes := clientModelFileBytes
+	if modelCompat.TotalWeightBytes > modelFileBytes {
+		modelFileBytes = modelCompat.TotalWeightBytes
+	}
 	if baseModelFilePath != "" {
 		if fi, sErr := os.Stat(baseModelFilePath); sErr == nil && fi.Size() > 0 {
 			modelFileBytes = fi.Size()
 		}
 	}
-	dsSamples, _, _, _ := service.InspectFineTuningDatasetFile(trainingFilePath, trainingFile)
+	dsSamples := dsValidation.SampleCount
+	if dsSamples <= 0 {
+		dsSamples, _, _, _ = service.InspectFineTuningDatasetFile(trainingFilePath, trainingFile)
+	}
 	estInput := service.FineTuningEstimateInput{
 		GPU:            gpu,
 		RamTier:        ramTier,

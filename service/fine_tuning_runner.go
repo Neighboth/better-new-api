@@ -92,9 +92,18 @@ func FineTuningCheckpointZipPath(userID int, jobID string) string {
 	return filepath.Join(FineTuningStorageDirForUser(userID, jobID), "checkpoint_latest.zip")
 }
 
+func isNoisyTrainingProgressLine(s string) bool {
+	if strings.Contains(s, "it/s]") || strings.Contains(s, "s/it]") || strings.Contains(s, "%|") {
+		if strings.Contains(s, "Writing model shards:") || strings.Contains(s, "Loading weights:") || strings.Contains(s, "Fetching ") || strings.Contains(s, "Downloading ") {
+			return true
+		}
+	}
+	return false
+}
+
 func appendFineTuningLog(userID int, jobID, stage, msg string) {
 	trimmed := strings.TrimSpace(msg)
-	if trimmed == "" {
+	if trimmed == "" || isNoisyTrainingProgressLine(trimmed) {
 		return
 	}
 	sanitized := SanitizeFineTuningLogLine(trimmed)
@@ -421,7 +430,11 @@ func runFineTuningJob(ctx context.Context, jobID string) {
 			return
 		}
 
-		appendFineTuningLog(userID, jobID, "error", "Real training failed before compute started (no balance charged): "+errMsg)
+		if dispatchRes.ComputeStarted {
+			appendFineTuningLog(userID, jobID, "error", "Real training failed due to compute node error (no balance charged): "+errMsg)
+		} else {
+			appendFineTuningLog(userID, jobID, "error", "Real training failed before compute started (no balance charged): "+errMsg)
+		}
 		_ = model.UpdateFineTuningJobStatus(jobID, map[string]any{
 			"status":      "failed",
 			"error":       errMsg,
