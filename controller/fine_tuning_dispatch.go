@@ -27,6 +27,7 @@ import (
 func InitFineTuningDispatcher() {
 	service.RegisterFineTuningDispatcher(dispatchRealFineTuningJob)
 	service.RegisterFineTuningServingStopHook(stopFineTuningServingJob)
+	service.RegisterFineTuningServingWakeHook(wakeFineTuningServingAndWait)
 }
 
 type fineTuningCandidate struct {
@@ -490,6 +491,7 @@ func dispatchRealFineTuningJob(ctx context.Context, job *model.FineTuningJob, ep
 			DatasetName:         dsName,
 			TaskType:            job.TaskType,
 			Method:              job.Method,
+			Quantization:        job.Quantization,
 			Epochs:              epochs,
 			Accelerator:         cand.Accelerator,
 			CallbackURL:         callbackURL,

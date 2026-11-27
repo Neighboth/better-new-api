@@ -266,6 +266,9 @@ const MODELS_SECTIONS = [
           expiryWarningDays: Number(
             settings['model_deployment.fine_tuning.expiry_warning_days'] ?? 3
           ),
+          maxStorageGb: Number(
+            settings['model_deployment.fine_tuning.max_storage_gb'] ?? 0
+          ),
           servingEnabled:
             settings['model_deployment.fine_tuning.serving_enabled'] === true ||
             settings['model_deployment.fine_tuning.serving_enabled'] === 'true',

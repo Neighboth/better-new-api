@@ -124,6 +124,9 @@ const defaultOperationsSettings: OperationsSettings = {
   'playground_setting.video_default_quality': '',
   'playground_setting.video_reference_image': true,
   'playground_setting.studio_enabled': true,
+  'playground_setting.studio_discord_gate_models': '',
+  'playground_setting.studio_discord_gate_invite_url': '',
+  'playground_setting.studio_discord_gate_guild_id': '',
   // Server-side video storage quota, retention and expiry warning.
   'video_storage_setting.max_video_quota_bytes': 1073741824,
   'video_storage_setting.retention_days': 30,

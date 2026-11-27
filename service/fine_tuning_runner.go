@@ -86,6 +86,48 @@ func FineTuningLogPath(userID int, jobID string) string {
 	return filepath.Join(FineTuningStorageDirForUser(userID, jobID), "train.log")
 }
 
+func FineTuningServingLogPath(userID int, jobID string) string {
+	return filepath.Join(FineTuningStorageDirForUser(userID, jobID), "serving.log")
+}
+
+// AppendFineTuningServingLog records sanitized active hosting/serving lifecycle
+// events separately from training logs so users can inspect both in Console.
+func AppendFineTuningServingLog(userID int, jobID, stage, msg string) {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed == "" {
+		return
+	}
+	sanitized := SanitizeFineTuningLogLine(trimmed)
+	var formatted string
+	if ftStampedLineRe.MatchString(sanitized) {
+		formatted = sanitized
+	} else {
+		ts := time.Now().UTC().Format("15:04:05")
+		formatted = fmt.Sprintf("%s [%s] %s", ts, stage, sanitized)
+	}
+	dir := FineTuningStorageDirForUser(userID, jobID)
+	_ = os.MkdirAll(dir, 0o755)
+	f, err := os.OpenFile(FineTuningServingLogPath(userID, jobID), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(formatted + "\n")
+	_ = f.Close()
+}
+
+// ReadFineTuningServingLogs returns the sanitized persisted serving console log.
+func ReadFineTuningServingLogs(userID int, jobID string) string {
+	raw, err := os.ReadFile(FineTuningServingLogPath(userID, jobID))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	lines := strings.Split(string(raw), "\n")
+	for i := range lines {
+		lines[i] = SanitizeFineTuningLogLine(lines[i])
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
 // FineTuningCheckpointZipPath returns the canonical path where the latest
 // resumable training checkpoint archive is persisted on the server.
 func FineTuningCheckpointZipPath(userID int, jobID string) string {

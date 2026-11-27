@@ -65,6 +65,7 @@ type UptimeBucket struct {
 
 type ModelSummary struct {
 	ModelName          string         `json:"model_name"`
+	DisplayName        string         `json:"display_name,omitempty"`
 	AvgLatencyMs       int64          `json:"avg_latency_ms"`
 	SuccessRate        float64        `json:"success_rate"`
 	AvgTps             float64        `json:"avg_tps"`

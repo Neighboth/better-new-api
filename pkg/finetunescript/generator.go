@@ -17,6 +17,7 @@ type Config struct {
 	DatasetName         string
 	TaskType            string // text | image | audio | vision
 	Method              string // lora | qlora | sft | dpo | dreambooth | textual_inversion | full
+	Quantization        string // NF4 | FP4 | INT8 | Q2_K | Q4_K_M | Q4_L | Q4_0 | Q8_0 | etc. (used when Method == "qlora")
 	Epochs              int
 	Accelerator         string
 	CallbackURL         string // POST JSON status/progress/log_line updates
@@ -56,13 +57,17 @@ func Generate(cfg Config) string {
 	if method == "" {
 		method = "lora"
 	}
+	quantization := strings.ToUpper(strings.TrimSpace(cfg.Quantization))
+	if method == "qlora" && quantization == "" {
+		quantization = "NF4"
+	}
 	outZip := strings.TrimSpace(cfg.OutputZipPath)
 	if outZip == "" {
 		outZip = "output.zip"
 	}
 
 	return fmt.Sprintf(`#!/usr/bin/env python3
-"""Real Fine-Tuning Worker Script (PyTorch + Transformers + PEFT / Diffusers) with 16MB chunked 2TB+ uploads & resume."""
+"""Real Fine-Tuning Worker Script (PyTorch + Transformers + PEFT / Diffusers) with 16MB chunked 2TB+ uploads, QLoRA bit-width profiles, auto post-training eval & resume."""
 import csv
 import gc
 import io
@@ -94,6 +99,7 @@ DATASET_URL = %s
 DATASET_NAME = %s
 TASK_TYPE = %s
 METHOD = %s
+QUANTIZATION = %s
 EPOCHS = %d
 ACCELERATOR = %s
 CALLBACK_URL = %s
@@ -437,8 +443,10 @@ def format_openai_messages(messages):
 
 
 def load_openai_jsonl_samples(dataset_path):
-    """Strictly parse OpenAI fine-tuning JSONL (Chat messages or DPO format)."""
+    """Strictly parse OpenAI fine-tuning JSONL (Chat messages or DPO format) and collect up to 3 eval pairs."""
     texts = []
+    eval_pairs = []
+    seen_prompts = set()
     with open(dataset_path, "r", encoding="utf-8-sig", errors="strict") as f:
         for line_num, raw_line in enumerate(f, start=1):
             line = raw_line.strip()
@@ -452,16 +460,165 @@ def load_openai_jsonl_samples(dataset_path):
                 pref = obj.get("preferred_output") or []
                 if not isinstance(inp, dict) or not isinstance(inp.get("messages"), list) or not isinstance(pref, list) or not pref:
                     raise RuntimeError(f"Line {line_num}: invalid OpenAI DPO record")
-                texts.append(format_openai_messages(inp["messages"] + pref))
+                full_msgs = inp["messages"] + pref
+                texts.append(format_openai_messages(full_msgs))
+                if len(eval_pairs) < 3:
+                    p_txt = format_openai_messages(inp["messages"])
+                    exp = str(pref[0].get("content", "") if isinstance(pref[0], dict) else "").strip()
+                    if p_txt and exp and p_txt not in seen_prompts:
+                        seen_prompts.add(p_txt)
+                        eval_pairs.append({"messages": inp["messages"], "expected": exp})
             else:
                 msgs = obj.get("messages")
                 if not isinstance(msgs, list) or len(msgs) < 2:
                     raise RuntimeError(f"Line {line_num}: missing valid OpenAI 'messages' array")
                 texts.append(format_openai_messages(msgs))
+                if len(eval_pairs) < 3:
+                    last_asst = -1
+                    for idx in range(len(msgs) - 1, -1, -1):
+                        if isinstance(msgs[idx], dict) and str(msgs[idx].get("role", "")).strip().lower() == "assistant":
+                            last_asst = idx
+                            break
+                    if last_asst > 0:
+                        prompt_msgs = msgs[:last_asst]
+                        exp_raw = msgs[last_asst].get("content", "")
+                        if isinstance(exp_raw, list):
+                            exp_raw = " ".join(str(p.get("text", "")) for p in exp_raw if isinstance(p, dict) and p.get("type") == "text")
+                        exp = str(exp_raw or "").strip()
+                        p_key = format_openai_messages(prompt_msgs)
+                        if p_key and exp and p_key not in seen_prompts:
+                            seen_prompts.add(p_key)
+                            eval_pairs.append({"messages": prompt_msgs, "expected": exp})
     texts = [t for t in texts if t and t.strip()]
     if not texts:
         raise RuntimeError("Dataset contains no usable OpenAI training examples")
-    return texts
+    return texts, eval_pairs
+
+
+def _build_eval_summary(loss_history, eval_samples=None):
+    initial_loss = round(float(loss_history[0]["loss"]), 6) if loss_history else 0.0
+    final_loss = round(float(loss_history[-1]["loss"]), 6) if loss_history else 0.0
+    reduction_pct = 0.0
+    if initial_loss > 0 and final_loss >= 0:
+        reduction_pct = round(((initial_loss - final_loss) / initial_loss) * 100.0, 2)
+    samples_list = eval_samples or []
+    avg_lat = round(sum(s.get("latency_ms", 0) for s in samples_list) / max(1, len(samples_list)), 1) if samples_list else 0.0
+    avg_sim = round(sum(s.get("similarity_pct", 0) for s in samples_list) / max(1, len(samples_list)), 1) if samples_list else 0.0
+    return {
+        "tested_at": int(time.time()),
+        "task_type": TASK_TYPE,
+        "method": METHOD,
+        "quantization": QUANTIZATION,
+        "initial_loss": initial_loss,
+        "final_loss": final_loss,
+        "loss_reduction_pct": reduction_pct,
+        "loss_history": loss_history,
+        "avg_latency_ms": avg_lat,
+        "avg_similarity_pct": avg_sim,
+        "samples": samples_list,
+    }
+
+
+def _token_overlap_pct(expected_text, actual_text):
+    exp_toks = [w for w in expected_text.lower().split() if w]
+    act_toks = [w for w in actual_text.lower().split() if w]
+    if not exp_toks or not act_toks:
+        return 0.0
+    exp_set = set(exp_toks)
+    act_set = set(act_toks)
+    inter = len(exp_set & act_set)
+    if inter == 0:
+        return 0.0
+    prec = inter / len(act_set)
+    rec = inter / len(exp_set)
+    return round((2.0 * prec * rec / (prec + rec)) * 100.0, 1)
+
+
+def run_post_training_eval(model, tokenizer, eval_pairs, device):
+    """Run automatic post-training self-evaluation on sampled dataset prompts while weights are in VRAM."""
+    import torch
+
+    if not eval_pairs:
+        return []
+    log("eval", f"Running automatic post-training self-test on {len(eval_pairs)} dataset prompt(s)...", progress=92)
+    prev_cache = getattr(model.config, "use_cache", False)
+    model.config.use_cache = True
+    model.eval()
+    results = []
+    try:
+        for idx, pair in enumerate(eval_pairs, start=1):
+            prompt_msgs = pair["messages"]
+            expected = pair["expected"]
+            prompt_display = ""
+            for m in reversed(prompt_msgs):
+                if isinstance(m, dict) and str(m.get("role", "")).lower() == "user":
+                    c = m.get("content", "")
+                    if isinstance(c, list):
+                        c = " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict) and p.get("type") == "text")
+                    prompt_display = str(c or "").strip()
+                    break
+            if not prompt_display:
+                prompt_display = format_openai_messages(prompt_msgs)
+
+            prompt_text = format_openai_messages(prompt_msgs) + "\n<|assistant|>\n"
+            t0 = time.time()
+            try:
+                enc = tokenizer(prompt_text, return_tensors="pt", truncation=True, max_length=384)
+                enc = {k: v.to(device) for k, v in enc.items()}
+                with torch.inference_mode():
+                    out_ids = model.generate(
+                        **enc,
+                        max_new_tokens=140,
+                        do_sample=False,
+                        use_cache=True,
+                        pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+                    )
+                in_len = int(enc["input_ids"].shape[-1])
+                gen_text = tokenizer.decode(out_ids[0][in_len:], skip_special_tokens=True).strip()
+                # Stop at any next synthetic role turn marker if emitted
+                for marker in ("<|user|>", "<|system|>", "<|assistant|>"):
+                    if marker in gen_text:
+                        gen_text = gen_text.split(marker, 1)[0].strip()
+                lat_ms = int((time.time() - t0) * 1000)
+                sim_pct = _token_overlap_pct(expected, gen_text)
+                results.append({
+                    "prompt": prompt_display[:400],
+                    "expected": expected[:500],
+                    "output": gen_text[:600],
+                    "latency_ms": lat_ms,
+                    "similarity_pct": sim_pct,
+                })
+                log("eval", f"Auto-test #{idx}/{len(eval_pairs)}: {lat_ms}ms | token-overlap={sim_pct:.1f}%%")
+            except Exception as ev_exc:
+                log("eval", f"Auto-test #{idx} skipped: {ev_exc}")
+    finally:
+        model.config.use_cache = prev_cache
+    return results
+
+
+def _build_qlora_bnb_config(dtype):
+    from transformers import BitsAndBytesConfig
+
+    q = str(QUANTIZATION or "NF4").upper().strip()
+    if q in ("INT8", "Q8_0", "Q8_K_XL"):
+        log("model", f"Configuring QLoRA 8-bit quantization (profile={q}, BitsAndBytes LLM.int8)")
+        return BitsAndBytesConfig(load_in_8bit=True)
+    if q in ("FP4", "Q4_0", "Q4_1"):
+        double_q = q != "Q4_0"
+        log("model", f"Configuring QLoRA 4-bit FP4 quantization (profile={q}, double_quant={double_q})")
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="fp4",
+            bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_use_double_quant=double_q,
+        )
+    log("model", f"Configuring QLoRA 4-bit NF4 quantization (profile={q}, double_quant=True)")
+    return BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=dtype,
+        bnb_4bit_use_double_quant=True,
+    )
 
 
 def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
@@ -470,7 +627,7 @@ def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
     from transformers import AutoTokenizer, AutoModelForCausalLM, get_cosine_schedule_with_warmup
     from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
 
-    samples = load_openai_jsonl_samples(dataset_path)
+    samples, eval_pairs = load_openai_jsonl_samples(dataset_path)
     log("dataset", f"Parsed {len(samples)} OpenAI training examples from {DATASET_NAME}", progress=16)
 
     repo_id, subfile = split_hf_repo_and_file(base_model_ref)
@@ -492,13 +649,7 @@ def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
     if HF_TOKEN:
         model_kwargs["token"] = HF_TOKEN
     if METHOD == "qlora" and use_cuda:
-        from transformers import BitsAndBytesConfig
-        model_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=dtype,
-            bnb_4bit_use_double_quant=True,
-        )
+        model_kwargs["quantization_config"] = _build_qlora_bnb_config(dtype)
         model_kwargs["device_map"] = "auto"
     else:
         model_kwargs["dtype"] = dtype
@@ -654,6 +805,13 @@ def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
         )
         last_ckpt_time = time.time()
 
+    eval_samples = []
+    try:
+        eval_samples = run_post_training_eval(model, tokenizer, eval_pairs, device)
+    except Exception as eval_exc:
+        log("eval", f"Automatic post-training evaluation skipped: {eval_exc}")
+    eval_report = _build_eval_summary(loss_history, eval_samples)
+
     log("export", "Saving final trained weights (.safetensors) & tokenizer...", progress=93, trained_tokens=trained_tokens)
     model.save_pretrained(str(OUTPUT_DIR), safe_serialization=True)
     tokenizer.save_pretrained(str(OUTPUT_DIR))
@@ -662,6 +820,7 @@ def train_text_or_vision(dataset_path, base_model_ref, resume_state=None):
         "sample_count": len(samples),
         "final_loss": round(last_loss, 6),
         "loss_history": loss_history,
+        "eval_report": eval_report,
     }
 
 
@@ -792,6 +951,7 @@ def train_image_diffusion(dataset_path, base_model_ref, resume_state=None):
         save_and_upload_checkpoint(unet, optimizer, ep, ep, step, trained_tokens, loss_history, pct, is_epoch_end=True)
         last_ckpt_time = time.time()
 
+    eval_report = _build_eval_summary(loss_history, [])
     log("export", "Saving trained diffusion LoRA / UNet weights (.safetensors)...", progress=93, trained_tokens=trained_tokens)
     unet.save_pretrained(str(OUTPUT_DIR), safe_serialization=True)
     return {
@@ -799,6 +959,7 @@ def train_image_diffusion(dataset_path, base_model_ref, resume_state=None):
         "sample_count": len(image_paths),
         "final_loss": round(last_loss, 6),
         "loss_history": loss_history,
+        "eval_report": eval_report,
     }
 
 
@@ -810,12 +971,14 @@ def package_zip(metrics, started_at):
         "base_model": BASE_MODEL,
         "task_type": TASK_TYPE,
         "method": METHOD,
+        "quantization": QUANTIZATION,
         "epochs": EPOCHS,
         "dataset_file": DATASET_NAME,
         "trained_tokens": metrics["trained_tokens"],
         "sample_count": metrics["sample_count"],
         "final_loss": metrics["final_loss"],
         "loss_history": metrics["loss_history"],
+        "eval_report": metrics.get("eval_report"),
         "started_at": started_at,
         "finished_at": finished_at,
         "elapsed_seconds": max(1, finished_at - started_at),
@@ -858,7 +1021,8 @@ def upload_artifact_zip(metrics):
 def main():
     started_at = int(time.time())
     try:
-        log("boot", f"Starting real fine-tuning job {JOB_ID} (task={TASK_TYPE}, method={METHOD}, epochs={EPOCHS})", progress=2)
+        q_suffix = f", quantization={QUANTIZATION}" if METHOD == "qlora" and QUANTIZATION else ""
+        log("boot", f"Starting real fine-tuning job {JOB_ID} (task={TASK_TYPE}, method={METHOD}{q_suffix}, epochs={EPOCHS})", progress=2)
         ensure_packages()
 
         ds_ext = Path(DATASET_NAME).suffix or ".jsonl"
@@ -930,6 +1094,7 @@ def main():
             "progress": 100,
             "trained_tokens": metrics["trained_tokens"],
             "fine_tuned_model": FINE_TUNED_MODEL,
+            "eval_report": metrics.get("eval_report"),
         })
         log("done", f"Real fine-tuning completed (final_loss={metrics['final_loss']}, trained_tokens={metrics['trained_tokens']:,})", progress=100, trained_tokens=metrics["trained_tokens"])
     except Exception as exc:
@@ -954,6 +1119,7 @@ if __name__ == "__main__":
 		pyStr(cfg.DatasetName),
 		pyStr(task),
 		pyStr(method),
+		pyStr(quantization),
 		epochs,
 		pyStr(cfg.Accelerator),
 		pyStr(cfg.CallbackURL),

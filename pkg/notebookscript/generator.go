@@ -582,9 +582,13 @@ async def chat_completions(req: Request):
 			taskHandler = `
 import zipfile
 from fastapi.responses import StreamingResponse
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 _backend = None
+_backend_lock = threading.Lock()
+_model_ready = False
+_model_load_error = None
+
 def _prepare_finetuned_dir():
     if not FT_ARTIFACT_URL:
         return None
@@ -618,56 +622,96 @@ def _prepare_finetuned_dir():
         mf.write("ok")
     return ft_dir
 
+def _load_causal_fast(src, dtype, use_cuda, token=None):
+    # Direct .to("cuda") avoids accelerate dispatch-hook overhead on every layer forward pass
+    # (3x-5x faster first-token & decode latency on T4/L4/A100 for single-GPU models).
+    kw = {"trust_remote_code": True, "low_cpu_mem_usage": True, "torch_dtype": dtype}
+    if token:
+        kw["token"] = token
+    if use_cuda and torch.cuda.device_count() == 1:
+        try:
+            m = AutoModelForCausalLM.from_pretrained(src, **kw)
+            return m.to("cuda")
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    if use_cuda:
+        kw["device_map"] = "auto"
+    return AutoModelForCausalLM.from_pretrained(src, **kw)
+
 def get_backend():
-    global _backend
+    global _backend, _model_ready, _model_load_error
     if _backend is not None:
         return _backend
-    _t0 = time.time()
-    use_cuda = torch.cuda.is_available()
-    dtype = torch.bfloat16 if (use_cuda and torch.cuda.is_bf16_supported()) else (torch.float16 if use_cuda else torch.float32)
-    ft_dir = _prepare_finetuned_dir()
-    if ft_dir:
-        has_adapter = os.path.exists(os.path.join(ft_dir, "adapter_config.json"))
-        tok_src = ft_dir if (os.path.exists(os.path.join(ft_dir, "tokenizer_config.json")) or os.path.exists(os.path.join(ft_dir, "tokenizer.json"))) else MODEL_REPO
-        _log(f"[model] Loading fine-tuned model ({SERVED_MODEL_ID}, adapter={has_adapter}, cuda={use_cuda})...", push_callback=True)
-        tok = AutoTokenizer.from_pretrained(tok_src, trust_remote_code=True, token=HF_TOKEN or None)
-        if has_adapter:
-            from peft import PeftModel
-            base_mdl = AutoModelForCausalLM.from_pretrained(
-                MODEL_REPO,
-                trust_remote_code=True,
-                torch_dtype=dtype,
-                device_map="auto" if use_cuda else None,
-                token=HF_TOKEN or None,
-            )
-            mdl = PeftModel.from_pretrained(base_mdl, ft_dir)
+    with _backend_lock:
+        if _backend is not None:
+            return _backend
+        _t0 = time.time()
+        use_cuda = torch.cuda.is_available()
+        if use_cuda:
             try:
-                mdl = mdl.merge_and_unload()
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.benchmark = True
             except Exception:
                 pass
+        dtype = torch.bfloat16 if (use_cuda and torch.cuda.is_bf16_supported()) else (torch.float16 if use_cuda else torch.float32)
+        ft_dir = _prepare_finetuned_dir()
+        if ft_dir:
+            has_adapter = os.path.exists(os.path.join(ft_dir, "adapter_config.json"))
+            tok_src = ft_dir if (os.path.exists(os.path.join(ft_dir, "tokenizer_config.json")) or os.path.exists(os.path.join(ft_dir, "tokenizer.json"))) else MODEL_REPO
+            _log(f"[model] Pre-loading fine-tuned model ({SERVED_MODEL_ID}, adapter={has_adapter}, cuda={use_cuda})...", push_callback=True)
+            tok = AutoTokenizer.from_pretrained(tok_src, trust_remote_code=True, token=HF_TOKEN or None)
+            if has_adapter:
+                from peft import PeftModel
+                base_mdl = _load_causal_fast(MODEL_REPO, dtype, use_cuda, token=HF_TOKEN or None)
+                mdl = PeftModel.from_pretrained(base_mdl, ft_dir)
+                try:
+                    mdl = mdl.merge_and_unload()
+                except Exception:
+                    pass
+                if use_cuda and getattr(mdl, "device", None) is not None and mdl.device.type != "cuda":
+                    try:
+                        mdl = mdl.to("cuda")
+                    except Exception:
+                        pass
+            else:
+                mdl = _load_causal_fast(ft_dir, dtype, use_cuda, token=None)
         else:
-            mdl = AutoModelForCausalLM.from_pretrained(
-                ft_dir,
-                trust_remote_code=True,
-                torch_dtype=dtype,
-                device_map="auto" if use_cuda else None,
-            )
-    else:
-        _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={use_cuda})...", push_callback=True)
-        tok = AutoTokenizer.from_pretrained(MODEL_REPO, trust_remote_code=True, token=HF_TOKEN or None)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            trust_remote_code=True,
-            torch_dtype=dtype,
-            device_map="auto" if use_cuda else None,
-            token=HF_TOKEN or None,
-        )
-    if tok.pad_token is None and tok.eos_token is not None:
-        tok.pad_token = tok.eos_token
-    mdl.eval()
-    _backend = (tok, mdl)
-    _log(f"[model] Model ready in {time.time() - _t0:.1f}s", push_callback=True)
-    return _backend
+            _log(f"[model] Pre-loading transformers model {MODEL_REPO} (cuda={use_cuda})...", push_callback=True)
+            tok = AutoTokenizer.from_pretrained(MODEL_REPO, trust_remote_code=True, token=HF_TOKEN or None)
+            mdl = _load_causal_fast(MODEL_REPO, dtype, use_cuda, token=HF_TOKEN or None)
+        if tok.pad_token is None and tok.eos_token is not None:
+            tok.pad_token = tok.eos_token
+        mdl.config.use_cache = True
+        mdl.eval()
+        # 1-token CUDA kernel warmup so the very first user chat message streams instantly!
+        try:
+            _w_in = tok("hi", return_tensors="pt")
+            if use_cuda:
+                _w_in = {k: v.to(mdl.device) for k, v in _w_in.items()}
+            with torch.inference_mode():
+                _ = mdl.generate(**_w_in, max_new_tokens=1, do_sample=False, use_cache=True, pad_token_id=tok.pad_token_id or tok.eos_token_id)
+            if use_cuda:
+                torch.cuda.synchronize()
+        except Exception as _w_exc:
+            _log(f"[model] Warmup skipped: {_w_exc}")
+        _backend = (tok, mdl)
+        _model_ready = True
+        _model_load_error = None
+        _log(f"[model] Model loaded & CUDA-warmed in {time.time() - _t0:.1f}s (ready for instant TTFT)", push_callback=True)
+        return _backend
+
+def _preload_on_startup():
+    global _model_load_error, _model_ready
+    try:
+        get_backend()
+    except Exception as exc:
+        _model_load_error = f"{type(exc).__name__}: {exc}"
+        _log(f"[model] Startup preload failed: {_model_load_error}", push_callback=True)
+        _model_ready = True  # unblock tunnel reporting so error surfaces cleanly
+
+threading.Thread(target=_preload_on_startup, daemon=True).start()
 
 def _build_chat_prompt(tok, messages):
     clean_msgs = []
@@ -686,39 +730,52 @@ def _build_chat_prompt(tok, messages):
             pass
     return "\n".join(f"<|{m['role']}|>\n{m['content']}" for m in clean_msgs) + "\n<|assistant|>\n"
 
-def _execute_task(body, _base_url, set_progress=None):
+def _prepare_gen_args(body, tok, mdl):
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens") or body.get("max_completion_tokens") or 512)
     max_tokens = max(1, min(4096, max_tokens))
     temperature = body.get("temperature")
     top_p = body.get("top_p")
-    if set_progress:
-        set_progress(5, "Loading transformers model...")
-    tok, mdl = get_backend()
-    if set_progress:
-        set_progress(40, "Generating text response...")
     prompt = _build_chat_prompt(tok, messages)
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
         inputs = {k: v.to(mdl.device) for k, v in inputs.items()}
-    gen_kwargs = {"max_new_tokens": max_tokens, "pad_token_id": tok.pad_token_id or tok.eos_token_id}
+    gen_kwargs = {
+        "max_new_tokens": max_tokens,
+        "use_cache": True,
+        "pad_token_id": tok.pad_token_id or tok.eos_token_id,
+    }
     if temperature is not None and float(temperature) > 0:
         gen_kwargs["do_sample"] = True
         gen_kwargs["temperature"] = max(0.01, min(2.0, float(temperature)))
         if top_p is not None:
             gen_kwargs["top_p"] = max(0.05, min(1.0, float(top_p)))
-    with torch.no_grad():
+    else:
+        gen_kwargs["do_sample"] = False
+    return inputs, gen_kwargs
+
+def _execute_task(body, _base_url, set_progress=None):
+    if set_progress:
+        set_progress(5, "Loading transformers model...")
+    _t0 = time.time()
+    tok, mdl = get_backend()
+    if set_progress:
+        set_progress(40, "Generating text response...")
+    inputs, gen_kwargs = _prepare_gen_args(body, tok, mdl)
+    with torch.inference_mode():
         output_ids = mdl.generate(**inputs, **gen_kwargs)
     prompt_tokens = int(inputs["input_ids"].shape[-1])
     comp_ids = output_ids[0][prompt_tokens:]
     generated = tok.decode(comp_ids, skip_special_tokens=True)
+    resp_model = str(body.get("model") or SERVED_MODEL_ID)
+    _log(f"[infer] Chat completion ({len(comp_ids)} tok) in {time.time() - _t0:.2f}s")
     if set_progress:
         set_progress(100, "Completed")
     return {
         "id": f"chatcmpl-{int(time.time() * 1000)}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": SERVED_MODEL_ID,
+        "model": resp_model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}],
         "usage": {
             "prompt_tokens": prompt_tokens,
@@ -732,30 +789,79 @@ async def chat_completions(req: Request):
     touch()
     body = await req.json()
     if body.get("stream"):
-        res = _execute_task(body, str(req.base_url).rstrip("/"))
-        content = res["choices"][0]["message"]["content"]
-        cid = res["id"]
-        created = res["created"]
+        tok, mdl = get_backend()
+        inputs, gen_kwargs = _prepare_gen_args(body, tok, mdl)
+        prompt_tokens = int(inputs["input_ids"].shape[-1])
+        cid = f"chatcmpl-{int(time.time() * 1000)}"
+        created = int(time.time())
+        resp_model = str(body.get("model") or SERVED_MODEL_ID)
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+        gen_kwargs["streamer"] = streamer
+        err_holder = []
+        _t_start = time.time()
+
+        def _run_gen():
+            try:
+                with torch.inference_mode():
+                    mdl.generate(**inputs, **gen_kwargs)
+            except Exception as exc:
+                err_holder.append(exc)
+                try:
+                    streamer.end()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run_gen, daemon=True).start()
+
         def _sse():
-            chunk1 = {
+            first_token_logged = False
+            comp_chars = 0
+            # Emit initial role delta immediately so client sees live stream start
+            init_chunk = {
                 "id": cid,
                 "object": "chat.completion.chunk",
                 "created": created,
-                "model": SERVED_MODEL_ID,
-                "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
+                "model": resp_model,
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
             }
-            yield f"data: {json.dumps(chunk1, ensure_ascii=False)}\n\n"
-            chunk2 = {
+            yield f"data: {json.dumps(init_chunk, ensure_ascii=False)}\n\n"
+            for piece in streamer:
+                if not piece:
+                    continue
+                touch()
+                if not first_token_logged:
+                    first_token_logged = True
+                    _log(f"[infer] Stream TTFT={(time.time() - _t_start) * 1000:.0f}ms")
+                comp_chars += len(piece)
+                chunk = {
+                    "id": cid,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": resp_model,
+                    "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            est_comp = max(1, comp_chars // 4) if comp_chars > 0 else 0
+            done_chunk = {
                 "id": cid,
                 "object": "chat.completion.chunk",
                 "created": created,
-                "model": SERVED_MODEL_ID,
+                "model": resp_model,
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": res.get("usage"),
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": est_comp,
+                    "total_tokens": prompt_tokens + est_comp,
+                },
             }
-            yield f"data: {json.dumps(chunk2, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
-        return StreamingResponse(_sse(), media_type="text/event-stream")
+
+        return StreamingResponse(
+            _sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}
@@ -860,13 +966,18 @@ def _log(msg: str, push_callback: bool = False):
         threading.Thread(target=_post_callback_log, args=(line,), daemon=True).start()
 
 def _report_tunnel_url(url: str):
-    _log(f"[tunnel] Tunnel allocated ({url}), waiting for local server on :8000...", push_callback=True)
-    deadline = time.time() + 600
+    _log(f"[tunnel] Tunnel allocated ({url}), waiting for local server & model warmup on :8000...", push_callback=True)
+    deadline = time.time() + 900
     while time.time() < deadline:
         try:
             with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as resp:
                 if 200 <= resp.status < 300:
-                    break
+                    try:
+                        hdata = json.loads(resp.read().decode("utf-8"))
+                    except Exception:
+                        hdata = {}
+                    if hdata.get("ready", True):
+                        break
         except Exception:
             pass
         time.sleep(2)
@@ -1025,7 +1136,13 @@ threading.Thread(target=_idle_watchdog, daemon=True).start()
 @app.get("/health")
 def health():
     touch()
-    return {"status": "ok", "model": SERVED_MODEL_ID, "task": %s}
+    return {
+        "status": "ok",
+        "ready": bool(globals().get("_model_ready", True)),
+        "error": globals().get("_model_load_error"),
+        "model": SERVED_MODEL_ID,
+        "task": %s,
+    }
 
 @app.get("/_logs")
 def get_logs(req: Request):

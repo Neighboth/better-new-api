@@ -410,6 +410,7 @@ export type ModelSettings = {
   'model_deployment.fine_tuning.colab_high_ram_multiplier'?: number | string
   'model_deployment.fine_tuning.retention_days'?: number | string
   'model_deployment.fine_tuning.expiry_warning_days'?: number | string
+  'model_deployment.fine_tuning.max_storage_gb'?: number | string
   'model_deployment.fine_tuning.serving_enabled'?: boolean | string
   'model_deployment.fine_tuning.serving_gpu_multipliers'?: string
   'model_deployment.fine_tuning.serving_colab_normal_ram_multiplier'?: number | string
@@ -830,6 +831,11 @@ export type OperationsSettings = {
   'playground_setting.video_reference_image'?: boolean
   'playground_setting.studio_enabled'?: boolean
   'playground_setting.studio_default_model'?: string
+  'playground_setting.playground_default_model'?: string
+  'playground_setting.playground_hidden_models'?: string
+  'playground_setting.studio_discord_gate_models'?: string
+  'playground_setting.studio_discord_gate_invite_url'?: string
+  'playground_setting.studio_discord_gate_guild_id'?: string
   'playground_setting.prompt_optimizer_enabled'?: boolean
   'playground_setting.prompt_optimizer_model'?: string
   'playground_setting.prompt_optimizer_system_prompt'?: string

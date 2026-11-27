@@ -2,6 +2,8 @@ package controller
 
 import (
 	"crypto/subtle"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -155,13 +157,31 @@ func CancelFineTuningJob(c *gin.Context) {
 }
 
 type fineTuningWorkerCallbackRequest struct {
-	Token          string `json:"token"`
-	Status         string `json:"status"`
-	FineTunedModel string `json:"fine_tuned_model"`
-	TrainedTokens  int64  `json:"trained_tokens"`
-	Progress       *int   `json:"progress,omitempty"`
-	LogLine        string `json:"log_line,omitempty"`
-	Error          string `json:"error"`
+	Token          string          `json:"token"`
+	Status         string          `json:"status"`
+	FineTunedModel string          `json:"fine_tuned_model"`
+	TrainedTokens  int64           `json:"trained_tokens"`
+	Progress       *int            `json:"progress,omitempty"`
+	LogLine        string          `json:"log_line,omitempty"`
+	EvalReport     json.RawMessage `json:"eval_report,omitempty"`
+	Error          string          `json:"error"`
+}
+
+func checkFineTuningStorageCapHTTP(c *gin.Context, additionalBytes int64, statusOnFail int) bool {
+	allowed, usedBytes, maxBytes := service.CheckFineTuningStorageQuota(additionalBytes)
+	if allowed {
+		return true
+	}
+	usedGB := float64(usedBytes) / (1024.0 * 1024.0 * 1024.0)
+	maxGB := float64(maxBytes) / (1024.0 * 1024.0 * 1024.0)
+	c.JSON(statusOnFail, gin.H{
+		"success":          false,
+		"code":             "FT_STORAGE_QUOTA_EXCEEDED",
+		"message":          fmt.Sprintf("Global fine-tuning storage limit reached (%.2f GB / %.2f GB). Please delete old fine-tuning models or increase the limit in System Settings.", usedGB, maxGB),
+		"storage_used_gb":  usedGB,
+		"storage_limit_gb": maxGB,
+	})
+	return false
 }
 
 func verifyFineTuningWorkerToken(c *gin.Context, job *model.FineTuningJob, bodyToken string) bool {
@@ -193,6 +213,12 @@ func FineTuningWorkerCallback(c *gin.Context) {
 	}
 	if strings.TrimSpace(req.LogLine) != "" {
 		service.AppendFineTuningLogFromWorker(job.UserId, job.JobID, "train", req.LogLine)
+	}
+	if trimmedEval := strings.TrimSpace(string(req.EvalReport)); trimmedEval != "" && trimmedEval != "null" {
+		_ = model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
+			"eval_report_json": trimmedEval,
+			"updated_at":       time.Now().Unix(),
+		})
 	}
 	if req.Progress != nil {
 		pct := *req.Progress
@@ -290,6 +316,9 @@ func FineTuningWorkerUploadCheckpoint(c *gin.Context) {
 	fh, err := c.FormFile("file")
 	if err != nil || fh == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file is required"})
+		return
+	}
+	if !checkFineTuningStorageCapHTTP(c, fh.Size, http.StatusInsufficientStorage) {
 		return
 	}
 	destPath := service.FineTuningCheckpointZipPath(job.UserId, job.JobID)
@@ -405,6 +434,20 @@ func FineTuningWorkerUploadChunk(c *gin.Context) {
 	}
 	totalSize, _ := strconv.ParseInt(strings.TrimSpace(c.Query("total_size")), 10, 64)
 	isFinal := c.Query("final") == "1" || strings.EqualFold(c.Query("final"), "true")
+
+	if offset == 0 {
+		projectedAdd := totalSize
+		if projectedAdd <= 0 && c.Request.ContentLength > 0 {
+			projectedAdd = c.Request.ContentLength
+		}
+		if !checkFineTuningStorageCapHTTP(c, projectedAdd, http.StatusInsufficientStorage) {
+			return
+		}
+	} else if c.Request.ContentLength > 0 {
+		if !checkFineTuningStorageCapHTTP(c, c.Request.ContentLength, http.StatusInsufficientStorage) {
+			return
+		}
+	}
 
 	storageDir := service.FineTuningStorageDirForUser(job.UserId, job.JobID)
 	if err := os.MkdirAll(storageDir, 0o755); err != nil {
@@ -547,6 +590,9 @@ func FineTuningWorkerUploadArtifact(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file is required"})
 		return
 	}
+	if !checkFineTuningStorageCapHTTP(c, fh.Size, http.StatusInsufficientStorage) {
+		return
+	}
 	storageDir := service.FineTuningStorageDirForUser(job.UserId, job.JobID)
 	if err := os.MkdirAll(storageDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
@@ -623,6 +669,8 @@ func UserListFineTuningJobs(c *gin.Context) {
 			"serving_colab_high_ram_multiplier":   servingHighMult,
 			"retention_days":                      service.GetFineTuningRetentionDays(),
 			"expiry_warning_days":                 service.GetFineTuningExpiryWarningDays(),
+			"storage_used_bytes":                  service.CalculateFineTuningStorageUsedBytes(),
+			"max_storage_gb":                      service.GetFineTuningMaxStorageGB(),
 			"jobs":                                jobs,
 		},
 	})
@@ -640,6 +688,9 @@ func UserUploadStagedFineTuningModel(c *gin.Context) {
 	mf, err := c.FormFile("model_file")
 	if err != nil || mf == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "model_file is required"})
+		return
+	}
+	if !checkFineTuningStorageCapHTTP(c, mf.Size, http.StatusOK) {
 		return
 	}
 	safeName := filepath.Base(mf.Filename)
@@ -709,7 +760,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	var baseModel, trainingFile, trainingData, gpu, provider, suffix, method, taskType, ramTier, modelSource, modelSourceURL, stagedUploadID, modelParamHint string
+	var baseModel, customModelID, trainingFile, trainingData, gpu, provider, suffix, method, quantization, taskType, ramTier, modelSource, modelSourceURL, stagedUploadID, modelParamHint string
 	epochs := 3
 	var datasetBytes int64
 	var clientModelFileBytes int64
@@ -718,12 +769,14 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	ct := c.GetHeader("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		baseModel = strings.TrimSpace(c.PostForm("model"))
+		customModelID = strings.TrimSpace(c.PostForm("model_id"))
 		trainingFile = strings.TrimSpace(c.PostForm("training_file"))
 		trainingData = strings.TrimSpace(c.PostForm("training_data"))
 		gpu = strings.TrimSpace(c.PostForm("gpu"))
 		provider = strings.TrimSpace(c.PostForm("provider"))
 		suffix = strings.TrimSpace(c.PostForm("suffix"))
 		method = strings.ToLower(strings.TrimSpace(c.PostForm("method")))
+		quantization = strings.ToUpper(strings.TrimSpace(c.PostForm("quantization")))
 		taskType = strings.ToLower(strings.TrimSpace(c.PostForm("task_type")))
 		ramTier = strings.ToLower(strings.TrimSpace(c.PostForm("ram_tier")))
 		modelSource = strings.ToLower(strings.TrimSpace(c.PostForm("model_source")))
@@ -740,12 +793,14 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	} else {
 		var req struct {
 			Model                    string `json:"model"`
+			ModelID                  string `json:"model_id"`
 			TrainingFile             string `json:"training_file"`
 			TrainingData             string `json:"training_data"`
 			GPU                      string `json:"gpu"`
 			Provider                 string `json:"provider"`
 			Suffix                   string `json:"suffix"`
 			Method                   string `json:"method"`
+			Quantization             string `json:"quantization"`
 			TaskType                 string `json:"task_type"`
 			RamTier                  string `json:"ram_tier"`
 			ModelSource              string `json:"model_source"`
@@ -761,12 +816,14 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			return
 		}
 		baseModel = strings.TrimSpace(req.Model)
+		customModelID = strings.TrimSpace(req.ModelID)
 		trainingFile = strings.TrimSpace(req.TrainingFile)
 		trainingData = strings.TrimSpace(req.TrainingData)
 		gpu = strings.TrimSpace(req.GPU)
 		provider = strings.TrimSpace(req.Provider)
 		suffix = strings.TrimSpace(req.Suffix)
 		method = strings.ToLower(strings.TrimSpace(req.Method))
+		quantization = strings.ToUpper(strings.TrimSpace(req.Quantization))
 		taskType = strings.ToLower(strings.TrimSpace(req.TaskType))
 		ramTier = strings.ToLower(strings.TrimSpace(req.RamTier))
 		modelSource = strings.ToLower(strings.TrimSpace(req.ModelSource))
@@ -793,10 +850,22 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	default:
 		method = "lora"
 	}
+	if method == "qlora" {
+		if quantization == "" {
+			quantization = "NF4"
+		}
+	} else {
+		quantization = ""
+	}
 	switch modelSource {
 	case "huggingface", "url", "upload":
 	default:
 		modelSource = "huggingface"
+	}
+
+	// Enforce global storage limit before saving any new dataset/model files
+	if !checkFineTuningStorageCapHTTP(c, int64(len(trainingData)), http.StatusOK) {
+		return
 	}
 
 	jobID := service.GenerateFineTuningJobID()
@@ -832,6 +901,10 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		if baseModelFilePath == "" {
 			if mf, mErr := c.FormFile("model_file"); mErr == nil && mf != nil {
+				if !checkFineTuningStorageCapHTTP(c, mf.Size, http.StatusOK) {
+					service.CleanupFineTuningStorageForUser(userId, jobID)
+					return
+				}
 				if err := os.MkdirAll(storageDir, 0o755); err == nil {
 					safeName := filepath.Base(mf.Filename)
 					if safeName == "" || safeName == "." || safeName == ".." {
@@ -854,6 +927,10 @@ func UserCreateFineTuningJob(c *gin.Context) {
 			}
 		}
 		if fh, fErr := c.FormFile("file"); fErr == nil && fh != nil {
+			if !checkFineTuningStorageCapHTTP(c, fh.Size, http.StatusOK) {
+				service.CleanupFineTuningStorageForUser(userId, jobID)
+				return
+			}
 			origName := filepath.Base(fh.Filename)
 			if err := service.ValidateFineTuningDatasetFile(taskType, origName, nil); err != nil {
 				service.CleanupFineTuningStorageForUser(userId, jobID)
@@ -953,6 +1030,31 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		return
 	}
 
+	// Resolve direct custom Model ID (e.g. "benim-modelim") with uniqueness check per user
+	var ftName string
+	if customModelID != "" {
+		validatedID, idErr := service.ValidateCustomFineTunedModelID(customModelID)
+		if idErr != nil {
+			service.CleanupFineTuningStorageForUser(userId, jobID)
+			c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_INVALID_MODEL_ID", "message": idErr.Error()})
+			return
+		}
+		if model.ExistsUserFineTunedModel(userId, validatedID, "") {
+			service.CleanupFineTuningStorageForUser(userId, jobID)
+			c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_MODEL_ID_EXISTS", "message": "You already have a fine-tuned model with this Model ID"})
+			return
+		}
+		ftName = validatedID
+	} else if suffix != "" {
+		ftName = "ft:" + baseModel + ":" + suffix
+	} else {
+		baseSlug := sanitizeSlug(filepath.Base(baseModel))
+		if baseSlug == "" {
+			baseSlug = "model"
+		}
+		ftName = baseSlug + "-" + jobID[len(jobID)-6:]
+	}
+
 	// Calculate realistic duration, hardware compatibility & estimated cost
 	modelFileBytes := clientModelFileBytes
 	if modelCompat.TotalWeightBytes > modelFileBytes {
@@ -972,6 +1074,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		RamTier:        ramTier,
 		TaskType:       taskType,
 		Method:         method,
+		Quantization:   quantization,
 		Epochs:         epochs,
 		DatasetBytes:   datasetBytes,
 		DatasetSamples: dsSamples,
@@ -995,8 +1098,10 @@ func UserCreateFineTuningJob(c *gin.Context) {
 
 	hyperBytes, _ := common.Marshal(map[string]any{
 		"n_epochs":         epochs,
+		"model_id":         ftName,
 		"suffix":           suffix,
 		"method":           method,
+		"quantization":     quantization,
 		"task_type":        taskType,
 		"ram_tier":         ramTier,
 		"model_source":     modelSource,
@@ -1005,12 +1110,6 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		"dataset_bytes":    datasetBytes,
 	})
 	now := time.Now().Unix()
-	ftName := "ft:" + baseModel
-	if suffix != "" {
-		ftName = ftName + ":" + suffix
-	} else {
-		ftName = ftName + ":" + jobID[len(jobID)-6:]
-	}
 
 	job := &model.FineTuningJob{
 		JobID:                     jobID,
@@ -1025,6 +1124,7 @@ func UserCreateFineTuningJob(c *gin.Context) {
 		Provider:                  provider,
 		GPU:                       gpu,
 		Method:                    method,
+		Quantization:              quantization,
 		TaskType:                  taskType,
 		RamTier:                   ramTier,
 		ModelSource:               modelSource,
@@ -1045,6 +1145,61 @@ func UserCreateFineTuningJob(c *gin.Context) {
 	}
 	service.StartFineTuningJobRunner(job.JobID)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": job})
+}
+
+// UserUpdateFineTuningJob lets the owner rename the direct Model ID of a fine-tuned model
+// (before or after training) and syncs any active serving deployment immediately.
+func UserUpdateFineTuningJob(c *gin.Context) {
+	userId := c.GetInt("id")
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	job, err := model.GetFineTuningJobByJobID(jobID)
+	if err != nil || (job.UserId != userId && c.GetInt("role") < common.RoleAdminUser) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
+		return
+	}
+	var req struct {
+		ModelID        string `json:"model_id"`
+		FineTunedModel string `json:"fine_tuned_model"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request payload"})
+		return
+	}
+	rawID := strings.TrimSpace(req.ModelID)
+	if rawID == "" {
+		rawID = strings.TrimSpace(req.FineTunedModel)
+	}
+	validatedID, idErr := service.ValidateCustomFineTunedModelID(rawID)
+	if idErr != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_INVALID_MODEL_ID", "message": idErr.Error()})
+		return
+	}
+	if model.ExistsUserFineTunedModel(job.UserId, validatedID, job.JobID) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_MODEL_ID_EXISTS", "message": "You already have a fine-tuned model with this Model ID"})
+		return
+	}
+
+	now := time.Now().Unix()
+	if err := model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
+		"fine_tuned_model": validatedID,
+		"updated_at":       now,
+	}); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if job.ServingDeploymentID > 0 {
+		_ = model.UpdateNotebookDeploymentFields(job.ServingDeploymentID, map[string]any{
+			"model_id":     validatedID,
+			"updated_time": now,
+		})
+	}
+	if job.ServingStatus != "" && job.ServingStatus != "stopped" {
+		service.AppendFineTuningServingLog(job.UserId, job.JobID, "rename",
+			fmt.Sprintf("Model ID updated from %q to %q", job.FineTunedModel, validatedID))
+	}
+
+	updated, _ := model.GetFineTuningJobByJobID(job.JobID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": updated})
 }
 
 func UserCancelFineTuningJob(c *gin.Context) {
@@ -1071,16 +1226,57 @@ func UserGetFineTuningJobLogs(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Fine-tuning job not found"})
 		return
 	}
+	trainingLogs := service.ReadFineTuningJobLogs(job.UserId, job.JobID)
+	servingLogs := service.ReadFineTuningServingLogs(job.UserId, job.JobID)
+
+	// Merge live sanitized runtime logs from active/starting private NotebookDeployment
+	if job.ServingDeploymentID > 0 {
+		if dep, dErr := model.GetNotebookDeploymentByID(job.ServingDeploymentID); dErr == nil && dep != nil {
+			liveParts := make([]string, 0, 2)
+			if strings.TrimSpace(dep.StatusMessage) != "" && dep.Status != "running" {
+				liveParts = append(liveParts, "[status] "+service.SanitizeFineTuningLogLine(dep.StatusMessage))
+			}
+			if strings.TrimSpace(dep.Logs) != "" {
+				var sanitizedLines []string
+				for _, ln := range strings.Split(strings.TrimRight(dep.Logs, "\n"), "\n") {
+					s := strings.TrimSpace(ln)
+					if s != "" {
+						sanitizedLines = append(sanitizedLines, service.SanitizeFineTuningLogLine(s))
+					}
+				}
+				if len(sanitizedLines) > 0 {
+					liveParts = append(liveParts, strings.Join(sanitizedLines, "\n"))
+				}
+			}
+			if len(liveParts) > 0 {
+				liveText := strings.Join(liveParts, "\n")
+				if servingLogs != "" {
+					servingLogs = servingLogs + "\n--- Live Runtime Logs ---\n" + liveText
+				} else {
+					servingLogs = liveText
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"job_id":           job.JobID,
-			"fine_tuned_model": job.FineTunedModel,
-			"status":           job.Status,
-			"progress":         job.Progress,
-			"trained_tokens":   job.TrainedTokens,
-			"error":            job.Error,
-			"logs":             service.ReadFineTuningJobLogs(job.UserId, job.JobID),
+			"job_id":                       job.JobID,
+			"fine_tuned_model":             job.FineTunedModel,
+			"status":                       job.Status,
+			"progress":                     job.Progress,
+			"trained_tokens":               job.TrainedTokens,
+			"error":                        job.Error,
+			"logs":                         trainingLogs,
+			"training_logs":                trainingLogs,
+			"serving_logs":                 servingLogs,
+			"serving_status":               job.ServingStatus,
+			"serving_gpu":                  job.ServingGPU,
+			"serving_ram_tier":             job.ServingRamTier,
+			"serving_idle_timeout_seconds": job.ServingIdleTimeoutSeconds,
+			"serving_stop_reason":          job.ServingStopReason,
+			"serving_error":                job.ServingError,
 		},
 	})
 }
@@ -1112,7 +1308,7 @@ func UserDeleteFineTuningJob(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
 		return
 	}
-	if job.ServingStatus == "starting" || job.ServingStatus == "running" {
+	if job.ServingStatus == "starting" || job.ServingStatus == "running" || job.ServingStatus == "sleeping" {
 		stopFineTuningServingJob(job.JobID, "job_deleted")
 	}
 	if err := model.DeleteFineTuningJob(jobID, job.UserId); err != nil {
@@ -1177,6 +1373,8 @@ func AdminListFineTuningJobs(c *gin.Context) {
 			"total_jobs":           len(items),
 			"total_revenue_usd":    totalRevenueUSD,
 			"total_trained_tokens": totalTokens,
+			"storage_used_bytes":   service.CalculateFineTuningStorageUsedBytes(),
+			"max_storage_gb":       service.GetFineTuningMaxStorageGB(),
 		},
 	})
 }
@@ -1189,7 +1387,7 @@ func AdminDeleteFineTuningJob(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "code": "FT_JOB_NOT_FOUND", "message": "Fine-tuning job not found"})
 		return
 	}
-	if job.ServingStatus == "starting" || job.ServingStatus == "running" {
+	if job.ServingStatus == "starting" || job.ServingStatus == "running" || job.ServingStatus == "sleeping" {
 		stopFineTuningServingJob(job.JobID, "job_deleted")
 	}
 	if err := model.AdminDeleteFineTuningJob(jobID); err != nil {

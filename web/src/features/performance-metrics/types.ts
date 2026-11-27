@@ -55,6 +55,7 @@ export type UptimeBucket = {
 
 export type PerfModelSummary = {
   model_name: string
+  display_name?: string
   avg_latency_ms: number
   success_rate: number
   avg_tps: number

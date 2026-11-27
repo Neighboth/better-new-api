@@ -20,6 +20,7 @@ type FineTuningJob struct {
 	Provider          string  `json:"provider" gorm:"type:varchar(32)"`
 	GPU               string  `json:"gpu" gorm:"type:varchar(64)"`
 	Method            string  `json:"method" gorm:"type:varchar(32)"`
+	Quantization      string  `json:"quantization" gorm:"type:varchar(32)"`
 	TaskType          string  `json:"task_type" gorm:"type:varchar(32)"`
 	RamTier           string  `json:"ram_tier" gorm:"type:varchar(16)"`
 	Progress          int     `json:"progress"`
@@ -36,23 +37,27 @@ type FineTuningJob struct {
 	CheckpointEpoch           int     `json:"checkpoint_epoch"`
 	CheckpointStep            int     `json:"checkpoint_step"`
 	AttemptCount              int     `json:"attempt_count"`
+	EvalReportJSON            string  `json:"eval_report_json" gorm:"type:text"`
 	TrainingFilePath          string  `json:"-" gorm:"type:text"`
-	BaseModelFilePath   string  `json:"-" gorm:"type:text"`
-	CheckpointPath      string  `json:"-" gorm:"type:text"`
-	ModelFilePath       string  `json:"-" gorm:"type:text"`
-	HasModelFile         bool   `json:"has_model_file" gorm:"-"`
-	ServingStatus        string `json:"serving_status" gorm:"type:varchar(32);index"` // "" | stopped | starting | running | failed
-	ServingDeploymentID  int    `json:"serving_deployment_id"`
-	ServingProvider      string `json:"serving_provider" gorm:"type:varchar(32)"`
-	ServingGPU           string `json:"serving_gpu" gorm:"type:varchar(64)"`
-	ServingRamTier       string `json:"serving_ram_tier" gorm:"type:varchar(16)"`
-	ServingEndpointURL   string `json:"-" gorm:"type:text"`
-	ServingStartedAt     int64  `json:"serving_started_at" gorm:"bigint"`
-	ServingLastBilledAt  int64  `json:"serving_last_billed_at" gorm:"bigint"`
-	ServingBilledSeconds int64  `json:"serving_billed_seconds"`
-	ServingBilledQuota   int64  `json:"serving_billed_quota"`
-	ServingError         string `json:"serving_error" gorm:"type:text"`
-	ServingStopReason    string `json:"serving_stop_reason" gorm:"type:varchar(64)"`
+	BaseModelFilePath         string  `json:"-" gorm:"type:text"`
+	CheckpointPath            string  `json:"-" gorm:"type:text"`
+	ModelFilePath             string  `json:"-" gorm:"type:text"`
+	HasModelFile              bool    `json:"has_model_file" gorm:"-"`
+	ServingStatus             string  `json:"serving_status" gorm:"type:varchar(32);index"` // "" | stopped | starting | running | sleeping | failed
+	ServingDeploymentID       int     `json:"serving_deployment_id"`
+	ServingProvider           string  `json:"serving_provider" gorm:"type:varchar(32)"`
+	ServingGPU                string  `json:"serving_gpu" gorm:"type:varchar(64)"`
+	ServingRamTier            string  `json:"serving_ram_tier" gorm:"type:varchar(16)"`
+	ServingEndpointURL        string  `json:"-" gorm:"type:text"`
+	ServingStartedAt          int64   `json:"serving_started_at" gorm:"bigint"`
+	ServingLastBilledAt       int64   `json:"serving_last_billed_at" gorm:"bigint"`
+	ServingLastRequestAt      int64   `json:"serving_last_request_at" gorm:"bigint"`
+	ServingIdleTimeoutSeconds int     `json:"serving_idle_timeout_seconds"`
+	ServingAutoWake           bool    `json:"serving_auto_wake"`
+	ServingBilledSeconds      int64   `json:"serving_billed_seconds"`
+	ServingBilledQuota        int64   `json:"serving_billed_quota"`
+	ServingError              string  `json:"serving_error" gorm:"type:text"`
+	ServingStopReason         string  `json:"serving_stop_reason" gorm:"type:varchar(64)"`
 	CallbackToken        string `json:"-" gorm:"type:varchar(64)"`
 	CreatedAt            int64  `json:"created_at" gorm:"bigint;index"`
 	FinishedAt           int64  `json:"finished_at" gorm:"bigint"`
@@ -83,21 +88,42 @@ func ListUserFineTuningJobs(userId int, limit int) ([]FineTuningJob, error) {
 	return jobs, err
 }
 
+// ExistsUserFineTunedModel reports whether userId already has a fine-tuning job
+// using modelID (case-insensitive), optionally excluding excludeJobID.
+func ExistsUserFineTunedModel(userId int, modelID string, excludeJobID string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(modelID))
+	if userId <= 0 || trimmed == "" {
+		return false
+	}
+	q := DB.Model(&FineTuningJob{}).Where("user_id = ? AND LOWER(fine_tuned_model) = ?", userId, trimmed)
+	if strings.TrimSpace(excludeJobID) != "" {
+		q = q.Where("job_id != ?", strings.TrimSpace(excludeJobID))
+	}
+	var count int64
+	if err := q.Count(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
+}
+
 // ListUserActiveServingFineTuningJobs returns fine-tuned models currently actively
-// hosted for userId only. Never returns models belonging to other users.
+// hosted or sleeping with auto-wake for userId only. Never returns models belonging to other users.
 func ListUserActiveServingFineTuningJobs(userId int) ([]FineTuningJob, error) {
 	if userId <= 0 {
 		return nil, nil
 	}
 	var jobs []FineTuningJob
-	err := DB.Where("user_id = ? AND serving_status = ? AND serving_endpoint_url != ?", userId, "running", "").
+	err := DB.Where(
+		"user_id = ? AND ((serving_status = ? AND serving_endpoint_url != ?) OR (serving_status IN ? AND serving_auto_wake = ?))",
+		userId, "running", "", []string{"sleeping", "starting"}, true,
+	).
 		Order("id desc").
 		Find(&jobs).Error
 	return jobs, err
 }
 
-// GetUserActiveServingFineTuningJobByModel resolves a private running fine-tuned
-// model exclusively for its owning user.
+// GetUserActiveServingFineTuningJobByModel resolves a private running (or auto-wake
+// sleeping/starting) fine-tuned model exclusively for its owning user.
 func GetUserActiveServingFineTuningJobByModel(userId int, fineTunedModel string) (*FineTuningJob, error) {
 	if userId <= 0 {
 		return nil, nil
@@ -107,8 +133,10 @@ func GetUserActiveServingFineTuningJobByModel(userId int, fineTunedModel string)
 		return nil, nil
 	}
 	var job FineTuningJob
-	err := DB.Where("user_id = ? AND LOWER(fine_tuned_model) = ? AND serving_status = ? AND serving_endpoint_url != ?",
-		userId, strings.ToLower(trimmed), "running", "").
+	err := DB.Where(
+		"user_id = ? AND LOWER(fine_tuned_model) = ? AND ((serving_status = ? AND serving_endpoint_url != ?) OR (serving_status IN ? AND serving_auto_wake = ?))",
+		userId, strings.ToLower(trimmed), "running", "", []string{"sleeping", "starting"}, true,
+	).
 		Order("id desc").
 		First(&job).Error
 	if err != nil {

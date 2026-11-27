@@ -30,6 +30,12 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		return
 	}
 
+	for i := range result.Models {
+		if dn := model.GetModelDisplayName(result.Models[i].ModelName); dn != "" {
+			result.Models[i].DisplayName = dn
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    result,

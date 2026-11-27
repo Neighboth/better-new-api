@@ -96,6 +96,10 @@ import {
 } from './lib/model-constraints'
 import { getStudioVideo } from './lib/studio-indexeddb'
 import { StudioItemDetailsDialog } from './components/studio-item-details-dialog'
+import {
+  StudioDiscordGateDialog,
+  type StudioDiscordGateStatus,
+} from './components/studio-discord-gate-dialog'
 import { VideoJsPlayer } from './components/video-js-player'
 import { STUDIO_ITEMS_PURGED_EVENT } from './lib/studio-sync'
 
@@ -454,6 +458,9 @@ export function Studio() {
   const [endFrame, setEndFrame] = useState('')
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
   const [optimizerPickerOpen, setOptimizerPickerOpen] = useState(false)
+  const [discordGateStatus, setDiscordGateStatus] = useState<StudioDiscordGateStatus | null>(null)
+  const [discordGateOpen, setDiscordGateOpen] = useState(false)
+  const prevDiscordSatisfiedRef = useRef<boolean | null>(null)
   const [optimizerModel, setOptimizerModel] = useState<string>(() => {
     try {
       return localStorage.getItem('studio_optimizer_model') ?? ''
@@ -815,6 +822,90 @@ export function Studio() {
     return () => clearTimeout(timer)
   }, [activeItem, singleVideoUrl, brokenMediaIds])
 
+  const fetchDiscordGateStatus = useCallback(async (): Promise<StudioDiscordGateStatus | null> => {
+    try {
+      const res = await api.get<{
+        success: boolean
+        data?: StudioDiscordGateStatus
+      }>('/api/user/studio/discord-gate/status', {
+        skipErrorHandler: true,
+        skipBusinessError: true,
+      } as Record<string, unknown>)
+      if (res.data?.success && res.data.data) {
+        setDiscordGateStatus(res.data.data)
+        return res.data.data
+      }
+    } catch {
+      // ignore transient network errors during background 1s polling
+    }
+    return null
+  }, [])
+
+  // Fetch initial Discord gate config on Studio mount
+  useEffect(() => {
+    void fetchDiscordGateStatus()
+  }, [fetchDiscordGateStatus])
+
+  const isModelInDiscordGate = useCallback(
+    (modelId: string, statusObj: StudioDiscordGateStatus | null = discordGateStatus): boolean => {
+      if (!statusObj?.active) return false
+      const target = modelId.trim().toLowerCase()
+      if (!target) return false
+      return (statusObj.gated_models ?? []).some(
+        (m) => m.trim().toLowerCase() === target
+      )
+    },
+    [discordGateStatus]
+  )
+
+  const isCurrentModelDiscordGated = useMemo(
+    () => isModelInDiscordGate(currentModelName, discordGateStatus),
+    [currentModelName, discordGateStatus, isModelInDiscordGate]
+  )
+
+  // Poll every 1 second whenever a gated model is currently selected (even if popup is closed!)
+  useEffect(() => {
+    if (!isCurrentModelDiscordGated) return
+    const interval = window.setInterval(() => {
+      void fetchDiscordGateStatus()
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [isCurrentModelDiscordGated, fetchDiscordGateStatus])
+
+  // Auto-close popup immediately once membership is verified OR if admin removes the gate
+  useEffect(() => {
+    if (!isCurrentModelDiscordGated) {
+      if (discordGateOpen) setDiscordGateOpen(false)
+      prevDiscordSatisfiedRef.current = null
+      return
+    }
+    const satisfied = Boolean(discordGateStatus?.discord_linked && discordGateStatus?.in_server)
+    if (satisfied && prevDiscordSatisfiedRef.current === false) {
+      toast.success(t('Discord server membership verified! You can now generate with this model.'))
+    }
+    if (satisfied && discordGateOpen) {
+      setDiscordGateOpen(false)
+    } else if (!satisfied && prevDiscordSatisfiedRef.current === true) {
+      setDiscordGateOpen(true)
+    }
+    prevDiscordSatisfiedRef.current = satisfied
+  }, [isCurrentModelDiscordGated, discordGateStatus, discordGateOpen, t])
+
+  const checkModelDiscordGateOnUserPick = useCallback(
+    (pickedModelId: string) => {
+      void (async () => {
+        const fresh = (await fetchDiscordGateStatus()) ?? discordGateStatus
+        if (
+          isModelInDiscordGate(pickedModelId, fresh) &&
+          !(fresh?.discord_linked && fresh?.in_server)
+        ) {
+          setDiscordGateOpen(true)
+        }
+      })()
+    },
+    [discordGateStatus, fetchDiscordGateStatus, isModelInDiscordGate]
+  )
+
   const editModeOnly = mode === 'video' && selectedVideoModel?.edit_mode === 'only'
   const editReady = !editModeOnly || attachedMedia?.type === 'video'
   const audioRenderAvailable = Boolean(selectedVideoModel?.audio)
@@ -823,6 +914,19 @@ export function Studio() {
 
   const handleGenerate = async () => {
     if (!canGenerate || hasActivePending) return
+
+    // Live check before starting generation: catches default gated model on first submit,
+    // AND catches users who left the Discord server right before clicking Generate.
+    const latestGate = await fetchDiscordGateStatus()
+    const effectiveGate = latestGate ?? discordGateStatus
+    if (
+      isModelInDiscordGate(currentModelName, effectiveGate) &&
+      !(effectiveGate?.discord_linked && effectiveGate?.in_server)
+    ) {
+      setDiscordGateOpen(true)
+      return
+    }
+
     const text = prompt.trim()
     // The rules may have switched a modality off after the files were picked —
     // gate each list again at submission time.
@@ -1432,7 +1536,11 @@ export function Studio() {
                     'relative flex items-center gap-1.5 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors',
                     mode === 'video' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                   )}
-                  onClick={() => setMode('video')}
+                  onClick={() => {
+                    setMode('video')
+                    const target = selectedVideoModel?.model
+                    if (target) checkModelDiscordGateOnUserPick(target)
+                  }}
                 >
                   <VideoIcon className='size-3.5' />
                   {t('Video')}
@@ -1448,7 +1556,11 @@ export function Studio() {
                     'relative flex items-center gap-1.5 px-3 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors',
                     mode === 'image' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                   )}
-                  onClick={() => setMode('image')}
+                  onClick={() => {
+                    setMode('image')
+                    const target = selectedImageModel?.model
+                    if (target) checkModelDiscordGateOnUserPick(target)
+                  }}
                 >
                   <ImageIcon className='size-3.5' />
                   {t('Image')}
@@ -1537,6 +1649,7 @@ export function Studio() {
                             setVideoDuration(String(target.default_duration))
                           }
                         } else if (mode === 'image') setImageModel(v)
+                        checkModelDiscordGateOnUserPick(v)
                       }}
                       value={currentModelName}
                     >
@@ -2184,6 +2297,17 @@ export function Studio() {
         item={detailsItemId ? (items.find((i) => i.id === detailsItemId) ?? null) : null}
         open={Boolean(detailsItemId)}
         onOpenChange={(open) => !open && setDetailsItemId(null)}
+      />
+
+      {/* Conditional Studio Model Discord Server Gate Dialog */}
+      <StudioDiscordGateDialog
+        open={discordGateOpen}
+        onOpenChange={setDiscordGateOpen}
+        modelDisplayName={currentModelDisplayName}
+        status={discordGateStatus}
+        onRefreshStatus={async () => {
+          await fetchDiscordGateStatus()
+        }}
       />
     </div>
   )

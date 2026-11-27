@@ -348,6 +348,118 @@ func GetFineTuningExpiryWarningDays() int {
 	return days
 }
 
+// GetFineTuningMaxStorageGB returns the global storage limit in gigabytes across
+// all fine-tuning artifacts, datasets, staged uploads, and checkpoints (0 = unlimited).
+func GetFineTuningMaxStorageGB() float64 {
+	common.OptionMapRWMutex.RLock()
+	raw := strings.TrimSpace(common.OptionMap["model_deployment.fine_tuning.max_storage_gb"])
+	common.OptionMapRWMutex.RUnlock()
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 0
+	}
+	return v
+}
+
+// GetFineTuningMaxStorageBytes returns the global fine-tuning storage cap in bytes (0 = unlimited).
+func GetFineTuningMaxStorageBytes() int64 {
+	gb := GetFineTuningMaxStorageGB()
+	if gb <= 0 {
+		return 0
+	}
+	const bytesPerGB = 1024.0 * 1024.0 * 1024.0
+	maxF := gb * bytesPerGB
+	if maxF >= float64(math.MaxInt64/2) {
+		return math.MaxInt64 / 2
+	}
+	return int64(math.Round(maxF))
+}
+
+var fineTuningRootStorageDirOverride string
+
+// FineTuningRootStorageDir returns the root directory containing all fine-tuning files.
+func FineTuningRootStorageDir() string {
+	if strings.TrimSpace(fineTuningRootStorageDirOverride) != "" {
+		return fineTuningRootStorageDirOverride
+	}
+	return filepath.Join("uploads", "fine_tuning")
+}
+
+// CalculateFineTuningStorageUsedBytes sums the disk size of every file under uploads/fine_tuning.
+func CalculateFineTuningStorageUsedBytes() int64 {
+	root := FineTuningRootStorageDir()
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		if info, iErr := d.Info(); iErr == nil && info.Size() > 0 {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// CheckFineTuningStorageQuota verifies whether adding additionalBytes stays within
+// the global fine-tuning storage limit configured in System Settings.
+func CheckFineTuningStorageQuota(additionalBytes int64) (allowed bool, usedBytes int64, maxBytes int64) {
+	maxBytes = GetFineTuningMaxStorageBytes()
+	usedBytes = CalculateFineTuningStorageUsedBytes()
+	if maxBytes <= 0 {
+		return true, usedBytes, 0
+	}
+	if additionalBytes < 0 {
+		additionalBytes = 0
+	}
+	return usedBytes+additionalBytes <= maxBytes, usedBytes, maxBytes
+}
+
+var customFineTunedModelIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,118}[a-zA-Z0-9]$`)
+
+// ValidateCustomFineTunedModelID validates a direct user-chosen fine-tuned model ID
+// (e.g. "benim-modelim", "acme-support-v2").
+func ValidateCustomFineTunedModelID(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("Model ID is required")
+	}
+	if len(trimmed) < 2 || len(trimmed) > 120 {
+		return "", fmt.Errorf("Model ID must be between 2 and 120 characters")
+	}
+	if !customFineTunedModelIDRe.MatchString(trimmed) {
+		return "", fmt.Errorf("Model ID may only contain letters, numbers, hyphens (-), underscores (_), dots (.), and colons (:), and must start and end with a letter or number")
+	}
+	return trimmed, nil
+}
+
+// QLoRAQuantizationFactor returns the VRAM multiplier relative to FP16 weight size
+// for a given QLoRA quantization profile.
+func QLoRAQuantizationFactor(quant string) float64 {
+	q := strings.ToUpper(strings.TrimSpace(quant))
+	switch {
+	case q == "" || q == "NF4" || q == "FP4" || strings.HasPrefix(q, "Q4_") || strings.HasPrefix(q, "IQ4_"):
+		return 0.40
+	case q == "INT8" || strings.HasPrefix(q, "Q8_"):
+		return 0.78
+	case strings.HasPrefix(q, "Q6_"):
+		return 0.62
+	case strings.HasPrefix(q, "Q5_"):
+		return 0.54
+	case strings.HasPrefix(q, "Q3_") || strings.HasPrefix(q, "IQ3_"):
+		return 0.36
+	case strings.HasPrefix(q, "Q2_") || strings.HasPrefix(q, "IQ2_"):
+		return 0.32
+	case q == "FP16" || q == "BF16":
+		return 1.20
+	default:
+		return 0.40
+	}
+}
+
 var modelSizeBillionsRe = regexp.MustCompile(`(?i)(?:^|[^0-9a-z])(\d+(?:\.\d+)?)\s*([bm])(?:[^a-z]|$)`)
 
 // ParseModelBillions extracts an approximate parameter count (in billions) from
@@ -585,8 +697,8 @@ func CheckFineTuningHardwareCompat(in FineTuningEstimateInput) FineTuningCompatC
 		// Weights + gradients + AdamW FP32 states + activations (~4x FP16 weight size)
 		reqVRAM = modelGB*4.0 + 3.0
 	case "qlora":
-		// 4-bit NF4 base weights (~0.35-0.4x FP16 size) + LoRA adapters + activations
-		reqVRAM = modelGB*0.40 + 2.2
+		// Quantized base weights (scaled by selected QLoRA bit-width) + LoRA adapters + activations
+		reqVRAM = modelGB*QLoRAQuantizationFactor(in.Quantization) + 2.2
 	default:
 		// LoRA / SFT / DPO / DreamBooth: FP16/BF16 weights + adapter states + activations
 		reqVRAM = modelGB*1.25 + 2.0
@@ -805,6 +917,7 @@ type FineTuningEstimateInput struct {
 	RamTier        string
 	TaskType       string
 	Method         string
+	Quantization   string
 	Epochs         int
 	DatasetBytes   int64
 	DatasetSamples int64 // exact non-empty lines/records when known
@@ -1164,15 +1277,15 @@ func sanitizeFineTuningSegment(s string) string {
 }
 
 func FineTuningStorageDirForUser(userID int, jobID string) string {
-	return filepath.Join("uploads", "fine_tuning", strconv.Itoa(userID), sanitizeFineTuningSegment(jobID))
+	return filepath.Join(FineTuningRootStorageDir(), strconv.Itoa(userID), sanitizeFineTuningSegment(jobID))
 }
 
 func FineTuningStagedDirForUser(userID int, uploadID string) string {
-	return filepath.Join("uploads", "fine_tuning", strconv.Itoa(userID), "_staged", sanitizeFineTuningSegment(uploadID))
+	return filepath.Join(FineTuningRootStorageDir(), strconv.Itoa(userID), "_staged", sanitizeFineTuningSegment(uploadID))
 }
 
 func FineTuningStorageDir(jobID string) string {
-	return filepath.Join("uploads", "fine_tuning", "0", sanitizeFineTuningSegment(jobID))
+	return filepath.Join(FineTuningRootStorageDir(), "0", sanitizeFineTuningSegment(jobID))
 }
 
 func CleanupFineTuningStorageForUser(userID int, jobID string) {

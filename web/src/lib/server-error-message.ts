@@ -50,6 +50,13 @@ const serverErrorMessageKeys = {
     'Selected accelerator is not enabled for model hosting',
   FT_SERVING_ALREADY_ACTIVE:
     'This fine-tuned model is already starting or running',
+  FT_STORAGE_QUOTA_EXCEEDED:
+    'Global fine-tuning storage limit reached. Delete old models or ask an administrator to raise the limit.',
+  FT_INVALID_MODEL_ID:
+    'Invalid Model ID format. Use letters, numbers, hyphens (-), underscores (_), dots (.), or colons (:).',
+  FT_MODEL_ID_EXISTS: 'You already have a fine-tuned model with this Model ID',
+  STUDIO_DISCORD_GATE_REQUIRED:
+    'You must link your Discord account and join our Discord server to use this model.',
 } as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {

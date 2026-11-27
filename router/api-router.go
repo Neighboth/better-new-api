@@ -206,6 +206,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/model_aliases/:id", controller.DeleteUserModelAlias)
 				selfRoute.GET("/fine_tuning/jobs", controller.UserListFineTuningJobs)
 				selfRoute.POST("/fine_tuning/jobs", controller.UserCreateFineTuningJob)
+				selfRoute.PUT("/fine_tuning/jobs/:job_id", controller.UserUpdateFineTuningJob)
 				selfRoute.POST("/fine_tuning/upload_model", controller.UserUploadStagedFineTuningModel)
 				selfRoute.DELETE("/fine_tuning/staged_model/:upload_id", controller.UserDeleteStagedFineTuningModel)
 				selfRoute.POST("/fine_tuning/jobs/:job_id/cancel", controller.UserCancelFineTuningJob)
@@ -218,6 +219,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/fine_tuning/hf/search", controller.SearchHuggingFaceModels)
 				selfRoute.GET("/fine_tuning/hf/files", controller.GetHuggingFaceModelFiles)
 				selfRoute.GET("/fine_tuning/check_model", controller.UserCheckFineTuningModel)
+				selfRoute.GET("/studio/discord-gate/status", controller.GetStudioDiscordGateStatus)
 
 				// 2FA routes
 				selfRoute.GET("/2fa/status", controller.Get2FAStatus)

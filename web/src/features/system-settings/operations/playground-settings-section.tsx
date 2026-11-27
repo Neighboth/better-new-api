@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { Braces, LayoutList, PlusIcon, XIcon } from 'lucide-react'
+import { AlertTriangle, Braces, LayoutList, PlusIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
+import { MultiSelect } from '@/components/multi-select'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,10 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { MultiSelect } from '@/components/multi-select'
 import { getAllModels } from '@/features/channels/api'
+import { useStatus } from '@/hooks/use-status'
 
 import {
   SettingsDescription,
@@ -98,6 +101,10 @@ export type PlaygroundSettingsDefaults = {
   promptOptimizerEnabled?: boolean
   promptOptimizerModel?: string
   promptOptimizerSystemPrompt?: string
+  studioDiscordGateModels?: string
+  studioDiscordGateInviteUrl?: string
+  studioDiscordGateGuildId?: string
+  discordBotEnabled?: boolean
   imageDefaultCount?: number
   imageModel?: string
   imageSizes?: string
@@ -141,13 +148,6 @@ function stripRowIds(models: MediaModelConfig[]): MediaModelConfig[] {
   }))
 }
 
-/**
- * Builds the model list of the runtime configuration.
- *
- * Installations that configured the studio before the per-model options
- * existed only have the single-model fields; their values become the first
- * entry of the list so nothing is lost when the page is opened.
- */
 function normalizeImageModels(
   defaults: PlaygroundSettingsDefaults
 ): MediaModelConfig[] {
@@ -204,8 +204,7 @@ type TagFieldProps = {
 function TagField(props: TagFieldProps) {
   const { t } = useTranslation()
   const options = useMemo(
-    () =>
-      (props.options ?? []).map((value) => ({ value, label: value })),
+    () => (props.options ?? []).map((value) => ({ value, label: value })),
     [props.options]
   )
   const allOptions = useMemo(() => {
@@ -217,8 +216,10 @@ function TagField(props: TagFieldProps) {
   }, [options, props.values])
 
   return (
-    <div className='space-y-1'>
-      {props.label ? <Label className='text-xs'>{props.label}</Label> : null}
+    <div className='space-y-1.5'>
+      {props.label ? (
+        <Label className='text-sm font-medium'>{props.label}</Label>
+      ) : null}
       <MultiSelect
         allowCreate={props.allowCreate ?? true}
         options={allOptions}
@@ -227,16 +228,19 @@ function TagField(props: TagFieldProps) {
         placeholder={props.placeholder ?? t('Type a value and press comma')}
       />
       {props.description && (
-        <p className='text-muted-foreground text-[11px]'>
-          {props.description}
-        </p>
+        <SettingsDescription>{props.description}</SettingsDescription>
       )}
     </div>
   )
 }
 
 /** Clamps a raw <input type=number> value into [min, max]. */
-function clampInt(raw: string, min: number, max: number, fallback: number): number {
+function clampInt(
+  raw: string,
+  min: number,
+  max: number,
+  fallback: number
+): number {
   const n = Number(raw)
   if (!Number.isFinite(n)) return fallback
   return Math.min(max, Math.max(min, Math.floor(n)))
@@ -252,12 +256,16 @@ function ReferenceImageBlock(props: MediaModelBlockProps) {
   const { t } = useTranslation()
   const { value, onChange } = props
   return (
-    <div className='space-y-3 pt-3 border-t border-border/40'>
+    <div className='space-y-3 pt-3'>
       <SettingsSwitchRow>
         <SettingsSwitchContent>
-          <Label className='text-sm'>{t('Accepts reference images')}</Label>
+          <Label className='text-sm font-medium'>
+            {t('Accepts reference images')}
+          </Label>
           <SettingsDescription>
-            {t('Shows the reference image picker for this model. Applies to uploads and to web-search-discovered references combined.')}
+            {t(
+              'Shows the reference image picker for this model. Applies to uploads and to web-search-discovered references combined.'
+            )}
           </SettingsDescription>
         </SettingsSwitchContent>
         <Switch
@@ -266,20 +274,26 @@ function ReferenceImageBlock(props: MediaModelBlockProps) {
         />
       </SettingsSwitchRow>
       {value.reference_image && (
-        <div className='flex items-center gap-2 ps-1'>
-          <Label className='text-xs shrink-0'>{t('Max reference images')}</Label>
+        <div className='flex flex-wrap items-center gap-3'>
+          <Label className='shrink-0 text-sm font-medium'>
+            {t('Max reference images')}
+          </Label>
           <Input
-            className='h-8 w-20 text-xs'
+            className='w-24'
             max={20}
             min={1}
             onChange={(event) =>
-              onChange({ max_reference_images: clampInt(event.target.value, 1, 20, 5) })
+              onChange({
+                max_reference_images: clampInt(event.target.value, 1, 20, 5),
+              })
             }
             type='number'
             value={value.max_reference_images ?? 5}
           />
           <SettingsDescription>
-            {t('Caps uploads and web-search-discovered references combined for this model.')}
+            {t(
+              'Caps uploads and web-search-discovered references combined for this model.'
+            )}
           </SettingsDescription>
         </div>
       )}
@@ -302,26 +316,28 @@ function RuleEditorRow(props: RuleRowProps) {
   const modelQualities = model.qualities ?? []
   const modelRatios = model.ratios ?? []
   const toNumbers = (raw: string[]) =>
-    raw.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0)
+    raw
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0)
 
   return (
-    <div className='space-y-2 rounded-md border border-border/60 bg-muted/30 p-2'>
+    <div className='bg-muted/30 space-y-3 rounded-lg p-3'>
       <div className='flex items-center justify-between'>
-        <span className='text-[11px] font-medium text-muted-foreground'>
+        <span className='text-muted-foreground text-sm font-medium'>
           {t('Rule {{index}}', { index: index + 1 })}
         </span>
         <Button
           aria-label={t('Remove rule')}
-          className='size-6'
+          className='size-7'
           onClick={onRemove}
           size='icon'
           type='button'
           variant='ghost'
         >
-          <XIcon className='size-3.5' />
+          <XIcon className='size-4' />
         </Button>
       </div>
-      <div className='grid grid-cols-1 sm:grid-cols-3 gap-2'>
+      <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
         <TagField
           description={t('Empty = any')}
           label={t('When duration is')}
@@ -347,7 +363,7 @@ function RuleEditorRow(props: RuleRowProps) {
           values={rule.ratios ?? []}
         />
       </div>
-      <div className='grid grid-cols-1 sm:grid-cols-4 gap-2'>
+      <div className='grid grid-cols-1 gap-3 sm:grid-cols-4'>
         <TagField
           allowCreate={false}
           description={t('Empty = keep all')}
@@ -375,27 +391,27 @@ function RuleEditorRow(props: RuleRowProps) {
           placeholder='16:9'
           values={rule.ratios_only ?? []}
         />
-        <div className='space-y-1'>
-          <Label className='text-xs'>{t('Reference images')}</Label>
+        <div className='space-y-1.5'>
+          <Label className='text-sm font-medium'>{t('Reference images')}</Label>
           <Select
-            onValueChange={(next) => onChange({ max_reference_images: Number(next) })}
+            onValueChange={(next) =>
+              onChange({ max_reference_images: Number(next) })
+            }
             value={String(rule.max_reference_images ?? 0)}
           >
-            <SelectTrigger className='h-8 text-xs'>
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem className='text-xs' value='0'>
-                {t('Unchanged')}
-              </SelectItem>
-              <SelectItem className='text-xs' value='-1'>
-                {t('Disabled')}
-              </SelectItem>
-              {Array.from({ length: 20 }, (_, position) => position + 1).map((n) => (
-                <SelectItem className='text-xs' key={n} value={String(n)}>
-                  {n}
-                </SelectItem>
-              ))}
+              <SelectItem value='0'>{t('Unchanged')}</SelectItem>
+              <SelectItem value='-1'>{t('Disabled')}</SelectItem>
+              {Array.from({ length: 20 }, (_, position) => position + 1).map(
+                (n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                )
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -409,15 +425,18 @@ function OptionRulesBlock(props: MediaModelBlockProps) {
   const { t } = useTranslation()
   const { value, onChange } = props
   const rules = value.constraints ?? []
-  const setRules = (next: MediaModelConstraintConfig[]) => onChange({ constraints: next })
+  const setRules = (next: MediaModelConstraintConfig[]) =>
+    onChange({ constraints: next })
 
   return (
-    <div className='space-y-2 pt-3 border-t border-border/40'>
-      <div className='flex items-start justify-between gap-2'>
-        <div>
+    <div className='space-y-3 pt-3'>
+      <div className='flex items-start justify-between gap-3'>
+        <div className='space-y-1'>
           <Label className='text-sm font-medium'>{t('Option rules')}</Label>
           <SettingsDescription>
-            {t('Narrow this model’s options for specific selections — e.g. “at 15s there is no 1080p”, “at 10s references are disabled”, “at 1080p at most 2 references”. Rules apply in order; the last matching rule wins per field.')}
+            {t(
+              'Narrow this model’s options for specific selections — e.g. “at 15s there is no 1080p”, “at 10s references are disabled”, “at 1080p at most 2 references”. Rules apply in order; the last matching rule wins per field.'
+            )}
           </SettingsDescription>
         </div>
         <Button
@@ -432,14 +451,18 @@ function OptionRulesBlock(props: MediaModelBlockProps) {
         </Button>
       </div>
       {rules.length > 0 && (
-        <div className='space-y-2'>
+        <div className='space-y-2.5'>
           {rules.map((rule, index) => (
             <RuleEditorRow
               index={index}
               key={rule._rowId ?? JSON.stringify(rule)}
               model={value}
               onChange={(patch) =>
-                setRules(rules.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+                setRules(
+                  rules.map((item, i) =>
+                    i === index ? { ...item, ...patch } : item
+                  )
+                )
               }
               onRemove={() => setRules(rules.filter((_, i) => i !== index))}
               rule={rule}
@@ -456,109 +479,133 @@ function VideoCapabilitiesBlock(props: MediaModelBlockProps) {
   const { t } = useTranslation()
   const { value, onChange } = props
   return (
-    <div className='space-y-3 pt-3 border-t border-border/40'>
-      <div className='space-y-1 pt-3 border-t border-border/40'>
-        <Label className='text-sm font-medium'>{t('Model capabilities')}</Label>
-        <div className='grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2'>
-          <div className='space-y-1'>
-            <Label className='text-xs'>{t('Video edit')}</Label>
-            <Select
-              onValueChange={(next) => onChange({ edit_mode: next as MediaModelConfig['edit_mode'] })}
-              value={value.edit_mode ?? 'none'}
-            >
-              <SelectTrigger className='h-9 text-xs'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem className='text-xs' value='none'>
-                  {t('No')}
-                </SelectItem>
-                <SelectItem className='text-xs' value='supported'>
-                  {t('Supported')}
-                </SelectItem>
-                <SelectItem className='text-xs' value='only'>
-                  {t('Edit-only')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+    <div className='space-y-3 pt-3'>
+      <Label className='text-sm font-medium'>{t('Model capabilities')}</Label>
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
+        <div className='space-y-1.5'>
+          <Label className='text-sm font-medium'>{t('Video edit')}</Label>
+          <Select
+            onValueChange={(next) =>
+              onChange({ edit_mode: next as MediaModelConfig['edit_mode'] })
+            }
+            value={value.edit_mode ?? 'none'}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='none'>{t('No')}</SelectItem>
+              <SelectItem value='supported'>{t('Supported')}</SelectItem>
+              <SelectItem value='only'>{t('Edit-only')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <SettingsDescription>
+            {t(
+              '“Supported”: the model may edit an input video. “Edit-only”: the model requires an input video and does not generate from text alone.'
+            )}
+          </SettingsDescription>
+        </div>
+        <SettingsSwitchRow className='items-center'>
+          <SettingsSwitchContent>
+            <Label className='text-sm font-medium'>
+              {t('Generates audio')}
+            </Label>
             <SettingsDescription>
-              {t('“Supported”: the model may edit an input video. “Edit-only”: the model requires an input video and does not generate from text alone.')}
+              {t('The model renders an audio track with the video.')}
             </SettingsDescription>
-          </div>
-          <SettingsSwitchRow className='items-center'>
-            <SettingsSwitchContent>
-              <Label className='text-sm'>{t('Generates audio')}</Label>
-              <SettingsDescription>
-                {t('The model renders an audio track with the video.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(value.audio)}
-              onCheckedChange={(checked) => onChange({ audio: checked })}
-            />
-          </SettingsSwitchRow>
-        </div>
-        <div className='grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 pt-1'>
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label className='text-sm'>{t('Accepts audio references')}</Label>
-              <SettingsDescription>
-                {t('Audio clips the model conditions the video on.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(value.audio_reference)}
-              onCheckedChange={(checked) => onChange({ audio_reference: checked })}
-            />
-          </SettingsSwitchRow>
-          <SettingsSwitchRow>
-            <SettingsSwitchContent>
-              <Label className='text-sm'>{t('Accepts video references')}</Label>
-              <SettingsDescription>
-                {t('Video clips the model conditions the video on.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch
-              checked={Boolean(value.video_reference)}
-              onCheckedChange={(checked) => onChange({ video_reference: checked })}
-            />
-          </SettingsSwitchRow>
-        </div>
-        {(value.audio_reference || value.video_reference) && (
-          <div className='flex flex-wrap items-center gap-4 ps-1'>
-            {value.audio_reference && (
-              <div className='flex items-center gap-2'>
-                <Label className='text-xs shrink-0'>{t('Max audio references')}</Label>
-                <Input
-                  className='h-8 w-16 text-xs'
-                  max={10}
-                  min={1}
-                  onChange={(event) =>
-                    onChange({ max_audio_references: clampInt(event.target.value, 1, 10, 3) })
-                  }
-                  type='number'
-                  value={value.max_audio_references ?? 3}
-                />
-              </div>
-            )}
-            {value.video_reference && (
-              <div className='flex items-center gap-2'>
-                <Label className='text-xs shrink-0'>{t('Max video references')}</Label>
-                <Input
-                  className='h-8 w-16 text-xs'
-                  max={10}
-                  min={1}
-                  onChange={(event) =>
-                    onChange({ max_video_references: clampInt(event.target.value, 1, 10, 2) })
-                  }
-                  type='number'
-                  value={value.max_video_references ?? 2}
-                />
-              </div>
-            )}
-          </div>
-        )}
+          </SettingsSwitchContent>
+          <Switch
+            checked={Boolean(value.audio)}
+            onCheckedChange={(checked) => onChange({ audio: checked })}
+          />
+        </SettingsSwitchRow>
       </div>
+      <div className='grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2'>
+        <SettingsSwitchRow>
+          <SettingsSwitchContent>
+            <Label className='text-sm font-medium'>
+              {t('Accepts audio references')}
+            </Label>
+            <SettingsDescription>
+              {t('Audio clips the model conditions the video on.')}
+            </SettingsDescription>
+          </SettingsSwitchContent>
+          <Switch
+            checked={Boolean(value.audio_reference)}
+            onCheckedChange={(checked) =>
+              onChange({ audio_reference: checked })
+            }
+          />
+        </SettingsSwitchRow>
+        <SettingsSwitchRow>
+          <SettingsSwitchContent>
+            <Label className='text-sm font-medium'>
+              {t('Accepts video references')}
+            </Label>
+            <SettingsDescription>
+              {t('Video clips the model conditions the video on.')}
+            </SettingsDescription>
+          </SettingsSwitchContent>
+          <Switch
+            checked={Boolean(value.video_reference)}
+            onCheckedChange={(checked) =>
+              onChange({ video_reference: checked })
+            }
+          />
+        </SettingsSwitchRow>
+      </div>
+      {(value.audio_reference || value.video_reference) && (
+        <div className='flex flex-wrap items-center gap-4'>
+          {value.audio_reference && (
+            <div className='flex items-center gap-2'>
+              <Label className='shrink-0 text-sm font-medium'>
+                {t('Max audio references')}
+              </Label>
+              <Input
+                className='w-20'
+                max={10}
+                min={1}
+                onChange={(event) =>
+                  onChange({
+                    max_audio_references: clampInt(
+                      event.target.value,
+                      1,
+                      10,
+                      3
+                    ),
+                  })
+                }
+                type='number'
+                value={value.max_audio_references ?? 3}
+              />
+            </div>
+          )}
+          {value.video_reference && (
+            <div className='flex items-center gap-2'>
+              <Label className='shrink-0 text-sm font-medium'>
+                {t('Max video references')}
+              </Label>
+              <Input
+                className='w-20'
+                max={10}
+                min={1}
+                onChange={(event) =>
+                  onChange({
+                    max_video_references: clampInt(
+                      event.target.value,
+                      1,
+                      10,
+                      2
+                    ),
+                  })
+                }
+                type='number'
+                value={value.max_video_references ?? 2}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -582,15 +629,17 @@ function ModelCard(props: ModelCardProps) {
   const sizeOptions = useMemo(() => value.sizes ?? [], [value.sizes])
   const qualityOptions = useMemo(() => value.qualities ?? [], [value.qualities])
   const ratioOptions = useMemo(() => value.ratios ?? [], [value.ratios])
-  const durationOptions = useMemo(() => value.durations ?? [], [value.durations])
+  const durationOptions = useMemo(
+    () => value.durations ?? [],
+    [value.durations]
+  )
 
   return (
-    <div className='border border-border rounded-xl p-4 bg-card/50 space-y-3 shadow-xs'>
-      <div className='flex items-start gap-2'>
-        <div className='flex-1 space-y-1'>
-          <Label className='text-xs'>{t('Model')}</Label>
+    <div className='bg-muted/25 space-y-4 rounded-lg p-4'>
+      <div className='flex items-start gap-3'>
+        <div className='flex-1 space-y-1.5'>
+          <Label className='text-sm font-medium'>{t('Model')}</Label>
           <Input
-            className='font-mono text-xs'
             list={`playground-media-models-${mode}`}
             onChange={(event) => update({ model: event.target.value })}
             placeholder={mode === 'image' ? 'dall-e-3' : 'kling-v1'}
@@ -602,10 +651,9 @@ function ModelCard(props: ModelCardProps) {
             ))}
           </datalist>
         </div>
-        <div className='w-28 sm:w-36 space-y-1'>
-          <Label className='text-xs'>{t('Tag (optional)')}</Label>
+        <div className='w-32 space-y-1.5 sm:w-40'>
+          <Label className='text-sm font-medium'>{t('Tag (optional)')}</Label>
           <Input
-            className='text-xs'
             placeholder='Fast, Pro, HQ...'
             value={value.tag ?? ''}
             onChange={(event) => update({ tag: event.target.value })}
@@ -613,7 +661,7 @@ function ModelCard(props: ModelCardProps) {
         </div>
         <Button
           aria-label={t('Remove model')}
-          className='mt-5'
+          className='mt-6'
           onClick={props.onRemove}
           size='icon-sm'
           type='button'
@@ -640,13 +688,13 @@ function ModelCard(props: ModelCardProps) {
             />
           </SettingsFormGrid>
           <SettingsFormGrid>
-            <div className='space-y-1'>
-              <Label className='text-xs'>{t('Default size')}</Label>
+            <div className='space-y-1.5'>
+              <Label className='text-sm font-medium'>{t('Default size')}</Label>
               <Select
                 onValueChange={(next) => update({ default_size: String(next) })}
                 value={value.default_size || sizeOptions[0] || ''}
               >
-                <SelectTrigger className='h-9'>
+                <SelectTrigger>
                   <SelectValue placeholder={t('First size')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -658,15 +706,17 @@ function ModelCard(props: ModelCardProps) {
                 </SelectContent>
               </Select>
             </div>
-            <div className='space-y-1'>
-              <Label className='text-xs'>{t('Default quality')}</Label>
+            <div className='space-y-1.5'>
+              <Label className='text-sm font-medium'>
+                {t('Default quality')}
+              </Label>
               <Select
                 onValueChange={(next) =>
                   update({ default_quality: String(next) })
                 }
                 value={value.default_quality || qualityOptions[0] || ''}
               >
-                <SelectTrigger className='h-9'>
+                <SelectTrigger>
                   <SelectValue placeholder={t('First quality')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -713,14 +763,18 @@ function ModelCard(props: ModelCardProps) {
               placeholder='standard, high'
               values={value.qualities ?? []}
             />
-            <div className='grid grid-cols-1 sm:grid-cols-3 gap-3'>
-              <div className='space-y-1'>
-                <Label className='text-xs'>{t('Default ratio')}</Label>
+            <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+              <div className='space-y-1.5'>
+                <Label className='text-sm font-medium'>
+                  {t('Default ratio')}
+                </Label>
                 <Select
-                  onValueChange={(next) => update({ default_ratio: String(next) })}
+                  onValueChange={(next) =>
+                    update({ default_ratio: String(next) })
+                  }
                   value={value.default_ratio || ratioOptions[0] || ''}
                 >
-                  <SelectTrigger className='h-9'>
+                  <SelectTrigger>
                     <SelectValue placeholder={t('First ratio')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -732,19 +786,23 @@ function ModelCard(props: ModelCardProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className='space-y-1'>
-                <Label className='text-xs'>{t('Default duration')}</Label>
+              <div className='space-y-1.5'>
+                <Label className='text-sm font-medium'>
+                  {t('Default duration')}
+                </Label>
                 <Select
                   onValueChange={(next) =>
                     update({ default_duration: Number(next) || undefined })
                   }
                   value={(() => {
-                    if (value.default_duration) return String(value.default_duration)
-                    if (durationOptions[0] != null) return String(durationOptions[0])
+                    if (value.default_duration)
+                      return String(value.default_duration)
+                    if (durationOptions[0] != null)
+                      return String(durationOptions[0])
                     return ''
                   })()}
                 >
-                  <SelectTrigger className='h-9'>
+                  <SelectTrigger>
                     <SelectValue placeholder={t('First duration')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -756,15 +814,17 @@ function ModelCard(props: ModelCardProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className='space-y-1'>
-                <Label className='text-xs'>{t('Default quality')}</Label>
+              <div className='space-y-1.5'>
+                <Label className='text-sm font-medium'>
+                  {t('Default quality')}
+                </Label>
                 <Select
                   onValueChange={(next) =>
                     update({ default_quality: String(next) })
                   }
                   value={value.default_quality || qualityOptions[0] || ''}
                 >
-                  <SelectTrigger className='h-9'>
+                  <SelectTrigger>
                     <SelectValue placeholder={t('First quality')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -780,9 +840,16 @@ function ModelCard(props: ModelCardProps) {
           </SettingsFormGrid>
         </>
       )}
+      <Separator />
       <ReferenceImageBlock onChange={update} value={value} />
+      <Separator />
       <OptionRulesBlock onChange={update} value={value} />
-      {mode === 'video' && <VideoCapabilitiesBlock onChange={update} value={value} />}
+      {mode === 'video' && (
+        <>
+          <Separator />
+          <VideoCapabilitiesBlock onChange={update} value={value} />
+        </>
+      )}
     </div>
   )
 }
@@ -793,7 +860,14 @@ export function PlaygroundSettingsSection({
   defaultValues: PlaygroundSettingsDefaults
 }) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const updateOptions = useUpdateOptionsBulk()
+
+  const discordBotReady = Boolean(defaultValues.discordBotEnabled)
+  const discordOAuthReady = Boolean(
+    status?.discord_oauth && status?.discord_client_id
+  )
+  const discordGatePrereqsMet = discordBotReady && discordOAuthReady
 
   const [imageEnabled, setImageEnabled] = useState<boolean>(
     defaultValues.imageEnabled ?? true
@@ -807,12 +881,17 @@ export function PlaygroundSettingsSection({
   const [studioDefaultModel, setStudioDefaultModel] = useState<string>(
     defaultValues.studioDefaultModel ?? ''
   )
+  const [studioDiscordGateModels, setStudioDiscordGateModels] =
+    useState<string>(defaultValues.studioDiscordGateModels ?? '')
+  const [studioDiscordGateInviteUrl, setStudioDiscordGateInviteUrl] =
+    useState<string>(defaultValues.studioDiscordGateInviteUrl ?? '')
+  const [studioDiscordGateGuildId, setStudioDiscordGateGuildId] =
+    useState<string>(defaultValues.studioDiscordGateGuildId ?? '')
   const [playgroundDefaultModel, setPlaygroundDefaultModel] = useState<string>(
     defaultValues.playgroundDefaultModel ?? ''
   )
-  const [playgroundHiddenModelsText, setPlaygroundHiddenModelsText] = useState<string>(
-    (defaultValues.playgroundHiddenModels ?? []).join(', ')
-  )
+  const [playgroundHiddenModelsText, setPlaygroundHiddenModelsText] =
+    useState<string>((defaultValues.playgroundHiddenModels ?? []).join(', '))
   const [imageModels, setImageModels] = useState<MediaModelConfig[]>(() =>
     ensureRowIds(normalizeImageModels(defaultValues))
   )
@@ -822,15 +901,18 @@ export function PlaygroundSettingsSection({
   const [promptOptimizerModel, setPromptOptimizerModel] = useState<string>(
     defaultValues.promptOptimizerModel ?? ''
   )
-  const [promptOptimizerSystemPrompt, setPromptOptimizerSystemPrompt] = useState<string>(
-    defaultValues.promptOptimizerSystemPrompt ??
-      'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
-  )
+  const [promptOptimizerSystemPrompt, setPromptOptimizerSystemPrompt] =
+    useState<string>(
+      defaultValues.promptOptimizerSystemPrompt ??
+        'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.'
+    )
 
   // Whole-page JSON mode: the same options, edited as one document.
   const [jsonMode, setJsonMode] = useState(false)
   const [jsonDraft, setJsonDraft] = useState('')
   const [jsonError, setJsonError] = useState('')
+
+  const hasConditionalModels = studioDiscordGateModels.trim().length > 0
 
   const currentSettingsObject = () => ({
     image_enabled: imageEnabled,
@@ -843,6 +925,9 @@ export function PlaygroundSettingsSection({
     ),
     studio_enabled: studioEnabled,
     studio_default_model: studioDefaultModel,
+    studio_discord_gate_models: studioDiscordGateModels.trim(),
+    studio_discord_gate_invite_url: studioDiscordGateInviteUrl.trim(),
+    studio_discord_gate_guild_id: studioDiscordGateGuildId.trim(),
     playground_default_model: playgroundDefaultModel,
     playground_hidden_models: playgroundHiddenModelsText
       .split(/[\n,]+/)
@@ -879,7 +964,9 @@ export function PlaygroundSettingsSection({
 
     const optimizerModel = String(parsed.prompt_optimizer_model ?? '').trim()
     if (!optimizerModel) {
-      setJsonError(t('A prompt optimizer model is required for Studio generations'))
+      setJsonError(
+        t('A prompt optimizer model is required for Studio generations')
+      )
       return
     }
 
@@ -921,7 +1008,9 @@ export function PlaygroundSettingsSection({
 
   const save = async () => {
     if (!promptOptimizerModel.trim()) {
-      toast.error(t('A prompt optimizer model is required for Studio generations'))
+      toast.error(
+        t('A prompt optimizer model is required for Studio generations')
+      )
       return
     }
     try {
@@ -936,7 +1025,14 @@ export function PlaygroundSettingsSection({
         ),
         'playground_setting.studio_enabled': String(studioEnabled),
         'playground_setting.studio_default_model': studioDefaultModel,
-        'playground_setting.playground_default_model': playgroundDefaultModel.trim(),
+        'playground_setting.studio_discord_gate_models':
+          studioDiscordGateModels.trim(),
+        'playground_setting.studio_discord_gate_invite_url':
+          studioDiscordGateInviteUrl.trim(),
+        'playground_setting.studio_discord_gate_guild_id':
+          studioDiscordGateGuildId.trim(),
+        'playground_setting.playground_default_model':
+          playgroundDefaultModel.trim(),
         'playground_setting.playground_hidden_models': JSON.stringify(
           playgroundHiddenModelsText
             .split(/[\n,]+/)
@@ -944,10 +1040,10 @@ export function PlaygroundSettingsSection({
             .filter(Boolean)
         ),
         'playground_setting.prompt_optimizer_enabled': 'true',
-        'playground_setting.prompt_optimizer_model': promptOptimizerModel.trim(),
-        'playground_setting.prompt_optimizer_system_prompt': promptOptimizerSystemPrompt,
-        // The per-model list replaces the single-model fields; keep them in
-        // sync so older clients and the playground tool still work.
+        'playground_setting.prompt_optimizer_model':
+          promptOptimizerModel.trim(),
+        'playground_setting.prompt_optimizer_system_prompt':
+          promptOptimizerSystemPrompt,
         'playground_setting.image_model': imageModels[0]?.model ?? '',
         'playground_setting.video_model': videoModels[0]?.model ?? '',
       })
@@ -998,17 +1094,22 @@ export function PlaygroundSettingsSection({
 
   return (
     <SettingsSection title={t('Playground & Studio')}>
-      <SettingsForm onSubmit={(event) => {
-        event.preventDefault()
-        void save()
-      }}>
+      <SettingsForm
+        onSubmit={(event) => {
+          event.preventDefault()
+          void save()
+        }}
+      >
         {!jsonMode && (
           <SettingsPageFormActions
             isSaving={updateOptions.isPending}
             onSave={() => void save()}
           />
         )}
-        <div className='flex items-start justify-between gap-3'>
+        <div
+          data-settings-form-span='full'
+          className='flex items-start justify-between gap-3'
+        >
           <SettingsDescription className='max-w-xl'>
             {jsonMode
               ? t(
@@ -1039,14 +1140,14 @@ export function PlaygroundSettingsSection({
         </div>
 
         {jsonMode ? (
-          <div className='space-y-2'>
+          <div data-settings-form-span='full' className='space-y-3'>
             <JsonCodeEditor
               ariaLabel={t('Playground settings JSON')}
               onChange={setJsonDraft}
               value={jsonDraft}
             />
             {jsonError && (
-              <p className='text-destructive text-xs'>{jsonError}</p>
+              <p className='text-destructive text-sm'>{jsonError}</p>
             )}
             <div className='flex justify-end gap-2'>
               <Button
@@ -1068,229 +1169,394 @@ export function PlaygroundSettingsSection({
             </div>
           </div>
         ) : (
-        <div className='space-y-4'>
-          <SettingsSwitchItem>
-            <SettingsSwitchContent>
-              <Label>{t('Image generation')}</Label>
-              <SettingsDescription>
-                {t(
-                  'Offers the image tool in the playground and the image tab of the studio.'
-                )}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch checked={imageEnabled} onCheckedChange={setImageEnabled} />
-          </SettingsSwitchItem>
-
-          {imageEnabled && (
-            <div className='space-y-3'>
-              {imageModels.length === 0 && (
-                <p className='text-muted-foreground border-border rounded-lg border border-dashed p-3 text-xs'>
-                  {t('No image model configured yet.')}
-                </p>
-              )}
-              {imageModels.map((model, index) => (
-                <ModelCard
-                  index={index}
-                  key={model._rowId}
-                  mode='image'
-                  modelOptions={modelOptions}
-                  onChange={(next) =>
-                    setImageModels((prev) =>
-                      prev.map((item, i) => (i === index ? next : item))
-                    )
-                  }
-                  onRemove={() =>
-                    setImageModels((prev) => prev.filter((_, i) => i !== index))
-                  }
-                  value={model}
+          <div data-settings-form-span='full' className='space-y-6'>
+            {/* Image Generation */}
+            <div className='space-y-4'>
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Image generation')}
+                  </Label>
+                  <SettingsDescription>
+                    {t(
+                      'Offers the image tool in the playground and the image tab of the studio.'
+                    )}
+                  </SettingsDescription>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={imageEnabled}
+                  onCheckedChange={setImageEnabled}
                 />
-              ))}
-              <Button
-                onClick={() => addModel('image')}
-                size='sm'
-                type='button'
-                variant='outline'
-              >
-                <PlusIcon className='size-4' />
-                {t('Add image model')}
-              </Button>
-            </div>
-          )}
+              </SettingsSwitchItem>
 
-          <SettingsSwitchItem>
-            <SettingsSwitchContent>
-              <Label>{t('Video generation')}</Label>
-              <SettingsDescription>
-                {t(
-                  'Offers the video tool in the playground and the video tab of the studio.'
-                )}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch checked={videoEnabled} onCheckedChange={setVideoEnabled} />
-          </SettingsSwitchItem>
-
-          {videoEnabled && (
-            <div className='space-y-3'>
-              {videoModels.length === 0 && (
-                <p className='text-muted-foreground border-border rounded-lg border border-dashed p-3 text-xs'>
-                  {t('No video model configured yet.')}
-                </p>
+              {imageEnabled && (
+                <div className='space-y-3'>
+                  {imageModels.length === 0 && (
+                    <SettingsDescription>
+                      {t('No image model configured yet.')}
+                    </SettingsDescription>
+                  )}
+                  {imageModels.map((model, index) => (
+                    <ModelCard
+                      index={index}
+                      key={model._rowId}
+                      mode='image'
+                      modelOptions={modelOptions}
+                      onChange={(next) =>
+                        setImageModels((prev) =>
+                          prev.map((item, i) => (i === index ? next : item))
+                        )
+                      }
+                      onRemove={() =>
+                        setImageModels((prev) =>
+                          prev.filter((_, i) => i !== index)
+                        )
+                      }
+                      value={model}
+                    />
+                  ))}
+                  <Button
+                    onClick={() => addModel('image')}
+                    size='sm'
+                    type='button'
+                    variant='outline'
+                  >
+                    <PlusIcon className='size-4' />
+                    {t('Add image model')}
+                  </Button>
+                </div>
               )}
-              {videoModels.map((model, index) => (
-                <ModelCard
-                  index={index}
-                  key={model._rowId}
-                  mode='video'
-                  modelOptions={modelOptions}
-                  onChange={(next) =>
-                    setVideoModels((prev) =>
-                      prev.map((item, i) => (i === index ? next : item))
-                    )
-                  }
-                  onRemove={() =>
-                    setVideoModels((prev) => prev.filter((_, i) => i !== index))
-                  }
-                  value={model}
-                />
-              ))}
-              <Button
-                onClick={() => addModel('video')}
-                size='sm'
-                type='button'
-                variant='outline'
-              >
-                <PlusIcon className='size-4' />
-                {t('Add video model')}
-              </Button>
             </div>
-          )}
 
-          <div className='border border-border rounded-xl p-4 bg-card/50 space-y-4 shadow-xs'>
-            <SettingsSwitchRow>
-              <SettingsSwitchContent>
+            <Separator />
+
+            {/* Video Generation */}
+            <div className='space-y-4'>
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Video generation')}
+                  </Label>
+                  <SettingsDescription>
+                    {t(
+                      'Offers the video tool in the playground and the video tab of the studio.'
+                    )}
+                  </SettingsDescription>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={videoEnabled}
+                  onCheckedChange={setVideoEnabled}
+                />
+              </SettingsSwitchItem>
+
+              {videoEnabled && (
+                <div className='space-y-3'>
+                  {videoModels.length === 0 && (
+                    <SettingsDescription>
+                      {t('No video model configured yet.')}
+                    </SettingsDescription>
+                  )}
+                  {videoModels.map((model, index) => (
+                    <ModelCard
+                      index={index}
+                      key={model._rowId}
+                      mode='video'
+                      modelOptions={modelOptions}
+                      onChange={(next) =>
+                        setVideoModels((prev) =>
+                          prev.map((item, i) => (i === index ? next : item))
+                        )
+                      }
+                      onRemove={() =>
+                        setVideoModels((prev) =>
+                          prev.filter((_, i) => i !== index)
+                        )
+                      }
+                      value={model}
+                    />
+                  ))}
+                  <Button
+                    onClick={() => addModel('video')}
+                    size='sm'
+                    type='button'
+                    variant='outline'
+                  >
+                    <PlusIcon className='size-4' />
+                    {t('Add video model')}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Generation Assistant Model */}
+            <div className='space-y-4'>
+              <SettingsSwitchRow>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Generation Assistant Model')}
+                    <span className='text-destructive' aria-hidden='true'>
+                      {' '}
+                      *
+                    </span>
+                  </Label>
+                  <SettingsDescription>
+                    {t(
+                      'Required — always on. Assists every generation in the Studio — it rewrites each prompt into an exhaustive, physics-consistent scene description before the job is submitted. Dialogue and quotes are preserved verbatim, in their original language. The model must support image (vision) input.'
+                    )}
+                  </SettingsDescription>
+                </SettingsSwitchContent>
+                <Badge variant='secondary' className='shrink-0 font-normal'>
+                  {t('Always on')}
+                </Badge>
+              </SettingsSwitchRow>
+
+              <div className='space-y-2'>
                 <Label className='text-sm font-medium'>
-                  {t('Generation Assistant Model')}
-                  <span className='text-destructive' aria-hidden='true'> *</span>
-                </Label>
-                <SettingsDescription>
-                  {t('Required — always on. Assists every generation in the Studio — it rewrites each prompt into an exhaustive, physics-consistent scene description before the job is submitted. Dialogue and quotes are preserved verbatim, in their original language. The model must support image (vision) input.')}
-                </SettingsDescription>
-              </SettingsSwitchContent>
-              <span className='shrink-0 rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground'>
-                {t('Always on')}
-              </span>
-            </SettingsSwitchRow>
-
-            <div className='space-y-3 pt-2 border-t border-border/40'>
-              <div className='space-y-1.5'>
-                <Label className='text-xs font-medium'>
                   {t('Assistant Model')}
-                  <span className='text-destructive' aria-hidden='true'> *</span>
+                  <span className='text-destructive' aria-hidden='true'>
+                    {' '}
+                    *
+                  </span>
                 </Label>
                 <TagField
                   onChange={(values) => {
-                    // Persist as a comma-separated list; duplicates are harmless (trimmed on read).
                     setPromptOptimizerModel(
-                      [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(', ')
+                      [
+                        ...new Set(
+                          values.map((v) => v.trim()).filter(Boolean)
+                        ),
+                      ].join(', ')
                     )
                   }}
                   options={modelOptions}
                   placeholder='gpt-4o-mini, gemini-2.5-flash'
-                  values={
-                    promptOptimizerModel
-                      .split(',')
-                      .map((v) => v.trim())
-                      .filter(Boolean)
-                  }
+                  values={promptOptimizerModel
+                    .split(',')
+                    .map((v) => v.trim())
+                    .filter(Boolean)}
                 />
-                <p className='text-muted-foreground text-[11px]'>
-                  {t('Required. One or more vision-capable chat models. With several configured, the Studio shows a selector in the composer — the first model is the default.')}
-                </p>
-                <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300'>
-                  {t('Note: Requests to this prompt enhancement model (and its internal search steps) are exempt from user rate limits and do not deduct from user balance.')}
+                <SettingsDescription>
+                  {t(
+                    'Required. One or more vision-capable chat models. With several configured, the Studio shows a selector in the composer — the first model is the default.'
+                  )}
+                </SettingsDescription>
+                <div className='rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-300'>
+                  {t(
+                    'Note: Requests to this prompt enhancement model (and its internal search steps) are exempt from user rate limits and do not deduct from user balance.'
+                  )}
                 </div>
               </div>
 
-              <div className='space-y-1.5'>
-                <Label className='text-xs font-medium'>{t('Assistant System Prompt')}</Label>
+              <div className='space-y-2'>
+                <Label className='text-sm font-medium'>
+                  {t('Assistant System Prompt')}
+                </Label>
                 <Textarea
                   rows={4}
-                  className='text-xs font-mono'
                   value={promptOptimizerSystemPrompt}
-                  onChange={(e) => setPromptOptimizerSystemPrompt(e.target.value)}
+                  onChange={(e) =>
+                    setPromptOptimizerSystemPrompt(e.target.value)
+                  }
                   placeholder={t('System instructions for prompt rewriting...')}
                 />
-                <p className='text-muted-foreground text-[11px]'>
-                  {t('Instructs the assistant. Dialogue and quotes are preserved verbatim, in their original language.')}
-                </p>
+                <SettingsDescription>
+                  {t(
+                    'Instructs the assistant. Dialogue and quotes are preserved verbatim, in their original language.'
+                  )}
+                </SettingsDescription>
               </div>
             </div>
+
+            <Separator />
+
+            {/* Studio Page & Default Model */}
+            <div className='space-y-4'>
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <Label className='text-sm font-medium'>
+                    {t('Studio page')}
+                  </Label>
+                  <SettingsDescription>
+                    {t('Shows the studio page in the dashboard menu.')}
+                  </SettingsDescription>
+                </SettingsSwitchContent>
+                <Switch
+                  checked={studioEnabled}
+                  onCheckedChange={setStudioEnabled}
+                />
+              </SettingsSwitchItem>
+
+              {studioEnabled && (
+                <div className='space-y-5'>
+                  <div className='space-y-1.5'>
+                    <Label className='text-sm font-medium'>
+                      {t('Studio Default Model')}
+                    </Label>
+                    <Input
+                      list='playground-all-studio-models'
+                      placeholder='seedance-2.5, dall-e-3...'
+                      value={studioDefaultModel}
+                      onChange={(e) => setStudioDefaultModel(e.target.value)}
+                    />
+                    <datalist id='playground-all-studio-models'>
+                      {[
+                        ...videoModels.map((m) => m.model),
+                        ...imageModels.map((m) => m.model),
+                      ]
+                        .filter(Boolean)
+                        .map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                    </datalist>
+                    <SettingsDescription>
+                      {t(
+                        'When configured, opening Studio automatically preselects this model and its corresponding mode (video or image).'
+                      )}
+                    </SettingsDescription>
+                  </div>
+
+                  {/* Conditional Studio Models (Discord Server Gate) */}
+                  <div className='space-y-3'>
+                    <div className='space-y-1'>
+                      <Label className='text-sm font-medium'>
+                        {t('Conditional Studio Models (Discord Server Gate)')}
+                      </Label>
+                      <SettingsDescription>
+                        {t(
+                          'Require users to link their Discord account and join your Discord server before using specific Studio models. Enter comma-separated model IDs of any type (video or image).'
+                        )}
+                      </SettingsDescription>
+                    </div>
+
+                    {!discordGatePrereqsMet && (
+                      <div className='flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3.5 py-3 text-sm text-amber-800 dark:text-amber-300'>
+                        <AlertTriangle className='mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400' />
+                        <div className='space-y-1'>
+                          <div className='font-medium'>
+                            {t('Discord Bot and Discord Login Required')}
+                          </div>
+                          <p className='text-xs leading-relaxed opacity-90'>
+                            {!discordBotReady && !discordOAuthReady
+                              ? t(
+                                  'Enable both Discord Bot (with a valid Bot Token) and Discord OAuth Login in System Settings before configuring conditional Studio models.'
+                                )
+                              : !discordBotReady
+                                ? t(
+                                    'Discord Bot is currently disabled or missing a Bot Token. Enable Discord Bot in Operations → Discord Bot to unlock this feature.'
+                                  )
+                                : t(
+                                    'Discord OAuth Login is currently disabled. Enable Discord Login in Auth → OAuth to unlock this feature.'
+                                  )}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className='space-y-1.5'>
+                      <Label className='text-sm font-medium'>
+                        {t('Conditional Model IDs (Comma-Separated)')}
+                      </Label>
+                      <Input
+                        disabled={!discordGatePrereqsMet}
+                        list='playground-all-studio-models'
+                        placeholder='veo-3, sora-2, flux-pro'
+                        value={studioDiscordGateModels}
+                        onChange={(e) =>
+                          setStudioDiscordGateModels(e.target.value)
+                        }
+                      />
+                      <SettingsDescription>
+                        {t(
+                          'Leave empty to remove the Discord server requirement for all Studio models.'
+                        )}
+                      </SettingsDescription>
+                    </div>
+
+                    {hasConditionalModels && (
+                      <SettingsFormGrid>
+                        <div className='space-y-1.5'>
+                          <Label className='text-sm font-medium'>
+                            {t('Discord Invite URL')}
+                          </Label>
+                          <Input
+                            disabled={!discordGatePrereqsMet}
+                            placeholder='https://discord.gg/your-invite'
+                            value={studioDiscordGateInviteUrl}
+                            onChange={(e) =>
+                              setStudioDiscordGateInviteUrl(e.target.value)
+                            }
+                          />
+                          <SettingsDescription>
+                            {t(
+                              'Permanent Discord invite link shown in the popup when users select a conditional model.'
+                            )}
+                          </SettingsDescription>
+                        </div>
+                        <div className='space-y-1.5'>
+                          <Label className='text-sm font-medium'>
+                            {t('Discord Server (Guild) ID')}
+                          </Label>
+                          <Input
+                            disabled={!discordGatePrereqsMet}
+                            placeholder='123456789012345678'
+                            value={studioDiscordGateGuildId}
+                            onChange={(e) =>
+                              setStudioDiscordGateGuildId(e.target.value)
+                            }
+                          />
+                          <SettingsDescription>
+                            {t(
+                              'The Discord Server ID checked every second by the Discord Bot to verify user membership.'
+                            )}
+                          </SettingsDescription>
+                        </div>
+                      </SettingsFormGrid>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Playground Chat Defaults */}
+            <SettingsFormGrid>
+              <div className='space-y-1.5'>
+                <Label className='text-sm font-medium'>
+                  {t('Playground Default Model')}
+                </Label>
+                <Input
+                  placeholder='gpt-4o, claude-3-5-sonnet...'
+                  value={playgroundDefaultModel}
+                  onChange={(e) => setPlaygroundDefaultModel(e.target.value)}
+                />
+                <SettingsDescription>
+                  {t(
+                    'Default model preselected when opening the Playground chat.'
+                  )}
+                </SettingsDescription>
+              </div>
+              <div className='space-y-1.5'>
+                <Label className='text-sm font-medium'>
+                  {t('Hidden Models in Playground')}
+                </Label>
+                <Input
+                  placeholder='whisper-1, tts-1, text-embedding-3-small'
+                  value={playgroundHiddenModelsText}
+                  onChange={(e) =>
+                    setPlaygroundHiddenModelsText(e.target.value)
+                  }
+                />
+                <SettingsDescription>
+                  {t(
+                    'Comma-separated model IDs to hide from the Playground model selector.'
+                  )}
+                </SettingsDescription>
+              </div>
+            </SettingsFormGrid>
           </div>
-
-          <SettingsSwitchItem>
-            <SettingsSwitchContent>
-              <Label>{t('Studio page')}</Label>
-              <SettingsDescription>
-                {t('Shows the studio page in the dashboard menu.')}
-              </SettingsDescription>
-            </SettingsSwitchContent>
-            <Switch checked={studioEnabled} onCheckedChange={setStudioEnabled} />
-          </SettingsSwitchItem>
-
-          {studioEnabled && (
-            <div className='border border-border rounded-xl p-4 bg-card/50 space-y-2 shadow-xs'>
-              <Label className='text-xs font-medium'>{t('Studio Default Model')}</Label>
-              <Input
-                className='font-mono text-xs'
-                list='playground-all-studio-models'
-                placeholder='seedance-2.5, dall-e-3...'
-                value={studioDefaultModel}
-                onChange={(e) => setStudioDefaultModel(e.target.value)}
-              />
-              <datalist id='playground-all-studio-models'>
-                {[
-                  ...videoModels.map((m) => m.model),
-                  ...imageModels.map((m) => m.model),
-                ]
-                  .filter(Boolean)
-                  .map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-              </datalist>
-              <p className='text-muted-foreground text-[11px]'>
-                {t('When configured, opening Studio automatically preselects this model and its corresponding mode (video or image).')}
-              </p>
-            </div>
-          )}
-
-          <div className='border border-border rounded-xl p-4 bg-card/50 space-y-3 shadow-xs'>
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>{t('Playground Default Model')}</Label>
-              <Input
-                className='font-mono text-xs'
-                placeholder='gpt-4o, claude-3-5-sonnet...'
-                value={playgroundDefaultModel}
-                onChange={(e) => setPlaygroundDefaultModel(e.target.value)}
-              />
-              <p className='text-muted-foreground text-[11px]'>
-                {t('Default model preselected when opening the Playground chat.')}
-              </p>
-            </div>
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium'>{t('Hidden Models in Playground')}</Label>
-              <Input
-                className='font-mono text-xs'
-                placeholder='whisper-1, tts-1, text-embedding-3-small'
-                value={playgroundHiddenModelsText}
-                onChange={(e) => setPlaygroundHiddenModelsText(e.target.value)}
-              />
-              <p className='text-muted-foreground text-[11px]'>
-                {t('Comma-separated model IDs to hide from the Playground model selector.')}
-              </p>
-            </div>
-          </div>
-
-        </div>
         )}
       </SettingsForm>
     </SettingsSection>

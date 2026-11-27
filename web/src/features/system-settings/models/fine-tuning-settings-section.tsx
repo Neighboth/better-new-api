@@ -105,6 +105,8 @@ interface AdminFineTuningListPayload {
   total_jobs: number
   total_revenue_usd: number
   total_trained_tokens: number
+  storage_used_bytes?: number
+  max_storage_gb?: number
 }
 
 const DEFAULT_PRICE_BY_HW_ID: Record<string, number> = {
@@ -201,6 +203,7 @@ const schema = z.object({
   fineTuningEnabled: z.boolean().optional(),
   retentionDays: z.number().int().min(1).max(365),
   expiryWarningDays: z.number().int().min(0).max(60),
+  maxStorageGb: z.number().min(0).max(100000),
   colabNormalRamMultiplier: z.number().min(0.1).max(20),
   colabHighRamMultiplier: z.number().min(0.1).max(20),
   fineTuningGpuRows: z
@@ -243,6 +246,7 @@ export function FineTuningSettingsSection({
     colabHighRamMultiplier?: number
     retentionDays?: number
     expiryWarningDays?: number
+    maxStorageGb?: number
     servingEnabled?: boolean
     servingGpuMultipliers?: string
     servingColabNormalRamMultiplier?: number
@@ -262,6 +266,7 @@ export function FineTuningSettingsSection({
       fineTuningEnabled: defaultValues.fineTuningEnabled ?? false,
       retentionDays: defaultValues.retentionDays ?? 30,
       expiryWarningDays: defaultValues.expiryWarningDays ?? 3,
+      maxStorageGb: defaultValues.maxStorageGb ?? 0,
       colabNormalRamMultiplier: defaultValues.colabNormalRamMultiplier ?? 1,
       colabHighRamMultiplier: defaultValues.colabHighRamMultiplier ?? 1.5,
       fineTuningGpuRows: parseFineTuningGPURows(
@@ -509,6 +514,10 @@ export function FineTuningSettingsSection({
         value: String(values.expiryWarningDays ?? 3),
       })
       await updateOption.mutateAsync({
+        key: 'model_deployment.fine_tuning.max_storage_gb',
+        value: String(Math.max(0, Number(values.maxStorageGb) || 0)),
+      })
+      await updateOption.mutateAsync({
         key: 'model_deployment.fine_tuning.colab_normal_ram_multiplier',
         value: String(values.colabNormalRamMultiplier ?? 1),
       })
@@ -558,6 +567,7 @@ export function FineTuningSettingsSection({
   }
 
   const jobsData = adminJobsQuery.data
+  const usedStorageGB = Number(jobsData?.storage_used_bytes ?? 0) / (1024 * 1024 * 1024)
 
   return (
     <>
@@ -662,6 +672,42 @@ export function FineTuningSettingsSection({
                       <FormDescription>
                         {t(
                           'Send a download reminder email this many days before deletion (default: 3 days). Customize the template in SMTP Email settings.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='maxStorageGb'
+                  render={({ field }) => (
+                    <FormItem data-settings-form-span='full'>
+                      <FormLabel>
+                        {t('Maximum Global Fine-Tuning Storage (GB)')}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          step='1'
+                          min={0}
+                          max={100000}
+                          placeholder='0'
+                          value={field.value ?? 0}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 0
+                                : Math.max(0, Number(e.target.value) || 0)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Global disk storage limit across all fine-tuning datasets, base uploads, checkpoints, and trained model archives combined. Set 0 for unlimited. Currently used: {{used}} GB.',
+                          { used: usedStorageGB.toFixed(2) }
                         )}
                       </FormDescription>
                       <FormMessage />

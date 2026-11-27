@@ -671,9 +671,10 @@ import urllib.request
 import zipfile
 import torch
 from fastapi.responses import StreamingResponse
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 _backend = None
+_backend_lock = threading.Lock()
 def _prepare_ft_weights():
     if not FT_ARTIFACT_URL:
         return None
@@ -704,68 +705,90 @@ def _prepare_ft_weights():
         mf.write("ok")
     return ft_dir
 
+def _load_causal_fast(src, dtype, use_cuda, use_cache_dir=True, token=None):
+    kw = {"trust_remote_code": True, "low_cpu_mem_usage": True, "torch_dtype": dtype}
+    if use_cache_dir:
+        kw["cache_dir"] = CACHE_DIR
+    if token:
+        kw["token"] = token
+    if use_cuda and torch.cuda.device_count() == 1:
+        try:
+            m = AutoModelForCausalLM.from_pretrained(src, **kw)
+            return m.to("cuda")
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    if use_cuda:
+        kw["device_map"] = "auto"
+    return AutoModelForCausalLM.from_pretrained(src, **kw)
+
 def get_backend():
     nonlocal _backend
     if _backend is not None:
         return _backend
-    t0 = time.time()
-    use_cuda = torch.cuda.is_available()
-    dtype = torch.bfloat16 if (use_cuda and torch.cuda.is_bf16_supported()) else (torch.float16 if use_cuda else torch.float32)
-    ft_dir = _prepare_ft_weights()
-    if ft_dir:
-        has_adapter = os.path.exists(os.path.join(ft_dir, "adapter_config.json"))
-        tok_src = ft_dir if (os.path.exists(os.path.join(ft_dir, "tokenizer_config.json")) or os.path.exists(os.path.join(ft_dir, "tokenizer.json"))) else MODEL_REPO
-        _log(f"[model] Loading fine-tuned model ({SERVED_MODEL_ID}, adapter={has_adapter})...")
-        tok = AutoTokenizer.from_pretrained(tok_src, cache_dir=CACHE_DIR, trust_remote_code=True, token=HF_TOKEN or None)
-        if has_adapter:
-            from peft import PeftModel
-            base_mdl = AutoModelForCausalLM.from_pretrained(
-                MODEL_REPO,
-                cache_dir=CACHE_DIR,
-                trust_remote_code=True,
-                token=HF_TOKEN or None,
-                torch_dtype=dtype,
-                device_map="auto" if use_cuda else None,
-            )
-            mdl = PeftModel.from_pretrained(base_mdl, ft_dir)
+    with _backend_lock:
+        if _backend is not None:
+            return _backend
+        t0 = time.time()
+        use_cuda = torch.cuda.is_available()
+        if use_cuda:
             try:
-                mdl = mdl.merge_and_unload()
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.benchmark = True
             except Exception:
                 pass
+        dtype = torch.bfloat16 if (use_cuda and torch.cuda.is_bf16_supported()) else (torch.float16 if use_cuda else torch.float32)
+        ft_dir = _prepare_ft_weights()
+        if ft_dir:
+            has_adapter = os.path.exists(os.path.join(ft_dir, "adapter_config.json"))
+            tok_src = ft_dir if (os.path.exists(os.path.join(ft_dir, "tokenizer_config.json")) or os.path.exists(os.path.join(ft_dir, "tokenizer.json"))) else MODEL_REPO
+            _log(f"[model] Loading fine-tuned model ({SERVED_MODEL_ID}, adapter={has_adapter})...")
+            tok = AutoTokenizer.from_pretrained(tok_src, cache_dir=CACHE_DIR, trust_remote_code=True, token=HF_TOKEN or None)
+            if has_adapter:
+                from peft import PeftModel
+                base_mdl = _load_causal_fast(MODEL_REPO, dtype, use_cuda, use_cache_dir=True, token=HF_TOKEN or None)
+                mdl = PeftModel.from_pretrained(base_mdl, ft_dir)
+                try:
+                    mdl = mdl.merge_and_unload()
+                except Exception:
+                    pass
+                if use_cuda and getattr(mdl, "device", None) is not None and mdl.device.type != "cuda":
+                    try:
+                        mdl = mdl.to("cuda")
+                    except Exception:
+                        pass
+            else:
+                mdl = _load_causal_fast(ft_dir, dtype, use_cuda, use_cache_dir=False, token=None)
         else:
-            mdl = AutoModelForCausalLM.from_pretrained(
-                ft_dir,
-                trust_remote_code=True,
-                torch_dtype=dtype,
-                device_map="auto" if use_cuda else None,
-            )
-    else:
-        _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={use_cuda})...")
-        tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, trust_remote_code=True, token=HF_TOKEN or None)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            cache_dir=CACHE_DIR,
-            trust_remote_code=True,
-            token=HF_TOKEN or None,
-            torch_dtype=dtype,
-            device_map="auto" if use_cuda else None,
-        )
-    if tok.pad_token is None and tok.eos_token is not None:
-        tok.pad_token = tok.eos_token
-    mdl.eval()
-    _backend = (tok, mdl)
-    _log(f"[model] Model ready in {time.time() - t0:.1f}s")
-    return _backend
+            _log(f"[model] Loading transformers model {MODEL_REPO} (cuda={use_cuda})...")
+            tok = AutoTokenizer.from_pretrained(MODEL_REPO, cache_dir=CACHE_DIR, trust_remote_code=True, token=HF_TOKEN or None)
+            mdl = _load_causal_fast(MODEL_REPO, dtype, use_cuda, use_cache_dir=True, token=HF_TOKEN or None)
+        if tok.pad_token is None and tok.eos_token is not None:
+            tok.pad_token = tok.eos_token
+        mdl.config.use_cache = True
+        mdl.eval()
+        try:
+            _w = tok("hi", return_tensors="pt")
+            if use_cuda:
+                _w = {k: v.to(mdl.device) for k, v in _w.items()}
+            with torch.inference_mode():
+                _ = mdl.generate(**_w, max_new_tokens=1, do_sample=False, use_cache=True, pad_token_id=tok.pad_token_id or tok.eos_token_id)
+            if use_cuda:
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+        _backend = (tok, mdl)
+        _log(f"[model] Model loaded & warmed in {time.time() - t0:.1f}s")
+        return _backend
 
-def _execute_task(body, _base_url, set_progress=None):
+threading.Thread(target=lambda: get_backend(), daemon=True).start()
+
+def _prepare_modal_gen(body, tok, mdl):
     messages = body.get("messages", [])
     max_tokens = max(1, min(4096, int(body.get("max_tokens") or body.get("max_completion_tokens") or 512)))
-    if set_progress:
-        set_progress(5, "Loading transformers model...")
-    t0 = time.time()
-    tok, mdl = get_backend()
-    if set_progress:
-        set_progress(40, "Generating text response...")
+    temperature = body.get("temperature")
+    top_p = body.get("top_p")
     clean_msgs = [{"role": str(m.get("role", "user")), "content": str(m.get("content", "") or "")} for m in messages if isinstance(m, dict)]
     prompt = None
     if hasattr(tok, "apply_chat_template") and getattr(tok, "chat_template", None):
@@ -778,19 +801,38 @@ def _execute_task(body, _base_url, set_progress=None):
     inputs = tok(prompt, return_tensors="pt")
     if torch.cuda.is_available():
         inputs = {k: v.to(mdl.device) for k, v in inputs.items()}
-    with torch.no_grad():
-        out_ids = mdl.generate(**inputs, max_new_tokens=max_tokens, pad_token_id=tok.pad_token_id or tok.eos_token_id)
+    gen_kwargs = {"max_new_tokens": max_tokens, "use_cache": True, "pad_token_id": tok.pad_token_id or tok.eos_token_id}
+    if temperature is not None and float(temperature) > 0:
+        gen_kwargs["do_sample"] = True
+        gen_kwargs["temperature"] = max(0.01, min(2.0, float(temperature)))
+        if top_p is not None:
+            gen_kwargs["top_p"] = max(0.05, min(1.0, float(top_p)))
+    else:
+        gen_kwargs["do_sample"] = False
+    return inputs, gen_kwargs
+
+def _execute_task(body, _base_url, set_progress=None):
+    if set_progress:
+        set_progress(5, "Loading transformers model...")
+    t0 = time.time()
+    tok, mdl = get_backend()
+    if set_progress:
+        set_progress(40, "Generating text response...")
+    inputs, gen_kwargs = _prepare_modal_gen(body, tok, mdl)
+    with torch.inference_mode():
+        out_ids = mdl.generate(**inputs, **gen_kwargs)
     prompt_tokens = int(inputs["input_ids"].shape[-1])
     comp_ids = out_ids[0][prompt_tokens:]
     text = tok.decode(comp_ids, skip_special_tokens=True)
-    _log(f"[infer] Chat completion done in {time.time() - t0:.2f}s")
+    resp_model = str(body.get("model") or SERVED_MODEL_ID)
+    _log(f"[infer] Chat completion ({len(comp_ids)} tok) in {time.time() - t0:.2f}s")
     if set_progress:
         set_progress(100, "Completed")
     return {
         "id": f"chatcmpl-{int(time.time() * 1000)}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": SERVED_MODEL_ID,
+        "model": resp_model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
         "usage": {
             "prompt_tokens": prompt_tokens,
@@ -804,17 +846,43 @@ async def chat_completions(req: Request):
     body = await req.json()
     if body.get("stream"):
         import json as _json
-        res = _execute_task(body, str(req.base_url).rstrip("/"))
-        content = res["choices"][0]["message"]["content"]
-        cid = res["id"]
-        created = res["created"]
+        tok, mdl = get_backend()
+        inputs, gen_kwargs = _prepare_modal_gen(body, tok, mdl)
+        prompt_tokens = int(inputs["input_ids"].shape[-1])
+        cid = f"chatcmpl-{int(time.time() * 1000)}"
+        created = int(time.time())
+        resp_model = str(body.get("model") or SERVED_MODEL_ID)
+        streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+        gen_kwargs["streamer"] = streamer
+
+        def _run_gen():
+            try:
+                with torch.inference_mode():
+                    mdl.generate(**inputs, **gen_kwargs)
+            except Exception:
+                try:
+                    streamer.end()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run_gen, daemon=True).start()
+
         def _sse():
-            c1 = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": SERVED_MODEL_ID, "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
-            yield f"data: {_json.dumps(c1, ensure_ascii=False)}\n\n"
-            c2 = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": SERVED_MODEL_ID, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": res.get("usage")}
+            c0 = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": resp_model, "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]}
+            yield f"data: {_json.dumps(c0, ensure_ascii=False)}\n\n"
+            comp_chars = 0
+            for piece in streamer:
+                if not piece:
+                    continue
+                comp_chars += len(piece)
+                c1 = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": resp_model, "choices": [{"index": 0, "delta": {"content": piece}, "finish_reason": None}]}
+                yield f"data: {_json.dumps(c1, ensure_ascii=False)}\n\n"
+            est_comp = max(1, comp_chars // 4) if comp_chars > 0 else 0
+            c2 = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": resp_model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": est_comp, "total_tokens": prompt_tokens + est_comp}}
             yield f"data: {_json.dumps(c2, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
-        return StreamingResponse(_sse(), media_type="text/event-stream")
+
+        return StreamingResponse(_sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     return _execute_task(body, str(req.base_url).rstrip("/"))
 `
 		}

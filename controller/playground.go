@@ -50,6 +50,9 @@ func PlaygroundImages(c *gin.Context) {
 	}
 
 	// Rule enforcement runs before anything else.
+	if !enforceStudioDiscordGate(c, modelName) {
+		return
+	}
 	if !enforceStudioImageRules(c, modelName, size, quality, md) {
 		return
 	}
@@ -167,6 +170,9 @@ func PlaygroundVideo(c *gin.Context) {
 	if req != nil {
 		// Rule enforcement runs before anything else — an invalid combination
 		// never reaches the relay or burns optimizer tokens.
+		if !enforceStudioDiscordGate(c, req.Model) {
+			return
+		}
 		if !enforceStudioVideoRules(c, req) {
 			return
 		}

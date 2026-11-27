@@ -22,8 +22,10 @@ import {
   ArrowRight,
   CheckCircle2,
   Download,
+  FlaskConical,
   FolderOpen,
   Loader2,
+  Moon,
   Pencil,
   Play,
   Plus,
@@ -97,6 +99,28 @@ interface FineTuningGPUOption {
   enabled: boolean
 }
 
+interface FineTuningEvalSample {
+  prompt: string
+  expected: string
+  output: string
+  latency_ms: number
+  similarity_pct: number
+}
+
+interface FineTuningEvalReport {
+  tested_at?: number
+  task_type?: string
+  method?: string
+  quantization?: string
+  initial_loss?: number
+  final_loss?: number
+  loss_reduction_pct?: number
+  loss_history?: Array<{ epoch: number; loss: number; trained_tokens?: number }>
+  avg_latency_ms?: number
+  avg_similarity_pct?: number
+  samples?: FineTuningEvalSample[]
+}
+
 interface FineTuningJobItem {
   id: number
   job_id: string
@@ -110,12 +134,14 @@ interface FineTuningJobItem {
   provider?: string
   gpu?: string
   method?: string
+  quantization?: string
   task_type?: string
   ram_tier?: string
   model_source?: string
   duration_seconds: number
   dataset_bytes?: number
   estimated_cost_usd: number
+  eval_report_json?: string
   has_model_file?: boolean
   serving_status?: string
   serving_deployment_id?: number
@@ -123,6 +149,9 @@ interface FineTuningJobItem {
   serving_gpu?: string
   serving_ram_tier?: string
   serving_started_at?: number
+  serving_last_request_at?: number
+  serving_idle_timeout_seconds?: number
+  serving_auto_wake?: boolean
   serving_billed_seconds?: number
   serving_billed_quota?: number
   serving_error?: string
@@ -147,6 +176,8 @@ interface FineTuningListResponse {
   serving_colab_high_ram_multiplier?: number
   retention_days?: number
   expiry_warning_days?: number
+  storage_used_bytes?: number
+  max_storage_gb?: number
   jobs: FineTuningJobItem[]
 }
 
@@ -158,6 +189,14 @@ interface FineTuningLogsResponse {
   trained_tokens: number
   error?: string
   logs: string
+  training_logs?: string
+  serving_logs?: string
+  serving_status?: string
+  serving_gpu?: string
+  serving_ram_tier?: string
+  serving_idle_timeout_seconds?: number
+  serving_stop_reason?: string
+  serving_error?: string
 }
 
 interface UserModelAlias {
@@ -193,12 +232,13 @@ interface FineTuningModelCompatResult {
   warnings?: string[]
 }
 
-type FineTuningTaskType = 'text' | 'image' | 'audio' | 'vision'
+type FineTuningTaskType = 'text' | 'vision' | 'image' | 'audio'
 
 const TASK_TYPE_CONFIG: Record<
   FineTuningTaskType,
   {
     labelKey: string
+    descKey: string
     methods: Array<{ id: string; label: string }>
     datasetAccept: string
     datasetHintKey: string
@@ -206,10 +246,12 @@ const TASK_TYPE_CONFIG: Record<
   }
 > = {
   text: {
-    labelKey: 'Text / LLM',
+    labelKey: 'Text',
+    descKey:
+      'Text-only chat, instruction, and language models (e.g. Llama, Qwen, Mistral).',
     methods: [
       { id: 'lora', label: 'LoRA (Low-Rank Adaptation)' },
-      { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
+      { id: 'qlora', label: 'QLoRA (Quantized LoRA)' },
       { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
       { id: 'dpo', label: 'DPO (Direct Preference Optimization)' },
       { id: 'full', label: 'Full Fine-Tuning' },
@@ -219,8 +261,25 @@ const TASK_TYPE_CONFIG: Record<
       'Required: OpenAI fine-tuning JSONL (.jsonl) with {"messages": [{"role": "user", ...}, {"role": "assistant", ...}]} (or OpenAI DPO format)',
     modelAccept: '.zip,.safetensors,.bin,.pt',
   },
+  vision: {
+    labelKey: 'Multimodal',
+    descKey:
+      'Vision-language models that understand both images and text together (e.g. Qwen-VL, LLaVA).',
+    methods: [
+      { id: 'lora', label: 'LoRA (Vision-Language Adapter)' },
+      { id: 'qlora', label: 'QLoRA (Quantized LoRA)' },
+      { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
+      { id: 'full', label: 'Full Fine-Tuning' },
+    ],
+    datasetAccept: '.jsonl',
+    datasetHintKey:
+      'Required: OpenAI multimodal JSONL (.jsonl) with messages containing text and image_url parts',
+    modelAccept: '.zip,.safetensors,.bin,.pt',
+  },
   image: {
-    labelKey: 'Image / Diffusion',
+    labelKey: 'Image Generation',
+    descKey:
+      'Text-to-image diffusion models that generate pictures from prompts (e.g. SDXL, Flux).',
     methods: [
       { id: 'lora', label: 'LoRA (Style / Character Adapter)' },
       { id: 'dreambooth', label: 'DreamBooth (Subject Fine-Tuning)' },
@@ -233,7 +292,9 @@ const TASK_TYPE_CONFIG: Record<
     modelAccept: '.safetensors,.ckpt,.bin,.pt,.zip,.tar,.gz',
   },
   audio: {
-    labelKey: 'Audio / Speech',
+    labelKey: 'Audio',
+    descKey:
+      'Speech recognition and audio processing models (e.g. Whisper).',
     methods: [
       { id: 'lora', label: 'LoRA (Voice / Acoustic Adapter)' },
       { id: 'full', label: 'Full Fine-Tuning' },
@@ -243,19 +304,65 @@ const TASK_TYPE_CONFIG: Record<
       'Supported: ZIP/TAR audio clips + metadata.jsonl/csv, or Parquet',
     modelAccept: '.safetensors,.bin,.pt,.zip,.tar,.gz',
   },
-  vision: {
-    labelKey: 'Vision / Multimodal',
-    methods: [
-      { id: 'lora', label: 'LoRA (Vision-Language Adapter)' },
-      { id: 'qlora', label: 'QLoRA (4-bit Quantized LoRA)' },
-      { id: 'sft', label: 'SFT (Supervised Fine-Tuning)' },
-      { id: 'full', label: 'Full Fine-Tuning' },
-    ],
-    datasetAccept: '.jsonl',
-    datasetHintKey:
-      'Required: OpenAI multimodal JSONL (.jsonl) with messages containing text and image_url parts',
-    modelAccept: '.zip,.safetensors,.bin,.pt',
-  },
+}
+
+const QLORA_QUANTIZATION_OPTIONS: Array<{
+  id: string
+  label: string
+  bits: string
+}> = [
+  { id: 'NF4', label: 'NF4 — 4-bit NormalFloat (Recommended)', bits: '4-bit' },
+  { id: 'FP4', label: 'FP4 — 4-bit Floating Point', bits: '4-bit' },
+  { id: 'Q2_K', label: 'Q2_K — 2-bit K-Quant (Ultra-Low VRAM)', bits: '2-bit' },
+  { id: 'Q2_K_L', label: 'Q2_K_L — 2-bit K-Quant Large', bits: '2-bit' },
+  { id: 'IQ2_XXS', label: 'IQ2_XXS — 2-bit Importance Quant XXS', bits: '2-bit' },
+  { id: 'IQ2_XS', label: 'IQ2_XS — 2-bit Importance Quant XS', bits: '2-bit' },
+  { id: 'IQ2_S', label: 'IQ2_S — 2-bit Importance Quant Small', bits: '2-bit' },
+  { id: 'Q3_K_S', label: 'Q3_K_S — 3-bit K-Quant Small', bits: '3-bit' },
+  { id: 'Q3_K_M', label: 'Q3_K_M — 3-bit K-Quant Medium', bits: '3-bit' },
+  { id: 'Q3_K_L', label: 'Q3_K_L — 3-bit K-Quant Large', bits: '3-bit' },
+  { id: 'IQ3_XXS', label: 'IQ3_XXS — 3-bit Importance Quant XXS', bits: '3-bit' },
+  { id: 'IQ3_XS', label: 'IQ3_XS — 3-bit Importance Quant XS', bits: '3-bit' },
+  { id: 'Q4_0', label: 'Q4_0 — 4-bit Legacy Quant', bits: '4-bit' },
+  { id: 'Q4_1', label: 'Q4_1 — 4-bit Legacy Higher Accuracy', bits: '4-bit' },
+  { id: 'Q4_K', label: 'Q4_K — 4-bit K-Quant Standard', bits: '4-bit' },
+  { id: 'Q4_K_S', label: 'Q4_K_S — 4-bit K-Quant Small', bits: '4-bit' },
+  { id: 'Q4_K_M', label: 'Q4_K_M — 4-bit K-Quant Medium (Balanced)', bits: '4-bit' },
+  { id: 'Q4_K_L', label: 'Q4_K_L — 4-bit K-Quant Large', bits: '4-bit' },
+  { id: 'Q4_L', label: 'Q4_L — 4-bit Large Profile', bits: '4-bit' },
+  { id: 'IQ4_NL', label: 'IQ4_NL — 4-bit Non-Linear Importance Quant', bits: '4-bit' },
+  { id: 'IQ4_XS', label: 'IQ4_XS — 4-bit Importance Quant XS', bits: '4-bit' },
+  { id: 'Q5_0', label: 'Q5_0 — 5-bit Legacy Quant', bits: '5-bit' },
+  { id: 'Q5_1', label: 'Q5_1 — 5-bit Legacy Higher Accuracy', bits: '5-bit' },
+  { id: 'Q5_K_S', label: 'Q5_K_S — 5-bit K-Quant Small', bits: '5-bit' },
+  { id: 'Q5_K_M', label: 'Q5_K_M — 5-bit K-Quant Medium', bits: '5-bit' },
+  { id: 'Q6_K', label: 'Q6_K — 6-bit K-Quant High Precision', bits: '6-bit' },
+  { id: 'INT8', label: 'INT8 — 8-bit LLM.int8 (Near-Lossless)', bits: '8-bit' },
+  { id: 'Q8_0', label: 'Q8_0 — 8-bit Quantization', bits: '8-bit' },
+  { id: 'Q8_K_XL', label: 'Q8_K_XL — 8-bit Extra-Large Precision', bits: '8-bit' },
+]
+
+function getQLoRAQuantFactor(quant?: string): number {
+  const q = (quant ?? 'NF4').trim().toUpperCase()
+  if (q === 'INT8' || q.startsWith('Q8_')) return 0.78
+  if (q.startsWith('Q6_')) return 0.62
+  if (q.startsWith('Q5_')) return 0.54
+  if (q.startsWith('Q3_') || q.startsWith('IQ3_')) return 0.36
+  if (q.startsWith('Q2_') || q.startsWith('IQ2_')) return 0.32
+  return 0.4
+}
+
+function parseEvalReport(raw?: string): FineTuningEvalReport | null {
+  if (!raw || !raw.trim()) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      return parsed as FineTuningEvalReport
+    }
+  } catch {
+    // ignore malformed json
+  }
+  return null
 }
 
 const KNOWN_HW_LABELS: Record<string, string> = {
@@ -425,6 +532,7 @@ function checkHardwareCompat(params: {
   gpuId: string
   ramTier: 'normal' | 'high'
   method: string
+  quantization?: string
   datasetBytes: number
   modelName: string
   modelParamHint?: string
@@ -447,7 +555,7 @@ function checkHardwareCompat(params: {
     method === 'full'
       ? modelGB * 4.0 + 3.0
       : method === 'qlora'
-        ? modelGB * 0.4 + 2.2
+        ? modelGB * getQLoRAQuantFactor(params.quantization) + 2.2
         : modelGB * 1.25 + 2.0
   const reqRAM = modelGB * 1.15 + datasetGB * 2.0 + 2.0
 
@@ -1304,7 +1412,8 @@ export function CustomModelsPage() {
   const [uploadingModel, setUploadingModel] = useState(false)
   const [uploadPercent, setUploadPercent] = useState(0)
   const [ftMethod, setFtMethod] = useState<string>('lora')
-  const [ftSuffix, setFtSuffix] = useState('')
+  const [ftQuantization, setFtQuantization] = useState<string>('NF4')
+  const [ftModelId, setFtModelId] = useState('')
   const [ftGpu, setFtGpu] = useState('')
   const [ftRamTier, setFtRamTier] = useState<'normal' | 'high'>('normal')
   const [ftEpochs, setFtEpochs] = useState(3)
@@ -1315,9 +1424,15 @@ export function CustomModelsPage() {
   const [deleteFtTarget, setDeleteFtTarget] =
     useState<FineTuningJobItem | null>(null)
   const [consoleJob, setConsoleJob] = useState<FineTuningJobItem | null>(null)
+  const [consoleTab, setConsoleTab] = useState<'training' | 'serving'>('training')
+  const [editModelJob, setEditModelJob] = useState<FineTuningJobItem | null>(null)
+  const [editModelIdValue, setEditModelIdValue] = useState('')
+  const [evalReportJob, setEvalReportJob] = useState<FineTuningJobItem | null>(null)
   const [serveTarget, setServeTarget] = useState<FineTuningJobItem | null>(null)
   const [serveGpu, setServeGpu] = useState('')
   const [serveRamTier, setServeRamTier] = useState<'normal' | 'high'>('normal')
+  const [serveIdlePreset, setServeIdlePreset] = useState<string>('0')
+  const [serveIdleCustomMin, setServeIdleCustomMin] = useState<number>(15)
   const modelFileInputRef = useRef<HTMLInputElement | null>(null)
   const datasetFileInputRef = useRef<HTMLInputElement | null>(null)
   const stagedUploadRef = useRef<StagedModelUpload | null>(null)
@@ -1575,6 +1690,7 @@ export function CustomModelsPage() {
     gpuId: ftGpu || 'CPU',
     ramTier: activeRamTier,
     method: ftMethod,
+    quantization: ftMethod === 'qlora' ? ftQuantization : undefined,
     datasetBytes,
     modelName: activeModelName,
     modelParamHint: effectiveModelParamSize,
@@ -1712,7 +1828,12 @@ export function CustomModelsPage() {
       const formData = new FormData()
       formData.append('task_type', ftTaskType)
       formData.append('method', ftMethod)
-      formData.append('suffix', ftSuffix.trim())
+      if (ftMethod === 'qlora' && ftQuantization) {
+        formData.append('quantization', ftQuantization)
+      }
+      if (ftModelId.trim()) {
+        formData.append('model_id', ftModelId.trim())
+      }
       formData.append('gpu', ftGpu)
       formData.append('ram_tier', activeRamTier)
       formData.append('epochs', String(ftEpochs))
@@ -1762,7 +1883,8 @@ export function CustomModelsPage() {
       setFtBaseModel('')
       setFtModelParamSize('')
       setFtModelFileBytes(0)
-      setFtSuffix('')
+      setFtModelId('')
+      setFtQuantization('NF4')
       setFtFile(null)
       setFtDatasetSamples(0)
       setFtDatasetHasImages(false)
@@ -1772,6 +1894,35 @@ export function CustomModelsPage() {
       toast.error(
         resolveApiErrorMessage(err, 'Failed to create fine-tuning job', t)
       )
+    },
+  })
+
+  const updateFtModelIdMutation = useMutation({
+    mutationFn: async (payload: { jobId: string; modelId: string }) => {
+      const res = await api.put(
+        `/api/user/fine_tuning/jobs/${payload.jobId}`,
+        { model_id: payload.modelId.trim() },
+        { skipBusinessError: true, skipErrorHandler: true }
+      )
+      if (!res.data?.success) {
+        throw new Error(
+          resolveApiErrorMessage(res.data, 'Failed to update model ID', t)
+        )
+      }
+      return res.data.data
+    },
+    onSuccess: () => {
+      toast.success(t('Model ID updated'))
+      setEditModelJob(null)
+      setEditModelIdValue('')
+      void queryClient.invalidateQueries({ queryKey: ['user-fine-tuning-jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['playground-models'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['user-available-models-for-alias'],
+      })
+    },
+    onError: (err: Error) => {
+      toast.error(resolveApiErrorMessage(err, 'Failed to update model ID', t))
     },
   })
 
@@ -1832,10 +1983,15 @@ export function CustomModelsPage() {
       jobId: string
       gpu: string
       ram_tier: 'normal' | 'high'
+      idle_timeout_seconds: number
     }) => {
       const res = await api.post(
         `/api/user/fine_tuning/jobs/${payload.jobId}/serve/start`,
-        { gpu: payload.gpu, ram_tier: payload.ram_tier },
+        {
+          gpu: payload.gpu,
+          ram_tier: payload.ram_tier,
+          idle_timeout_seconds: payload.idle_timeout_seconds,
+        },
         { skipBusinessError: true, skipErrorHandler: true }
       )
       if (!res.data?.success) {
@@ -2059,11 +2215,48 @@ export function CustomModelsPage() {
       ''
     setServeGpu(defaultGpu)
     setServeRamTier(job.ram_tier === 'high' ? 'high' : 'normal')
+    const existingIdle = job.serving_idle_timeout_seconds ?? 0
+    if (existingIdle <= 0) {
+      setServeIdlePreset('0')
+    } else if (['300', '900', '1800', '3600'].includes(String(existingIdle))) {
+      setServeIdlePreset(String(existingIdle))
+    } else {
+      setServeIdlePreset('custom')
+      setServeIdleCustomMin(Math.max(1, Math.round(existingIdle / 60)))
+    }
     setServeTarget(job)
+  }
+
+  const resolvedServeIdleTimeoutSeconds = useMemo(() => {
+    if (serveIdlePreset === '0') return 0
+    if (serveIdlePreset === 'custom') {
+      return Math.max(60, Math.min(86400, Math.round((serveIdleCustomMin || 15) * 60)))
+    }
+    return Number(serveIdlePreset) || 0
+  }, [serveIdlePreset, serveIdleCustomMin])
+
+  const openConsoleDialog = (job: FineTuningJobItem) => {
+    stickToBottomRef.current = true
+    const hasServingActivity = Boolean(
+      job.serving_status &&
+        job.serving_status !== '' &&
+        job.serving_status !== 'stopped'
+    )
+    setConsoleTab(hasServingActivity ? 'serving' : 'training')
+    setConsoleJob(job)
+  }
+
+  const openEditModelIdDialog = (job: FineTuningJobItem) => {
+    setEditModelJob(job)
+    setEditModelIdValue(job.fine_tuned_model || '')
   }
 
   const taskCfg = TASK_TYPE_CONFIG[ftTaskType]
   const hasValidModelInput = Boolean(stagedUpload || ftBaseModel.trim())
+  const parsedEvalReport = useMemo(
+    () => parseEvalReport(evalReportJob?.eval_report_json),
+    [evalReportJob?.eval_report_json]
+  )
 
   const renderStatusBadge = (status: string, progress?: number) => {
     switch (status) {
@@ -2246,10 +2439,29 @@ export function CustomModelsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                (ftData?.jobs ?? []).map((job) => (
+                (ftData?.jobs ?? []).map((job) => {
+                  const hasEvalReport = Boolean(parseEvalReport(job.eval_report_json))
+                  const isServingActiveOrSleeping =
+                    job.serving_status === 'running' ||
+                    job.serving_status === 'starting' ||
+                    job.serving_status === 'sleeping'
+                  return (
                   <TableRow key={job.job_id}>
                     <TableCell className='font-mono text-xs font-medium'>
-                      <div>{job.fine_tuned_model || job.job_id}</div>
+                      <div className='flex items-center gap-1'>
+                        <span className='truncate'>
+                          {job.fine_tuned_model || job.job_id}
+                        </span>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          className='h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground'
+                          title={t('Edit Model ID')}
+                          onClick={() => openEditModelIdDialog(job)}
+                        >
+                          <Pencil className='h-3 w-3' />
+                        </Button>
+                      </div>
                       <div className='text-muted-foreground text-[11px]'>
                         {job.job_id}
                         {job.expires_at && !job.files_purged_at
@@ -2259,7 +2471,12 @@ export function CustomModelsPage() {
                     </TableCell>
                     <TableCell className='text-sm'>{job.model}</TableCell>
                     <TableCell className='text-xs uppercase'>
-                      <div>{job.method || 'lora'}</div>
+                      <div>
+                        {job.method || 'lora'}
+                        {job.method === 'qlora' && job.quantization
+                          ? ` (${job.quantization})`
+                          : ''}
+                      </div>
                       {job.task_type && (
                         <div className='text-muted-foreground text-[10px] normal-case'>
                           {TASK_TYPE_CONFIG[job.task_type as FineTuningTaskType]
@@ -2290,6 +2507,19 @@ export function CustomModelsPage() {
                           >
                             {t('Active')} ·{' '}
                             {formatHardwareLabel(job.serving_gpu)}
+                            {job.serving_idle_timeout_seconds &&
+                            job.serving_idle_timeout_seconds > 0
+                              ? ` · ${t('Idle {{min}}m', { min: Math.max(1, Math.round(job.serving_idle_timeout_seconds / 60)) })}`
+                              : ''}
+                          </Badge>
+                        )}
+                        {job.serving_status === 'sleeping' && (
+                          <Badge
+                            variant='outline'
+                            className='border-sky-500/40 bg-sky-500/10 text-[10px] text-sky-700 dark:text-sky-400'
+                          >
+                            <Moon className='mr-1 h-2.5 w-2.5' />
+                            {t('Sleeping (Auto-Wake)')}
                           </Badge>
                         )}
                         {job.serving_status === 'starting' && (
@@ -2325,8 +2555,7 @@ export function CustomModelsPage() {
                         {servingEnabled &&
                           job.status === 'succeeded' &&
                           job.has_model_file &&
-                          (job.serving_status === 'running' ||
-                          job.serving_status === 'starting' ? (
+                          (isServingActiveOrSleeping ? (
                             <Button
                               variant='ghost'
                               size='icon'
@@ -2351,14 +2580,21 @@ export function CustomModelsPage() {
                               <Play className='h-4 w-4' />
                             </Button>
                           ))}
+                        {job.status === 'succeeded' && hasEvalReport && (
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            title={t('Post-Training Auto-Test Report')}
+                            onClick={() => setEvalReportJob(job)}
+                          >
+                            <FlaskConical className='h-4 w-4' />
+                          </Button>
+                        )}
                         <Button
                           variant='ghost'
                           size='icon'
                           title={t('View Console')}
-                          onClick={() => {
-                            stickToBottomRef.current = true
-                            setConsoleJob(job)
-                          }}
+                          onClick={() => openConsoleDialog(job)}
                         >
                           <Terminal className='h-4 w-4' />
                         </Button>
@@ -2397,7 +2633,8 @@ export function CustomModelsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -2480,6 +2717,9 @@ export function CustomModelsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className='text-muted-foreground text-xs'>
+                {t(taskCfg.descKey)}
+              </p>
             </div>
 
             {/* Base Model (Hugging Face ID / URL + Browse + Local Upload Folder button) */}
@@ -2704,6 +2944,40 @@ export function CustomModelsPage() {
               </div>
             </div>
 
+            {/* QLoRA Quantization / Bit-Precision Selector */}
+            {ftMethod === 'qlora' && (
+              <div className='space-y-1.5'>
+                <Label>{t('Quantization Precision')}</Label>
+                <Select
+                  value={ftQuantization}
+                  disabled={uploadingModel}
+                  onValueChange={(v) => {
+                    if (v) setFtQuantization(v)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue>
+                      {QLORA_QUANTIZATION_OPTIONS.find(
+                        (q) => q.id === ftQuantization
+                      )?.label ?? ftQuantization}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className='max-h-72'>
+                    {QLORA_QUANTIZATION_OPTIONS.map((q) => (
+                      <SelectItem key={q.id} value={q.id}>
+                        {q.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Choose the bit-width quantization profile for QLoRA base weights (2-bit to 8-bit, NF4/FP4/INT8 and K-Quant profiles).'
+                  )}
+                </p>
+              </div>
+            )}
+
             {showColabRamSelector && (
               <div className='space-y-1.5'>
                 <Label>{t('RAM Tier')}</Label>
@@ -2748,13 +3022,18 @@ export function CustomModelsPage() {
                 />
               </div>
               <div className='space-y-1.5'>
-                <Label>{t('Model Suffix (Optional)')}</Label>
+                <Label>{t('Model ID')}</Label>
                 <Input
-                  placeholder='my-assistant-v1'
+                  placeholder={t('my-model')}
                   disabled={uploadingModel}
-                  value={ftSuffix}
-                  onChange={(e) => setFtSuffix(e.target.value)}
+                  value={ftModelId}
+                  onChange={(e) => setFtModelId(e.target.value)}
                 />
+                <p className='text-muted-foreground text-[11px]'>
+                  {t(
+                    'Shown directly in Playground, Model Plaza, and /v1/models.'
+                  )}
+                </p>
               </div>
             </div>
 
@@ -2958,6 +3237,67 @@ export function CustomModelsPage() {
               </div>
             )}
 
+            {/* Idle Auto-Sleep / Auto-Wake Timeout */}
+            <div className='space-y-1.5'>
+              <Label>{t('Idle Auto-Sleep (Optional)')}</Label>
+              <Select
+                value={serveIdlePreset}
+                disabled={startServeMutation.isPending}
+                onValueChange={(v) => {
+                  if (v) setServeIdlePreset(v)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {serveIdlePreset === '0'
+                      ? t('Disabled (Always On)')
+                      : serveIdlePreset === '300'
+                        ? t('5 minutes')
+                        : serveIdlePreset === '900'
+                          ? t('15 minutes')
+                          : serveIdlePreset === '1800'
+                            ? t('30 minutes')
+                            : serveIdlePreset === '3600'
+                              ? t('60 minutes')
+                              : t('Custom duration')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='0'>{t('Disabled (Always On)')}</SelectItem>
+                  <SelectItem value='300'>{t('5 minutes')}</SelectItem>
+                  <SelectItem value='900'>{t('15 minutes')}</SelectItem>
+                  <SelectItem value='1800'>{t('30 minutes')}</SelectItem>
+                  <SelectItem value='3600'>{t('60 minutes')}</SelectItem>
+                  <SelectItem value='custom'>{t('Custom duration')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {serveIdlePreset === 'custom' && (
+                <div className='flex items-center gap-2 pt-1'>
+                  <Input
+                    type='number'
+                    min={1}
+                    max={1440}
+                    value={serveIdleCustomMin}
+                    disabled={startServeMutation.isPending}
+                    onChange={(e) =>
+                      setServeIdleCustomMin(
+                        Math.max(1, Math.min(1440, Number(e.target.value) || 1))
+                      )
+                    }
+                    className='w-28'
+                  />
+                  <span className='text-muted-foreground text-xs'>
+                    {t('minutes without requests')}
+                  </span>
+                </div>
+              )}
+              <p className='text-muted-foreground text-[11px] leading-relaxed'>
+                {t(
+                  'When enabled, compute shuts down automatically after no requests arrive to stop billing, and wakes up automatically on the next request.'
+                )}
+              </p>
+            </div>
+
             <div className='bg-muted/30 flex items-center justify-between rounded-lg border px-3.5 py-2.5'>
               <div className='space-y-0.5'>
                 <div className='text-xs font-medium'>{t('Hosting Rate')}</div>
@@ -2977,7 +3317,7 @@ export function CustomModelsPage() {
 
             <p className='text-muted-foreground text-xs leading-relaxed'>
               {t(
-                'This model will appear only in your Playground model list and your /v1/models API (hidden from all other users). It stops automatically and disappears from your model list if your balance runs out.'
+                'This model will appear only in your Playground, Model Plaza, and your /v1/models API (hidden from all other users). It stops automatically and disappears from your model list if your balance runs out.'
               )}
             </p>
           </div>
@@ -2997,6 +3337,7 @@ export function CustomModelsPage() {
                   jobId: serveTarget.job_id,
                   gpu: serveGpu,
                   ram_tier: activeServeRamTier,
+                  idle_timeout_seconds: resolvedServeIdleTimeoutSeconds,
                 })
               }}
             >
@@ -3009,7 +3350,248 @@ export function CustomModelsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Live Sanitized Console Log Dialog */}
+      {/* Edit Fine-Tuned Model ID Dialog */}
+      <Dialog
+        open={Boolean(editModelJob)}
+        onOpenChange={(open) => {
+          if (!open && !updateFtModelIdMutation.isPending) {
+            setEditModelJob(null)
+            setEditModelIdValue('')
+          }
+        }}
+      >
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('Edit Model ID')}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'Choose the exact model ID shown in your Playground, Model Plaza, and /v1/models API.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-2 py-2'>
+            <Label>{t('Model ID')}</Label>
+            <Input
+              placeholder={t('my-model')}
+              value={editModelIdValue}
+              disabled={updateFtModelIdMutation.isPending}
+              onChange={(e) => setEditModelIdValue(e.target.value)}
+            />
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Use letters, numbers, hyphens (-), underscores (_), dots (.), or colons (:).'
+              )}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              disabled={updateFtModelIdMutation.isPending}
+              onClick={() => {
+                setEditModelJob(null)
+                setEditModelIdValue('')
+              }}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              disabled={
+                updateFtModelIdMutation.isPending ||
+                !editModelJob ||
+                editModelIdValue.trim().length < 2
+              }
+              onClick={() => {
+                if (!editModelJob) return
+                updateFtModelIdMutation.mutate({
+                  jobId: editModelJob.job_id,
+                  modelId: editModelIdValue,
+                })
+              }}
+            >
+              {updateFtModelIdMutation.isPending && (
+                <Loader2 className='mr-1.5 h-4 w-4 animate-spin' />
+              )}
+              {t('Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-Training Automatic Test & Evaluation Report Dialog */}
+      <Dialog
+        open={Boolean(evalReportJob)}
+        onOpenChange={(open) => {
+          if (!open) setEvalReportJob(null)
+        }}
+      >
+        <DialogContent className='flex max-h-[88vh] flex-col sm:max-w-3xl'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <FlaskConical className='h-4 w-4' />
+              {t('Post-Training Auto-Test Report')}
+            </DialogTitle>
+            <DialogDescription className='font-mono text-xs'>
+              {evalReportJob?.fine_tuned_model || evalReportJob?.job_id}
+            </DialogDescription>
+          </DialogHeader>
+
+          {parsedEvalReport ? (
+            <div className='space-y-4 overflow-y-auto py-1 pr-1'>
+              {/* Summary KPI cards */}
+              <div className='grid grid-cols-2 gap-2.5 sm:grid-cols-4'>
+                <div className='bg-muted/30 rounded-lg border px-3 py-2'>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Initial Loss')}
+                  </div>
+                  <div className='font-mono text-sm font-semibold tabular-nums'>
+                    {parsedEvalReport.initial_loss != null
+                      ? parsedEvalReport.initial_loss.toFixed(4)
+                      : '—'}
+                  </div>
+                </div>
+                <div className='bg-muted/30 rounded-lg border px-3 py-2'>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Final Loss')}
+                  </div>
+                  <div className='font-mono text-sm font-semibold tabular-nums'>
+                    {parsedEvalReport.final_loss != null
+                      ? parsedEvalReport.final_loss.toFixed(4)
+                      : '—'}
+                  </div>
+                </div>
+                <div className='bg-muted/30 rounded-lg border px-3 py-2'>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Loss Reduction')}
+                  </div>
+                  <div className='font-mono text-sm font-semibold text-emerald-600 tabular-nums dark:text-emerald-400'>
+                    {parsedEvalReport.loss_reduction_pct != null
+                      ? `${parsedEvalReport.loss_reduction_pct > 0 ? '-' : ''}${Math.abs(parsedEvalReport.loss_reduction_pct).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                </div>
+                <div className='bg-muted/30 rounded-lg border px-3 py-2'>
+                  <div className='text-muted-foreground text-[11px]'>
+                    {t('Avg Token Similarity')}
+                  </div>
+                  <div className='font-mono text-sm font-semibold tabular-nums'>
+                    {parsedEvalReport.samples && parsedEvalReport.samples.length > 0
+                      ? `${(parsedEvalReport.avg_similarity_pct ?? 0).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Epoch Loss Progression */}
+              {parsedEvalReport.loss_history &&
+                parsedEvalReport.loss_history.length > 0 && (
+                  <div className='space-y-2'>
+                    <div className='text-xs font-medium'>
+                      {t('Epoch Loss Progression')}
+                    </div>
+                    <div className='bg-muted/20 space-y-1.5 rounded-lg border p-3'>
+                      {(() => {
+                        const maxLoss = Math.max(
+                          ...parsedEvalReport.loss_history!.map((h) => h.loss),
+                          0.0001
+                        )
+                        return parsedEvalReport.loss_history!.map((h) => (
+                          <div
+                            key={h.epoch}
+                            className='flex items-center gap-3 text-xs'
+                          >
+                            <span className='text-muted-foreground w-16 shrink-0 font-mono'>
+                              {t('Epoch {{n}}', { n: h.epoch })}
+                            </span>
+                            <div className='bg-muted h-2 flex-1 overflow-hidden rounded-full'>
+                              <div
+                                className='bg-primary h-full rounded-full'
+                                style={{
+                                  width: `${Math.max(4, Math.min(100, (h.loss / maxLoss) * 100))}%`,
+                                }}
+                              />
+                            </div>
+                            <span className='w-16 shrink-0 text-right font-mono tabular-nums'>
+                              {h.loss.toFixed(4)}
+                            </span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+              {/* Automatic Prompt Test Cases */}
+              {parsedEvalReport.samples &&
+                parsedEvalReport.samples.length > 0 && (
+                  <div className='space-y-2.5'>
+                    <div className='text-xs font-medium'>
+                      {t('Automatic Sample Prompt Tests')} (
+                      {parsedEvalReport.samples.length})
+                    </div>
+                    {parsedEvalReport.samples.map((sample, idx) => (
+                      <div
+                        key={idx}
+                        className='bg-muted/20 space-y-2 rounded-lg border p-3 text-xs'
+                      >
+                        <div className='flex items-center justify-between gap-2'>
+                          <span className='font-medium'>
+                            {t('Test Case #{{n}}', { n: idx + 1 })}
+                          </span>
+                          <div className='flex items-center gap-2'>
+                            <Badge variant='secondary' className='font-mono text-[10px]'>
+                              {sample.latency_ms} ms
+                            </Badge>
+                            <Badge variant='outline' className='font-mono text-[10px]'>
+                              {t('Similarity')}: {sample.similarity_pct.toFixed(1)}%
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className='space-y-1'>
+                          <div className='text-muted-foreground text-[11px] font-medium'>
+                            {t('Prompt')}
+                          </div>
+                          <div className='bg-background rounded border px-2.5 py-1.5 whitespace-pre-wrap'>
+                            {sample.prompt}
+                          </div>
+                        </div>
+                        <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                          <div className='space-y-1'>
+                            <div className='text-muted-foreground text-[11px] font-medium'>
+                              {t('Expected Output')}
+                            </div>
+                            <div className='bg-background rounded border px-2.5 py-1.5 whitespace-pre-wrap'>
+                              {sample.expected}
+                            </div>
+                          </div>
+                          <div className='space-y-1'>
+                            <div className='text-muted-foreground text-[11px] font-medium'>
+                              {t('Fine-Tuned Model Output')}
+                            </div>
+                            <div className='bg-background rounded border px-2.5 py-1.5 whitespace-pre-wrap'>
+                              {sample.output || '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+          ) : (
+            <div className='text-muted-foreground py-8 text-center text-sm'>
+              {t('No automatic test report is available for this job.')}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setEvalReportJob(null)}>
+              {t('Close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dual-Tab Live Sanitized Console Log Dialog (Training Logs + Hosting Logs) */}
       <Dialog
         open={Boolean(consoleJob)}
         onOpenChange={(open) => {
@@ -3020,7 +3602,7 @@ export function CustomModelsPage() {
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <Terminal className='h-4 w-4' />
-              {t('Training Console')}
+              {t('Model Console Logs')}
             </DialogTitle>
             <DialogDescription className='flex flex-wrap items-center gap-2 font-mono text-xs'>
               <span>{consoleJob?.fine_tuned_model || consoleJob?.job_id}</span>
@@ -3029,24 +3611,78 @@ export function CustomModelsPage() {
                   consoleLogsQuery.data.status,
                   consoleLogsQuery.data.progress
                 )}
+              {consoleLogsQuery.data?.serving_status === 'running' && (
+                <Badge
+                  variant='outline'
+                  className='border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-400'
+                >
+                  {t('Active')}
+                </Badge>
+              )}
+              {consoleLogsQuery.data?.serving_status === 'sleeping' && (
+                <Badge
+                  variant='outline'
+                  className='border-sky-500/40 bg-sky-500/10 text-[10px] text-sky-700 dark:text-sky-400'
+                >
+                  {t('Sleeping (Auto-Wake)')}
+                </Badge>
+              )}
             </DialogDescription>
           </DialogHeader>
-          <pre
-            ref={consoleViewportRef}
-            onScroll={(e) => {
-              const el = e.currentTarget
-              const atBottom =
-                el.scrollHeight - el.scrollTop - el.clientHeight < 40
-              stickToBottomRef.current = atBottom
+
+          <Tabs
+            value={consoleTab}
+            onValueChange={(v) => {
+              stickToBottomRef.current = true
+              setConsoleTab(v as 'training' | 'serving')
             }}
-            className='h-96 overflow-y-auto rounded-lg border bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-100'
+            className='space-y-2'
           >
-            {consoleLogsQuery.isLoading
-              ? t('Loading logs...')
-              : consoleLogsQuery.data?.logs ||
-                t('Waiting for training worker output...')}
-            <div ref={consoleEndRef} />
-          </pre>
+            <TabsList>
+              <TabsTrigger value='training'>{t('Training Logs')}</TabsTrigger>
+              <TabsTrigger value='serving'>{t('Hosting Logs')}</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value='training'>
+              <pre
+                ref={consoleTab === 'training' ? consoleViewportRef : undefined}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  const atBottom =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 40
+                  stickToBottomRef.current = atBottom
+                }}
+                className='h-96 overflow-y-auto rounded-lg border bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-100'
+              >
+                {consoleLogsQuery.isLoading
+                  ? t('Loading logs...')
+                  : consoleLogsQuery.data?.training_logs ||
+                    consoleLogsQuery.data?.logs ||
+                    t('Waiting for training worker output...')}
+                <div ref={consoleTab === 'training' ? consoleEndRef : undefined} />
+              </pre>
+            </TabsContent>
+
+            <TabsContent value='serving'>
+              <pre
+                ref={consoleTab === 'serving' ? consoleViewportRef : undefined}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  const atBottom =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 40
+                  stickToBottomRef.current = atBottom
+                }}
+                className='h-96 overflow-y-auto rounded-lg border bg-zinc-950 p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-100'
+              >
+                {consoleLogsQuery.isLoading
+                  ? t('Loading logs...')
+                  : consoleLogsQuery.data?.serving_logs ||
+                    t('No hosting logs yet. Activate this model to see live runtime logs.')}
+                <div ref={consoleTab === 'serving' ? consoleEndRef : undefined} />
+              </pre>
+            </TabsContent>
+          </Tabs>
+
           <DialogFooter>
             <Button variant='outline' onClick={() => setConsoleJob(null)}>
               {t('Close')}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"math/rand"
 	"net/http"
@@ -16,10 +17,12 @@ import (
 )
 
 type fineTuningServingStopFunc func(jobID string, reason string)
+type fineTuningServingWakeFunc func(ctx context.Context, jobID string) (*model.FineTuningJob, error)
 
 var (
 	ftServingStopHookMu sync.RWMutex
 	ftServingStopHook   fineTuningServingStopFunc
+	ftServingWakeHook   fineTuningServingWakeFunc
 )
 
 // RegisterFineTuningServingStopHook registers the controller-level teardown callback
@@ -27,6 +30,14 @@ var (
 func RegisterFineTuningServingStopHook(fn fineTuningServingStopFunc) {
 	ftServingStopHookMu.Lock()
 	ftServingStopHook = fn
+	ftServingStopHookMu.Unlock()
+}
+
+// RegisterFineTuningServingWakeHook registers the controller-level auto-wake callback
+// used when a request arrives for a sleeping fine-tuned model with auto-wake enabled.
+func RegisterFineTuningServingWakeHook(fn fineTuningServingWakeFunc) {
+	ftServingStopHookMu.Lock()
+	ftServingWakeHook = fn
 	ftServingStopHookMu.Unlock()
 }
 
@@ -38,6 +49,18 @@ func TriggerFineTuningServingAutoStop(jobID string, reason string) {
 	if fn != nil {
 		go fn(jobID, reason)
 	}
+}
+
+// WakeFineTuningServingAndWait invokes the registered auto-wake hook to bring a sleeping
+// private fine-tuned model back online before forwarding the caller's request.
+func WakeFineTuningServingAndWait(ctx context.Context, jobID string) (*model.FineTuningJob, error) {
+	ftServingStopHookMu.RLock()
+	fn := ftServingWakeHook
+	ftServingStopHookMu.RUnlock()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ctx, jobID)
 }
 
 // ShouldPreferDeployments reports whether Model Deployments take priority over upstream channels.
@@ -172,17 +195,17 @@ func TryHandleDeploymentRelay(c *gin.Context, modelName, usingGroup string) bool
 }
 
 // TryHandleUserFineTunedRelay proxies OpenAI/Playground requests directly to a
-// user's own actively hosted fine-tuned model. Strictly isolated to userId.
+// user's own actively hosted (or auto-wake sleeping) fine-tuned model. Strictly isolated to userId.
 func TryHandleUserFineTunedRelay(c *gin.Context, userId int, modelName string) bool {
 	if userId <= 0 || strings.TrimSpace(modelName) == "" || !IsFineTuningServingEnabled() {
 		return false
 	}
 	job, err := model.GetUserActiveServingFineTuningJobByModel(userId, modelName)
-	if err != nil || job == nil || strings.TrimSpace(job.ServingEndpointURL) == "" {
+	if err != nil || job == nil {
 		return false
 	}
 
-	// Enforce positive authoritative user balance before forwarding; auto-stop if depleted.
+	// Enforce positive authoritative user balance before forwarding or waking; auto-stop if depleted.
 	if quota, qErr := model.GetUserQuota(userId, true); qErr == nil && quota <= 0 {
 		TriggerFineTuningServingAutoStop(job.JobID, "insufficient_balance")
 		c.JSON(http.StatusPaymentRequired, gin.H{
@@ -193,6 +216,37 @@ func TryHandleUserFineTunedRelay(c *gin.Context, userId int, modelName string) b
 			},
 		})
 		return true
+	}
+
+	// If the model is currently sleeping (idle auto-sleep) or waking up, automatically wake it and wait.
+	if job.ServingStatus == "sleeping" || job.ServingStatus == "starting" || strings.TrimSpace(job.ServingEndpointURL) == "" {
+		if !job.ServingAutoWake {
+			return false
+		}
+		wokeJob, wakeErr := WakeFineTuningServingAndWait(c.Request.Context(), job.JobID)
+		if wakeErr != nil || wokeJob == nil || strings.TrimSpace(wokeJob.ServingEndpointURL) == "" {
+			msg := "Hosted fine-tuned model failed to wake up. Please check its console logs or start it manually."
+			if wakeErr != nil {
+				msg = wakeErr.Error()
+			}
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error": gin.H{
+					"message": msg,
+					"type":    "server_error",
+					"code":    "fine_tuned_serving_wake_failed",
+				},
+			})
+			return true
+		}
+		job = wokeJob
+	}
+
+	// Touch last-request timestamp so the idle auto-sleep timer resets on every request.
+	now := time.Now().Unix()
+	if now-job.ServingLastRequestAt >= 5 {
+		_ = model.UpdateFineTuningJobStatus(job.JobID, map[string]any{
+			"serving_last_request_at": now,
+		})
 	}
 
 	var bodyBytes []byte
@@ -238,9 +292,11 @@ func normalizeDeploymentRequestPath(rawPath string) string {
 func tryProxyDeployment(c *gin.Context, picked model.NotebookDeployment, bodyBytes []byte) bool {
 	baseEndpoint := strings.TrimRight(strings.TrimSpace(picked.EndpointURL), "/")
 	reqPath := normalizeDeploymentRequestPath(c.Request.URL.Path)
+	// Use async /_jobs polling only for slow media generation endpoints (image/video/audio).
+	// /v1/chat/completions proxies directly for minimal TTFT & zero 1.5s poll latency!
 	isJobEligible := (picked.Provider == "colab" || picked.Provider == "kaggle" || picked.Provider == "modal") &&
 		c.Request.Method == http.MethodPost &&
-		(reqPath == "/v1/images/generations" || reqPath == "/v1/videos/generations" || reqPath == "/v1/audio/speech" || reqPath == "/v1/audio/generations" || reqPath == "/v1/chat/completions") &&
+		(reqPath == "/v1/images/generations" || reqPath == "/v1/videos/generations" || reqPath == "/v1/audio/speech" || reqPath == "/v1/audio/generations") &&
 		!bytes.Contains(bodyBytes, []byte(`"stream":true`)) && !bytes.Contains(bodyBytes, []byte(`"stream": true`))
 
 	if isJobEligible {
@@ -344,7 +400,35 @@ func tryProxyDeployment(c *gin.Context, picked model.NotebookDeployment, bodyByt
 			c.Writer.Header().Add(k, v)
 		}
 	}
+
+	isSSE := strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
+	if isSSE {
+		c.Writer.Header().Set("X-Accel-Buffering", "no")
+		c.Writer.Header().Set("Cache-Control", "no-cache")
+	}
 	c.Status(resp.StatusCode)
+	if isSSE {
+		flusher, canFlush := c.Writer.(http.Flusher)
+		if canFlush {
+			flusher.Flush()
+		}
+		buf := make([]byte, 4096)
+		for {
+			n, rErr := resp.Body.Read(buf)
+			if n > 0 {
+				if _, wErr := c.Writer.Write(buf[:n]); wErr != nil {
+					return true
+				}
+				if canFlush {
+					flusher.Flush()
+				}
+			}
+			if rErr != nil {
+				break
+			}
+		}
+		return true
+	}
 	_, _ = io.Copy(c.Writer, resp.Body)
 	return true
 }

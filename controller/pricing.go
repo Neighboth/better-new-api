@@ -341,6 +341,51 @@ func GetPricing(c *gin.Context) {
 		pricing = append(pricing, autoPricing)
 	}
 
+	// Append the logged-in user's own active (or auto-wake sleeping) private fine-tuned
+	// models to Model Plaza ONLY when logged in as that owning user.
+	if exists && service.IsFineTuningServingEnabled() {
+		if uid, ok := userId.(int); ok && uid > 0 {
+			if ftJobs, ftErr := model.ListUserActiveServingFineTuningJobs(uid); ftErr == nil && len(ftJobs) > 0 {
+				seenFT := make(map[string]bool, len(pricing))
+				for _, item := range pricing {
+					seenFT[strings.ToLower(strings.TrimSpace(item.ModelName))] = true
+				}
+				for _, job := range ftJobs {
+					mID := strings.TrimSpace(job.FineTunedModel)
+					if mID == "" || seenFT[strings.ToLower(mID)] {
+						continue
+					}
+					seenFT[strings.ToLower(mID)] = true
+					epTypes := []constant.EndpointType{constant.EndpointTypeOpenAI}
+					switch strings.ToLower(strings.TrimSpace(job.TaskType)) {
+					case "image":
+						epTypes = []constant.EndpointType{constant.EndpointTypeImageGeneration}
+					case "audio":
+						epTypes = []constant.EndpointType{constant.EndpointTypeAudioSpeech, constant.EndpointTypeAudioTranscription}
+					}
+					desc := fmt.Sprintf("Private fine-tuned model (base: %s)", job.Model)
+					if job.ServingStatus == "sleeping" {
+						desc = fmt.Sprintf("Private fine-tuned model — sleeping, auto-wakes on request (base: %s)", job.Model)
+					}
+					pricing = append(pricing, model.Pricing{
+						ModelName:              mID,
+						DisplayName:            mID,
+						Description:            desc,
+						Icon:                   "sparkles",
+						Tags:                   "fine-tuned,private",
+						QuotaType:              0,
+						ModelRatio:             0,
+						ModelPrice:             0,
+						OwnerBy:                "Fine-Tuned",
+						CompletionRatio:        1.0,
+						EnableGroup:            []string{"all"},
+						SupportedEndpointTypes: epTypes,
+					})
+				}
+			}
+		}
+	}
+
 	pricing = applyPricingUptime(pricing)
 
 	c.JSON(200, gin.H{

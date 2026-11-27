@@ -447,5 +447,18 @@ function playgroundDefaults(settings: OperationsSettings) {
     promptOptimizerSystemPrompt:
       settings['playground_setting.prompt_optimizer_system_prompt'] ??
       'You are a professional video generation prompt optimizer and safety enhancer. Rewrite the given prompt into safe, detailed, cinematic English that generative video AI models accept without content violations. Describe camera movement, lighting, visual details, and style cleanly and vividly. CRITICAL REQUIREMENT: If the prompt contains any dialogue, spoken quotes, or speech lines, DO NOT translate the spoken dialogue — keep all spoken words/quotes in Turkish exactly as written. Output ONLY the optimized prompt text without any introductory text, explanation, or quotes around the prompt.',
+    studioDiscordGateModels:
+      settings['playground_setting.studio_discord_gate_models'] ?? '',
+    studioDiscordGateInviteUrl:
+      settings['playground_setting.studio_discord_gate_invite_url'] ?? '',
+    studioDiscordGateGuildId:
+      settings['playground_setting.studio_discord_gate_guild_id'] ?? '',
+    discordBotEnabled:
+      Boolean(settings['discord_bot.enabled']) &&
+      Boolean(
+        String(
+          settings['discord_bot.token'] || settings['discord_bot.bot_token'] || ''
+        ).trim()
+      ),
   }
 }

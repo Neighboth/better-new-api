@@ -89,6 +89,7 @@ const defaultModelSettings: ModelSettings = {
   'model_deployment.fine_tuning.colab_high_ram_multiplier': 1.5,
   'model_deployment.fine_tuning.retention_days': 30,
   'model_deployment.fine_tuning.expiry_warning_days': 3,
+  'model_deployment.fine_tuning.max_storage_gb': 0,
   'model_deployment.fine_tuning.serving_enabled': false,
   'model_deployment.fine_tuning.serving_gpu_multipliers': '',
   'model_deployment.fine_tuning.serving_colab_normal_ram_multiplier': 1,
